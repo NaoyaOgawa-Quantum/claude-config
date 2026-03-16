@@ -19,11 +19,14 @@ claude-config/
 
 ## セットアップ（新しい端末で）
 ```bash
-cd ~/Claude
+mkdir -p ~/Claude && cd ~/Claude
 gh repo clone odakin/claude-config
-cd claude-config
-./setup.sh
+cd claude-config && ./setup.sh
 ```
+
+setup.sh が自動で行うこと:
+1. `~/Claude/CONVENTIONS.md` → `claude-config/CONVENTIONS.md` の相対 symlink 作成
+2. `odakin` の全リポを `~/Claude/` 以下に clone（未取得のもののみ）
 
 ## 運用ルール
 - CONVENTIONS.md の正本はこのリポ内のファイル
