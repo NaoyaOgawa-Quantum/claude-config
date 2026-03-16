@@ -176,6 +176,10 @@ push 前チェックフロー:
 - ファイル作成/大幅変更時 → SESSION.md に記録
 - push 前 → SESSION.md / CLAUDE.md が実態と一致しているか確認（詳細は CONVENTIONS.md §3）
 - CLAUDE.md のルールの詳細は `~/Claude/CONVENTIONS.md` 参照
+
+**注意（共有リポの場合）**: 共同編集者は CONVENTIONS.md を持っていない。
+共有リポでは上記の自動更新ルールと SESSION.md ルール（CONVENTIONS.md §3）を
+CLAUDE.md 内に直接記述すること（§14 参照）。
 ```
 
 ---
@@ -215,7 +219,8 @@ push 前チェックフロー:
 
 ## 6. .gitignore 標準構成
 
-プロジェクトの言語に応じて以下を組み合わせる:
+プロジェクトの言語に応じて以下を組み合わせる。
+**注意**: LaTeX / .DS_Store は `~/.gitignore_global` でグローバル除外済み（§8 参照）。ローカル専用リポではこれらを省略してよい。**共有リポ**では共同編集者のために含めること。
 
 ```gitignore
 # === 共通（全プロジェクト） ===
@@ -279,7 +284,7 @@ plot_output.png
 - **大きなファイル**: PDF 等で push が失敗したら `git config http.postBuffer 157286400`
 - **バージョン管理**: ファイル名に番号をつけない（`fixed1`, `fixed2` 等は禁止）。git がバージョン管理する。
 - **機密情報**: `.env`, `credentials`, 個人情報を含むファイルはコミットしない
-- **コミット後は常に push**: `git commit` したら必ず `git push` まで行う。手動 push 忘れを防ぐ。
+- **コミット後は常に push**: `git commit` したら `git push` まで行う（push 前チェック §3 を挟んでから push する。commit だけで放置しない、という意味）。
 - **セッション終了時は必ず commit + push**: 作業が一段落したとき・ユーザーとの会話が終わりそうなとき、未コミットの変更があれば commit & push してから終了する。変更を手元に残したまま終わらない。
 - **グローバル gitignore**: `~/.gitignore_global` で TeX 中間ファイル（*.aux, *.bbl, *.blg, *.log, *.out, *.synctex.gz 等）と .DS_Store をグローバルに除外済み。**共有リポジトリ**の `.gitignore` にも TeX 除外ルールを含める（共同編集者はグローバル設定を持っていないため）。ローカル専用リポはグローバルに任せてプロジェクト固有のみでOK。
 
