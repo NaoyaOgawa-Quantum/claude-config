@@ -92,6 +92,72 @@ The conventions include strict safety rules to prevent AI-assisted accidents:
 - No modification of LaTeX equations without explicit approval (prevents hallucinated physics)
 - Scope limited to owned repositories only
 
+## Usage Tips
+
+Practical patterns discovered through real-world use across 20+ projects.
+
+### 1. Start every session fresh
+
+Don't continue long conversations. Start a new session each time and say "resume project X." Claude reads CLAUDE.md → SESSION.md and picks up where you left off. This eliminates autocompact risk entirely.
+
+**Prerequisite:** SESSION.md must be up to date (the auto-update protocol in §3 handles this).
+
+### 2. The pre-push incantation
+
+Before every push, say:
+
+> "Check consistency, non-contradiction, and efficiency. Push."
+
+Claude will cross-check your documentation against reality. In practice, **this catches something almost every time**: stale counts ("4 items" when there are now 6), circular references, duplicate headings, outdated status fields.
+
+For public repos, add "safety":
+
+> "Check consistency, non-contradiction, efficiency, and safety. Push."
+
+Claude will grep for PII, private repo names, email addresses, and other sensitive data.
+
+### 3. Say "think deeply" for non-trivial decisions
+
+Claude defaults to quick answers. Explicitly asking it to think deeply yields trade-off analysis, alternative evaluation, and edge case consideration. Use this for architecture decisions, feature prioritization, and UI/UX choices — anywhere the answer isn't obvious.
+
+### 4. Record the WHY, not just the WHAT
+
+When you decide to implement (or not implement) a feature, record the reasoning in SESSION.md:
+
+```markdown
+# Bad
+- "Don't implement X filter"
+
+# Good
+- "Don't implement X filter (2026-03-21) — data source is
+  secondary (parser estimate, 97.1% coverage), no alternative
+  for the ~290 unparseable entries, and no harm in not filtering"
+```
+
+Include the date. Circumstances change; dateless decisions look like permanent laws.
+
+### 5. Use competitive analysis for feature planning
+
+Ask Claude to fetch a competitor's site and analyze: "What are we losing to this site?" Then critically evaluate each gap — often, what looks like a weakness is already covered by existing features, or isn't worth implementing.
+
+### 6. Save feedback memories for recurring mistakes
+
+When Claude makes a mistake, save it as a feedback memory (`~/.claude/` memory system). Structure: rule → **Why** (what went wrong) → **How to apply** (when this kicks in). Also save when something works well — correction-only memory makes Claude overly cautious.
+
+### 7. Single source of truth, no circular references
+
+Pick exactly one place for each piece of information. Reference it from other places, but never duplicate the content. Always specify the section name, not just the file:
+
+```markdown
+# Bad — circular reference
+CONVENTIONS.md: "Repo list is in MEMORY.md"
+MEMORY.md: "Repo list is in CONVENTIONS.md §9"
+
+# Good — single source with precise pointer
+CONVENTIONS.md: "Repo list is in MEMORY.md, section 'Repo Index'"
+MEMORY.md → [actual repo table lives here]
+```
+
 ## Customization
 
 Fork or clone this repo and edit CONVENTIONS.md to match your workflow. The conventions are written in Japanese, but the structure is language-agnostic — translate or adapt as needed.
@@ -198,6 +264,72 @@ AI アシスタントによる事故を防ぐための厳格なルール:
 - 機密情報・認証情報をコミットしない
 - LaTeX の数式は明示的な承認なしに変更しない（物理のハルシネーション防止）
 - 操作範囲は自分のリポジトリのみに限定
+
+## 運用Tips
+
+20以上のプロジェクトを実運用する中で見つけた実践パターン。
+
+### 1. 毎回新規セッションで「〜を再開」
+
+長い会話を続けない。毎回新しいセッションを立ち上げて「〇〇プロジェクトを再開」と言う。Claude が CLAUDE.md → SESSION.md を読んで、前回の続きから作業を再開する。autocompact のリスクがゼロになる。
+
+**前提:** SESSION.md が常に最新であること（§3 の自動更新プロトコルが必須）。
+
+### 2. push 前の呪文
+
+push の前に毎回こう言う:
+
+> 「整合性、無矛盾性、効率性をチェック。プッシュ。」
+
+Claude がドキュメントとコードの齟齬を見つけて直す。**ほぼ毎回何か見つかる**: 古い件数、循環参照、見出し重複、ステータスの陳腐化など。
+
+public リポでは「安全性」を追加:
+
+> 「整合性、無矛盾性、効率性、安全性をチェック。プッシュ。」
+
+個人情報・非公開リポ名・メールアドレス等の漏洩を grep でチェックしてくれる。
+
+### 3. 「深く検討して」で浅い回答を防ぐ
+
+Claude はデフォルトでさっさと答える。「深く検討して」と言うと、トレードオフ分析・代替案の比較・エッジケースの考慮が出てくる。正解が1つでない判断（設計、機能の要否、UIの配置など）で使う。
+
+### 4. 決定事項の WHY を日付付きで記録
+
+機能の採用/不採用を決めたら、**理由を含めて** SESSION.md に記録する:
+
+```markdown
+# 悪い例
+- 「現在営業中」フィルターは実装しない
+
+# 良い例
+- 「現在営業中」フィルターは実装しない（2026-03-21）
+  — 根拠が二次加工（パーサー推定、カバー率97.1%）で
+  約290件が判定不能、代替なし、除外しなくても害がない
+```
+
+日付がないと、状況が変わっても永久に有効な不文律のようになってしまう。
+
+### 5. 競合比較で機能のアイデア出し
+
+Claude に競合サイトを分析させ、「何が負けているか」を聞く。ただし「負けている」= 実装すべきとは限らない。各項目について「深く検討して」を使い、本当に実装すべきかを検証する。
+
+### 6. フィードバックメモリでミスを構造的に防ぐ
+
+Claude Code の memory 機能にミスの教訓を保存する。構成: ルール → **Why**（何が起きたか）→ **How to apply**（いつ適用するか）。うまくいったパターンも記録する（修正ばかりだと Claude が過度に慎重になる）。
+
+### 7. 正本を1つに決め、循環参照を潰す
+
+情報の置き場所を1つだけ決め、他は参照にする。参照先はセクション名まで明記する:
+
+```markdown
+# 悪い例（循環参照）
+CONVENTIONS.md: 「リポ一覧の正本は MEMORY.md」
+MEMORY.md: 「リポ一覧は CONVENTIONS.md §9 が正本」
+
+# 良い例（正本が1つ）
+CONVENTIONS.md: 「リポ一覧の正本は MEMORY.md の『リポ一覧（正本）』セクション」
+MEMORY.md → [実際のリポ一覧テーブルがここにある]
+```
 
 ## カスタマイズ
 
