@@ -21,7 +21,7 @@ gh repo clone odakin/<name>                  # clone
 
 - **リポの description（`--description`）は必ず英語で書く。** dev.to 等の embed カードに表示されるため。
 
-リポ一覧の正本は **MEMORY.md**。新規作成・clone 後は MEMORY.md に追記。
+リポ一覧の正本は **MEMORY.md の「リポ一覧（正本）」セクション**。新規作成・clone 後は必ず追記。**新しいリポを作る前に、既存リポで対応できないか MEMORY.md のリポ一覧を確認すること。**
 
 ---
 
