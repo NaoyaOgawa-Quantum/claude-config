@@ -6,7 +6,7 @@
 ## リポジトリ情報
 - パス: `~/Claude/claude-config/`
 - ブランチ: `main`
-- リモート: `odakin/claude-config` (public, GitHub)
+- リモート: `NaoyaOgawa-Quantum/claude-config` (public, GitHub)
 
 ## 構造
 ```
@@ -23,13 +23,13 @@ claude-config/
 ## セットアップ（新しい端末で）
 ```bash
 mkdir -p ~/Claude && cd ~/Claude
-gh repo clone odakin/claude-config
+gh repo clone NaoyaOgawa-Quantum/claude-config
 cd claude-config && ./setup.sh
 ```
 
 setup.sh が自動で行うこと:
 1. `~/Claude/CONVENTIONS.md` → `claude-config/CONVENTIONS.md` の相対 symlink 作成
-2. `odakin` の全リポを `~/Claude/` 以下に clone（未取得のもののみ）
+2. `NaoyaOgawa-Quantum` の全リポを `~/Claude/` 以下に clone（未取得のもののみ）
 
 ## How to Resume
 1. このリポには SESSION.md は不要（永続的な設定リポのため）
@@ -37,12 +37,12 @@ setup.sh が自動で行うこと:
 3. 変更後は commit + push（全リモートに）
 
 ## 関連リポ
-- `odakin/zenn-articles` — Zenn.dev 日本語記事（このリポについての記事もそちらに格納）
-- `odakin/devto-articles` — 英語記事ソース（投稿先: dev.to）
+- `NaoyaOgawa-Quantum/zenn-articles` — Zenn.dev 日本語記事（このリポについての記事もそちらに格納）
+- `NaoyaOgawa-Quantum/devto-articles` — 英語記事ソース（投稿先: dev.to）
 
 ## 安全規則（公開リポ）
 **このリポは public。** 以下を絶対にコミットしない:
-- 実名（GitHub ユーザー名 `odakin` は可）
+- 実名（GitHub ユーザー名 `NaoyaOgawa-Quantum` は可）
 - メールアドレス
 - 非公開リポ名
 - 金融データ・口座情報
