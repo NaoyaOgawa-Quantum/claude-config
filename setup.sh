@@ -39,6 +39,40 @@ fi
 IS_WINDOWS=false
 case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
 
+# --- jq bootstrap (Windows) ---
+# Windows では winget で jq をインストールしても、シム (WinGet/Links) が作られない、
+# または Git Bash / MSYS の PATH に入っていないことがある。
+# setup.sh 単体で Step 2/3 (settings.json マージ) が通るように、
+# 必要なら winget install を走らせ、実体のパッケージディレクトリを PATH に追加する。
+ensure_jq_windows() {
+    [ "$IS_WINDOWS" = true ] || return 0
+    command -v jq &> /dev/null && return 0
+
+    local pkg_root="$HOME/AppData/Local/Microsoft/WinGet/Packages"
+    local jq_dir
+    find_jq_dir() {
+        find "$pkg_root" -maxdepth 2 -type d -name 'jqlang.jq_*' 2>/dev/null | head -n 1
+    }
+    jq_dir=$(find_jq_dir)
+
+    if [ -z "$jq_dir" ] || [ ! -x "$jq_dir/jq.exe" ]; then
+        if command -v winget &> /dev/null; then
+            echo "  jq not found. Installing jq via winget..."
+            winget install jqlang.jq \
+                --accept-source-agreements \
+                --accept-package-agreements \
+                --silent >/dev/null 2>&1 || true
+            jq_dir=$(find_jq_dir)
+        fi
+    fi
+
+    if [ -n "$jq_dir" ] && [ -x "$jq_dir/jq.exe" ]; then
+        export PATH="$jq_dir:$PATH"
+        echo "  jq bootstrapped: $jq_dir/jq.exe"
+    fi
+}
+ensure_jq_windows
+
 # --- 1. Symlink ---
 echo "=== Step 1: Setting up symlinks ==="
 
