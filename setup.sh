@@ -43,17 +43,31 @@ case "$(uname -s)" in MINGW*|CYGWIN*|MSYS*) IS_WINDOWS=true ;; esac
 # Windows では winget で jq をインストールしても、シム (WinGet/Links) が作られない、
 # または Git Bash / MSYS の PATH に入っていないことがある。
 # setup.sh 単体で Step 2/3 (settings.json マージ) が通るように、
-# 必要なら winget install を走らせ、実体のパッケージディレクトリを PATH に追加する。
+# 必要なら winget install を走らせ、shim → 実体パッケージ の順で PATH に追加する。
 ensure_jq_windows() {
     [ "$IS_WINDOWS" = true ] || return 0
     command -v jq &> /dev/null && return 0
 
+    local links="$HOME/AppData/Local/Microsoft/WinGet/Links"
     local pkg_root="$HOME/AppData/Local/Microsoft/WinGet/Packages"
-    local jq_dir
-    find_jq_dir() {
-        find "$pkg_root" -maxdepth 2 -type d -name 'jqlang.jq_*' 2>/dev/null | head -n 1
+
+    # 1) canonical winget shim (バージョン非依存)
+    # 2) パッケージ実体 (複数バージョンがあれば名前降順で最新を選ぶ)
+    _find_jq_dir() {
+        if [ -x "$links/jq.exe" ]; then
+            echo "$links"
+            return
+        fi
+        [ -d "$pkg_root" ] || return
+        shopt -s nullglob
+        local matches=( "$pkg_root"/jqlang.jq_* )
+        shopt -u nullglob
+        [ ${#matches[@]} -gt 0 ] || return
+        printf '%s\n' "${matches[@]}" | sort -r | head -n 1
     }
-    jq_dir=$(find_jq_dir)
+
+    local jq_dir
+    jq_dir=$(_find_jq_dir)
 
     if [ -z "$jq_dir" ] || [ ! -x "$jq_dir/jq.exe" ]; then
         if command -v winget &> /dev/null; then
@@ -62,7 +76,9 @@ ensure_jq_windows() {
                 --accept-source-agreements \
                 --accept-package-agreements \
                 --silent >/dev/null 2>&1 || true
-            jq_dir=$(find_jq_dir)
+            jq_dir=$(_find_jq_dir)
+        else
+            echo "  WARNING: winget not found; cannot bootstrap jq automatically."
         fi
     fi
 
