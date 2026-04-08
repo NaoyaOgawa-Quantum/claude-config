@@ -45,7 +45,7 @@
 #       The 2026-04-08 refinement re-adds a *narrower* dirty signal:
 #       STALE_DIRT, defined as "the same porcelain set unchanged for
 #       >24h". This catches cross-session WIP leakage (the failure
-#       mode that left ejp-revision uncommitted on 2026-04-08) WITHOUT
+#       mode found during the 2026-04-08 morning sweep) WITHOUT
 #       re-introducing the original noise — active multi-day refactors
 #       continually mutate the dirty set, so their porcelain hash is
 #       never stale and no warning fires. Per-hash NUDGED guard
@@ -71,7 +71,11 @@
 #
 # Silent when:
 #   - All inspected repos are clean and in sync
-#   - Already nudged for the same HEAD sha (no duplicate warnings)
+#   - Already nudged for the same HEAD sha (cases 1, 2 — push and
+#     orphan-tree reminders share NUDGED_FILE keyed by HEAD sha)
+#   - Already nudged for the same porcelain hash (case 3 STALE_DIRT —
+#     a separate state file STATE_DIR/<repo>.stale-nudged keyed by
+#     porcelain hash, not HEAD sha; see "Suppression scopes" below)
 #   - Repo has been seen recently (within 4h) AND HEAD has not advanced
 #
 # Design notes:
@@ -82,11 +86,22 @@
 #     avoid re-nudging within minutes, not enforce per-session freshness.
 #   - Output to stdout is injected into the session as context (per the
 #     Claude Code hook spec for PostToolUse).
-#   - Per-HEAD-sha suppression means each commit produces at most ONE
-#     push reminder, no matter how many Bash calls follow. The
-#     forced-update nudge uses a separate suffix ("-fu") so that the
-#     push reminder and the forced-update warning don't shadow each
-#     other for the same HEAD.
+#
+# Suppression scopes (two independent mechanisms):
+#   1. Per-HEAD-sha NUDGED_FILE — used by case (1) orphan-tree and
+#      case (2) just-committed-not-pushed. Each HEAD produces at most
+#      ONE warning of each kind, no matter how many Bash calls follow.
+#      Case (1) uses suffix "-orphan" so the orphan-tree warning and
+#      the push reminder don't shadow each other for the same HEAD.
+#   2. Per-porcelain-hash STALE_NUDGED_FILE — used by case (3)
+#      STALE_DIRT. The key is the sha1 of `git status --porcelain`
+#      output, NOT HEAD sha, because abandoned WIP can persist across
+#      many HEADs (the user keeps committing other things) and a
+#      single HEAD can host many distinct dirty sets over its
+#      lifetime. Each "dirty episode" deserves at most one warning,
+#      scoped to the porcelain hash itself. The marker is cleared
+#      whenever the working tree becomes clean, so a recurring hash
+#      after a clean state warns anew.
 
 set -uo pipefail
 # NOTE: deliberately NOT using `set -e`. The hook contains many `grep`
