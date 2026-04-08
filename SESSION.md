@@ -30,6 +30,18 @@
 - arxiv-digest `src/archive.py:commit_archives_to_git()`: cron 蓄積を root cause level で根治 (b8f1539)
 - odakin-prefs `push-workflow.md`: `[git-nudge]` 警告の interpretation guide
 
+### DESIGN.md に「git-state-nudge.sh: cross-session WIP leakage の検出 — STALE_DIRT」を追記
+
+設計判断の正本を `DESIGN.md` に追加 (約 90 行)。要素:
+- **What**: STALE_DIRT の発火条件と suppression mechanism
+- **Why**: 04-07 夜の DIRTY_COUNT 完全削除が残した hole と、04-08 朝の手動 sweep で発覚した 2 件の leakage
+- **検討した代替案と却下理由** (8 案、表形式)
+- **設計判断の小項目**: porcelain hash の理由、age 累積方式、threshold 24h、per-hash NUDGED guard、clean 時の state 破棄、shasum/sha1sum fallback、case priority
+- **Bootstrap caveat**: deliberate trade-off として明示
+- **副次的「Narrower-but-active > absent」原則**: signal を消す前に narrower な criterion を探す
+- **Event-driven vs time-driven safety net**: 04-07 棄却の morning health check と STALE_DIRT の差を明示
+- **関連 fix と responsibility split**: 「自動生成は generator が commit 責任、人為編集は STALE_DIRT で catch」原則
+
 ## 過去セッションの変更（2026-04-07 夜）
 
 git-state-nudge.sh 拡張 3 commit + 1 sanitize (9f0b510 / 15aadae / 3b45850 / 1e6f99e): orphan-tree 検出、`git -C <path>` follow、noise 削減 (forced-update reflog grep 撤廃 + DIRTY-only first-sighting 撤廃 + git -C hint 撤廃)、claude-config 自身の update notifier、private リポ名 sanitize。詳細は git log + odakin-prefs/push-workflow.md 「過去の失敗事例」。
