@@ -30,16 +30,35 @@
 #
 #   (3) "First sighting of an out-of-sync repo (within the last 4 hours)"
 #       — first time the hook sees this repo within SEEN_THRESHOLD, AND
-#       AHEAD or BEHIND > 0. Catches the case where the session base
-#       directory is not a git repo (e.g. ~/Claude) and Claude cd's into
-#       a sub-repo that already had unresolved divergence.
-#       NOTE: dirty-only first-sighting was deliberately removed for
-#       noise reduction — most WIP is intentional and Claude runs
-#       `git status` anyway. Only AHEAD/BEHIND warrant the warning.
+#       (AHEAD > 0, BEHIND > 0, or STALE_DIRT). Catches the case where
+#       the session base directory is not a git repo (e.g. ~/Claude)
+#       and Claude cd's into a sub-repo that already had unresolved
+#       divergence or abandoned WIP.
 #       The 4-hour window is a deliberate cross-session choice to avoid
 #       spamming when the user opens multiple short sessions in quick
 #       succession. On first sighting, a one-time `git fetch` (5s
 #       timeout) is run so the BEHIND check sees fresh remote state.
+#
+#       NOTE on STALE_DIRT (added 2026-04-08): an earlier version of
+#       case (3) stripped DIRTY_COUNT entirely for noise reduction
+#       (most WIP is intentional and Claude runs `git status` anyway).
+#       The 2026-04-08 refinement re-adds a *narrower* dirty signal:
+#       STALE_DIRT, defined as "the same porcelain set unchanged for
+#       >24h". This catches cross-session WIP leakage (the failure
+#       mode that left ejp-revision uncommitted on 2026-04-08) WITHOUT
+#       re-introducing the original noise — active multi-day refactors
+#       continually mutate the dirty set, so their porcelain hash is
+#       never stale and no warning fires. Per-hash NUDGED guard
+#       prevents repeat warnings for an intentionally-persistent
+#       dirty set across sessions.
+#       Mtime-based detection was rejected because it is fooled by
+#       build artifact rebuilds (e.g. .pdf regenerated from a stale
+#       .tex shows a "fresh" mtime even though the .tex hasn't been
+#       touched, leaving the genuinely-stale source invisible).
+#       Bootstrap caveat: pre-existing dirt at the time this feature
+#       was deployed is not warned for ~24h after deployment, since
+#       age starts fresh on the first observation. Future leakage is
+#       caught immediately.
 #
 # Multi-repo follow (Fix B, 2026-04-07):
 #   The hook reads the bash command from the Claude Code hook protocol
@@ -143,6 +162,52 @@ check_repo_state() {
     BEHIND="$(git -C "$REPO_ROOT" rev-list --count "HEAD..$UPSTREAM" 2>/dev/null || echo 0)"
   fi
 
+  # Stale-dirt detection (porcelain-hash-age based — see header comment).
+  # The signal is: "the same set of dirty files has been here, unchanged,
+  # for >24h". The porcelain output is hashed and stored under STATE_DIR;
+  # the hash file's mtime is the timestamp of *first* observation of this
+  # exact set, so age accumulates as long as the set stays identical.
+  # Active editing mutates the set → file is rewritten → age resets.
+  local STALE_DIRT=0
+  local PAGE_HOURS=0
+  local PORCELAIN_FILE="$STATE_DIR/$REPO_HASH.porcelain"
+  local STALE_NUDGED_FILE="$STATE_DIR/$REPO_HASH.stale-nudged"
+  if [ "$DIRTY_COUNT" -gt 0 ]; then
+    local PORCELAIN_HASH=""
+    if command -v shasum >/dev/null 2>&1; then
+      PORCELAIN_HASH="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | shasum | cut -d' ' -f1)"
+    elif command -v sha1sum >/dev/null 2>&1; then
+      PORCELAIN_HASH="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | sha1sum | cut -d' ' -f1)"
+    fi
+    local PORCELAIN_LAST=""
+    [ -f "$PORCELAIN_FILE" ] && PORCELAIN_LAST="$(cat "$PORCELAIN_FILE" 2>/dev/null || echo '')"
+    if [ -n "$PORCELAIN_HASH" ] && [ "$PORCELAIN_LAST" = "$PORCELAIN_HASH" ]; then
+      # Same dirty set as last seen — measure how long it has persisted.
+      local PMTIME PAGE
+      PMTIME="$(stat -f %m "$PORCELAIN_FILE" 2>/dev/null || stat -c %Y "$PORCELAIN_FILE" 2>/dev/null || echo "$NOW")"
+      PAGE=$((NOW - PMTIME))
+      PAGE_HOURS=$((PAGE / 3600))
+      if [ "$PAGE" -gt 86400 ]; then
+        STALE_DIRT=1
+        # Per-hash NUDGED guard: don't repeat the same warning for the
+        # same dirty set (e.g. user intentionally leaves WIP in a
+        # scratch repo). The guard is cleared when the set changes or
+        # when the working tree becomes clean.
+        local LAST_WARNED_HASH=""
+        [ -f "$STALE_NUDGED_FILE" ] && LAST_WARNED_HASH="$(cat "$STALE_NUDGED_FILE" 2>/dev/null || echo '')"
+        [ "$LAST_WARNED_HASH" = "$PORCELAIN_HASH" ] && STALE_DIRT=0
+      fi
+    elif [ -n "$PORCELAIN_HASH" ]; then
+      # New or changed dirty set — record current state, age starts at 0.
+      echo "$PORCELAIN_HASH" > "$PORCELAIN_FILE" 2>/dev/null || true
+    fi
+  elif [ -f "$PORCELAIN_FILE" ] || [ -f "$STALE_NUDGED_FILE" ]; then
+    # Working tree clean — discard porcelain markers so each dirty
+    # episode is treated independently (same hash recurring later
+    # should warn anew, not be silently suppressed by stale state).
+    rm -f "$PORCELAIN_FILE" "$STALE_NUDGED_FILE" 2>/dev/null || true
+  fi
+
   # Fix A (2026-04-07, refined): detect orphan-tree only.
   # An earlier version also grep'd `git reflog -1 origin/main` for the
   # string `forced-update`, but that was too eager: the reflog entry is
@@ -183,11 +248,12 @@ check_repo_state() {
     RECENT_COMMIT_NUDGE=1
   fi
 
-  # Refined case (3): drop the DIRTY_COUNT clause (too noisy — most WIP
-  # is intentional and Claude runs `git status` anyway). Only fire on
-  # AHEAD/BEHIND, which actually warrant attention.
+  # Refined case (3): fire on AHEAD/BEHIND (divergence) OR STALE_DIRT
+  # (porcelain hash unchanged for >24h). Plain DIRTY_COUNT > 0 still
+  # does NOT trigger — see header comment for the rationale of the
+  # narrower stale-dirt signal.
   if [ "$FIRST_SIGHTING" -eq 1 ]; then
-    if [ "$AHEAD" -gt 0 ] || [ "$BEHIND" -gt 0 ]; then
+    if [ "$AHEAD" -gt 0 ] || [ "$BEHIND" -gt 0 ] || [ "$STALE_DIRT" -eq 1 ]; then
       FIRST_SIGHTING_NUDGE=1
     fi
   fi
@@ -224,7 +290,17 @@ check_repo_state() {
   # Case (3): first-sighting of stale state.
   if [ "$FIRST_SIGHTING_NUDGE" -eq 1 ]; then
     printf '[git-nudge] %s%s (first time touching this repo within ~4h)\n' "$LABEL_PREFIX" "$REPO_ROOT"
-    if [ "$DIRTY_COUNT" -gt 0 ]; then
+    if [ "$STALE_DIRT" -eq 1 ]; then
+      printf '  - %s dirty file(s), unchanged set for ~%dh — possibly abandoned WIP from an earlier session\n' \
+        "$DIRTY_COUNT" "$PAGE_HOURS"
+      # Record warned hash so we don't repeat for the same dirty set.
+      # Re-read PORCELAIN_FILE to avoid relying on in-memory variable
+      # scope (the detection block above writes the hash to that file
+      # only when it changes; the value is current here regardless).
+      local _ph
+      _ph="$(cat "$PORCELAIN_FILE" 2>/dev/null || echo '')"
+      [ -n "$_ph" ] && echo "$_ph" > "$STALE_NUDGED_FILE" 2>/dev/null || true
+    elif [ "$DIRTY_COUNT" -gt 0 ]; then
       printf '  - %s uncommitted change(s) inherited from earlier work\n' "$DIRTY_COUNT"
     fi
     if [ "$AHEAD" -gt 0 ]; then

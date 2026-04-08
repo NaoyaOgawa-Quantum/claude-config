@@ -1,27 +1,40 @@
 # SESSION — claude-config
 
 ## 現在の状態
-**完了**: git-state-nudge.sh の orphan-tree 検出 + git -C follow 拡張 + noise 削減 + 安全性 scrub。
+**完了**: git-state-nudge.sh に STALE_DIRT 検出を追加 (2026-04-08)。cross-session WIP leakage の汎用 safety net。
 
-## 今セッションの変更（2026-04-07 夜）
+## 今セッションの変更（2026-04-08）
 
-### git-state-nudge.sh 大幅拡張 (3 commit + 1 sanitize)
+### git-state-nudge.sh に STALE_DIRT (porcelain-hash-age) 検出を追加
 
-夕方の cross-machine stale clone 誤読事件 (詳細は odakin-prefs/push-workflow.md 「過去の失敗事例」) を契機に hook を強化:
+**契機**: 朝の手動 sweep で arxiv-digest に 6 日分 + ejp-revision に約 24h 分の uncommitted dirt を発見。前者は cron 自動生成 (Fix A 別途、arxiv-digest 側 `commit_archives_to_git()` で根治)、後者は前 session の取りこぼし。後者の汎用 safety net がこのリポの責務。
 
-- **9f0b510 (Fix A v1 + Fix B v1)**: orphan-tree 検出 + literal `git -C <path>` follow + tilde expansion。`check_repo_state` 関数化。stdin JSON parsing 経由で `tool_input.command` を取得。
-- **15aadae (noise 削減)**: 反省 round 1 で 3 つの noise 源を削除:
-  1. forced-update reflog grep (reflog が ~90 日 persist して resolve 後も警告継続)
-  2. case (3) first-sighting の DIRTY-only 発火 (WIP は意図的が大半)
-  3. variable `git -C "$d"` への hint message (loop ごとに鳴る teaching)
-  + orphan warning を 13 → 4 行に短縮 (4 query は push-workflow に集約)
-- **3b45850 (S-1 安全性 scrub)**: hook header の private repo 名 mention (allow-list 外) を generic 表現に置換。9f0b510 commit message には残るが force-push せず受容。
+**設計**: case (3) 「first-sighting」判定に `STALE_DIRT` を OR 加算。STALE_DIRT は「同じ porcelain set が >24h 不変」で発火。シグナルとして mtime ではなく porcelain-hash-age を使う理由は header コメント参照 (build artifact rebuild に騙されない: e.g. 古い .tex + 新しい .pdf rebuild は newest mtime では見逃される)。
 
-設計判断: morning health check scheduled task と Read/Edit/Write への matcher 拡張も検討したが、前者は時間ベース + 重い + 既存 hook と重複、後者は typical workflow が Bash 主体で marginal value 小、いずれも棄却。
+**実装**:
+- detection ブロックを `check_repo_state` 内に新設 (~50 行)。dirty 時は porcelain hash 計算 → 既存 PORCELAIN_FILE と比較。同一なら age 測定、>24h なら STALE_DIRT=1。新規/変化なら hash を書き込み (mtime = age リセット起点)。clean なら state file 削除。
+- per-hash NUDGED guard (`STATE_DIR/$REPO_HASH.stale-nudged`) で同一 dirty set の repeat 警告を抑制。意図的長期 dirty を残す scratch 運用も静か。
+- emit block: STALE_DIRT=1 のときは `"%s dirty file(s), unchanged set for ~%dh — possibly abandoned WIP from an earlier session"` を出す (既存 DIRTY_COUNT note を置換)。
+- header コメント (line 36-) を refactor: 「dirty-only 削除」を「narrower な STALE_DIRT に置換」に書き直し。mtime 棄却理由・bootstrap caveat を明記。
 
-通常日 expected: 完全 silent。発火するのは (1) orphan-tree、(2) 60 秒以内の未 push、(3) 4h 久々に触った AHEAD/BEHIND あり repo、の 3 ケースのみ。
+**検証** (`/tmp/test-stale-dirt` 上の 5 シナリオ):
+1. 新規 dirty (age 0) → 警告なし ✓
+2. porcelain file を 25h backdate → STALE_DIRT 警告発火 ✓
+3. 同じ hash で再実行 → per-hash NUDGED で suppress ✓
+4. 新ファイル追加で hash 変化 → age リセット、警告なし ✓
+5. working tree clean → porcelain + stale-nudged 両 state file 削除 ✓
 
-## 今セッションの変更（2026-04-07 朝〜昼）
+**Bootstrap caveat**: デプロイ時点で既存の dirt は 24h 経過まで警告されない (age が初回観測時に 0 から始まる)。今回 sweep で全 repo を clean にしたので問題なし。
+
+**横断的対処**:
+- arxiv-digest `src/archive.py:commit_archives_to_git()`: cron 蓄積を root cause level で根治 (b8f1539)
+- odakin-prefs `push-workflow.md`: `[git-nudge]` 警告の interpretation guide
+
+## 過去セッションの変更（2026-04-07 夜）
+
+git-state-nudge.sh 拡張 3 commit + 1 sanitize (9f0b510 / 15aadae / 3b45850 / 1e6f99e): orphan-tree 検出、`git -C <path>` follow、noise 削減 (forced-update reflog grep 撤廃 + DIRTY-only first-sighting 撤廃 + git -C hint 撤廃)、claude-config 自身の update notifier、private リポ名 sanitize。詳細は git log + odakin-prefs/push-workflow.md 「過去の失敗事例」。
+
+## 過去セッションの変更（2026-04-07 朝〜昼）
 
 ### dropbox-refs convention 新規追加
 共同研究のリポから「Dropbox 上の共同 PDF 置き場」を symlink で参照するためのパターンを規約化。Dropbox install 場所が OS / user で違う問題と、subpath が user-specific なため共有リポにハードコードできない問題を、(a) Dropbox root resolver + (b) personal-layer の YAML registry の組み合わせで吸収する。
