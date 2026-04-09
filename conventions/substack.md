@@ -1,4 +1,10 @@
-# Substack 入稿規約
+# Substack 規約
+
+本ファイルは Substack 上の「書く側」（入稿）と「読む側／集める側」（取得）の両方の運用ノウハウを記録する。
+
+---
+
+# 入稿
 
 ## エディタの制約
 
@@ -66,3 +72,42 @@ Markdown で書いてよい（見出し・太字・箇条書き等は全て Subs
 - 公開前に Substack のプレビュー機能でも最終確認すること
 - 画像は md-to-substack では変換されない → Substack エディタで手動挿入
 - Substack の Notes（短文投稿）では太字・イタリック・リンクのみ使用可能（見出し・箇条書し不可）
+
+---
+
+# 取得（notes / コメントの事後回収）
+
+自分または他人が Substack に書いた note や article comment を事後に取得して Markdown 化する際の手順。研究リポで過去の発言を原文保存したい、分析の証跡として確保したい、といった用途を想定する。
+
+## 3 つの取得経路と特性
+
+### (1) WebFetch で note URL を直接取得
+
+`substack.com/@{user}/note/c-{id}` 形式の URL を WebFetch すると、note 本文が **JSON 内の `body` フィールド** として埋め込まれた HTML が返ってくる。ページの visible HTML 側には本文がないため、WebFetch への prompt で「body フィールドから抽出してくれ」と明示する必要がある。note の投稿時刻（ISO timestamp）も同じ JSON から取れる。
+
+**成功率**: 明示プロンプトなら高い。最初の試行で「ページの visible HTML には本文がない」と返してきたら、prompt を「JSON object の body / text フィールドから生テキストだけ返せ」に強化して再試行する。
+
+### (2) Gmail 通知メール経由 — reaction 型
+
+`reaction@mg1.substack.com` からの "X liked your comment on Y" 通知メールは、**like 対象となった自分のコメント本文を HTML 内に verbatim で引用している**。reaction 通知が1件でもあれば、そこからコメント本文を復元できる。
+
+### (3) Gmail 通知メール経由 — forum 型（**落とし穴**）
+
+`forum@mg1.substack.com` からの "New comment on Y" 通知メールは、**他者の新規返信本文のみ**を含み、**返信先となった自分のコメントの本文は含まない**。forum 通知から自分のコメントを復元することは**不可能**。
+
+これは retrieval の設計上の盲点になりやすい。forum 通知は「返信がついた」という事実を知るには十分だが、本文復元には使えない。
+
+## 実用上の含意
+
+- **自分のコメント本文を取るには reaction 通知を探す**。Gmail 検索: `from:substack.com "your comment" after:YYYY/MM/DD` で reaction と forum の両方が出てくるので、**reaction を優先**
+- reaction 通知が1件もないコメント（誰も Like していないコメント）は、Gmail 経由では取得**不能**。Substack UI から直接スクレイプするか、記憶に頼るしかない
+- 同一本文のコメントが note と article comment の両方に存在することがある（ユーザーが同じテキストを複数チャネルに出すケース）。片方の取得経路で失敗しても、もう片方から取れる可能性がある
+- **取得順序の推奨**: note URL が判明しているなら WebFetch を最初に試す（メール解析より速い）→ 駄目なら reaction 通知を探す → 駄目なら UI
+
+## 通知メールの URL について
+
+Substack 通知メール本文に含まれる記事・コメント URL は、**すべて `email.mg1.substack.com/c/...` 形式の mailgun トラッキング URL**。canonical な `substack.com/...` URL は通知メールからは直接取れない。canonical URL が必要な場合は、別途 Substack UI か reaction/forum 通知の subject 行から記事タイトルを取って検索する、等の別経路が必要。
+
+## Gmail MCP との併用
+
+`gmail_read_email` の出力は HTML-heavy なメールで 70〜200 KB に達し、Claude のメインコンテキスト token limit を超える。自動的にファイルに dump される挙動と、subagent 経由の chunked 処理パターンは → `mcp.md` の Gmail MCP セクション参照

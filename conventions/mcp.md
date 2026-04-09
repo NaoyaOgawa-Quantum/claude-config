@@ -59,3 +59,56 @@ MCP サーバーが取得した OAuth トークンのスコープによって使
 - 操作前にカレンダー一覧で対象カレンダーが正しいことを確認
 - 共有カレンダー命名: `{共同研究者名}{自分の名字}共同研究`
 - イベント作成時は日時・タイトル・参加者をユーザーに確認してから作成
+
+## Gmail MCP: read_email の大容量出力と chunked 処理
+
+### 現象
+
+`gmail_read_email` / `mcp__gmail-multi__read_email` は HTML-rich なメール（Substack newsletter、他の通知系メール等）で **70〜200 KB の出力**を返す。このサイズは Claude のメインコンテキスト token limit を超えるため、戻り値が error 風のメッセージ + 以下のようなファイルパスになる:
+
+```
+Error: result (XX,XXX characters) exceeds maximum allowed tokens.
+Output has been saved to /Users/{user}/.claude/projects/{proj-id}/tool-results/mcp-gmail-multi-read_email-{timestamp}.txt
+Format: JSON array with schema: [{type: string, text: string}]
+```
+
+ファイルには JSON `[{type:"text", text:"..."}]` 形式で、`text` フィールドに email 本文の HTML マルチパート（ときに base64 urlsafe エンコード）が入っている。
+
+### 戦略
+
+1. **メインコンテキストで中身を見たい場合**: 諦める。サイズが常に limit を超える
+2. **内容を処理して構造化したい場合**: subagent に委譲。ファイルパスを渡して「Read tool で offset/limit を使って chunk ごとに読み切れ（limit=2000 行推奨）」と**明示する**
+3. **複数メールを一括処理したい場合**:
+   - メインから `read_email` を**並列で 4〜8 件**発火する
+   - 全件 error 応答になるが、error メッセージの中のファイルパスは有効
+   - パスのリストを subagent に渡して一括処理させる
+
+### 並列化の注意
+
+- Subagent の**4 並列**起動は 529 Overloaded エラーが頻発する。**3 並列まで**が安全圏
+- 失敗した subagent は SendMessage で継続ではなく新規スポーンでリトライする方が確実
+- `read_email` 自体の並列（MCP tool call の並列）は 8 件並列まで問題なく動く
+
+### 典型的な処理パターン
+
+```
+1. gmail search → message id のリスト取得（メインで完結）
+2. メインから read_email を 4-8 件並列発火 → ファイルパスのリスト取得
+3. 残りがあれば 2 をもう一度
+4. subagent 2-3 本を並列起動、各 subagent に (a) ファイルパスのサブセット
+   (b) 抽出ルール (c) 出力先ファイルパス を渡す
+5. subagent が各ファイルを Read で chunk ごとに最後まで読み、抽出結果を
+   markdown として出力先に Write する
+6. メインはファイルパスのみ確認し、必要なら merge
+```
+
+### Subagent への指示で忘れやすい点
+
+- **「最後まで読み切れ」と明示する**。default では subagent は最初の chunk だけで判断しがち
+- **著作権ガード**: 第三者の著作物（記事本体、他者のコメント本文）を引用しないことを明示する
+- **529 時の再試行**: 「少し待ってから再試行」を明示的に指示しないと諦めて終わる
+- **完了報告の形式指定**: 「何を抽出できたか (verbatim を除く) を 1 行ずつ報告せよ。要約不要」と書く。書かないと長文要約が返ってきてメインのコンテキストを食う
+
+### Substack 通知メール固有の注意
+
+Substack の `reaction@mg1` / `forum@mg1` 通知メールからユーザーのコメント本文を取得する際の構造的な制約（forum 通知には parent コメントが含まれない等）は → `substack.md` の「取得」セクション参照
