@@ -1,0 +1,188 @@
+#!/bin/bash
+# public-precommit-runner.sh — 公開リポの pre-commit gate
+#
+# 正本: claude-config/scripts/public-precommit-runner.sh
+# 各 public repo の .git/hooks/pre-commit に 1 行 stub が入り、この
+# script を absolute path で exec する (install-public-precommit.sh 参照)。
+#
+# 動作:
+#   1. stage 済みファイルを列挙 (`git diff --cached --name-only`)
+#   2. 各ファイルの追加行 (`^+` で始まる、`+++` ヘッダ除く) を抽出
+#   3. Tier A 構造制約 regex を適用:
+#        - email (allowlist: noreply@anthropic.com / noreply@github.com
+#          / support@github.com)
+#        - /Users/<name> 絶対 path
+#        - IPv4 (RFC1918 / loopback / link-local / broadcast allowlist)
+#        - token prefix (ghp_ / github_pat_ / sk- + 30 文字以上)
+#   4. `$HOME/Claude/odakin-prefs/sensitive-terms.txt` が存在すれば
+#      ephemeral に load して追加行に対して `grep -F -f` で literal check
+#      (本 script は sensitive-terms.txt の中身を memory 上に持たない。
+#       grep プロセスに file path を渡すだけで直接 read しない)
+#   5. hit があれば `exit 1` で commit を reject。詳細を stderr に出す
+#   6. `--no-verify` で bypass 可能 (git 標準の escape hatch)
+#
+# 設計思想:
+#   本 script は `sensitive-repo-patterns.ja.md §3-3` の批判 (b)
+#   「blacklist 自体が leak 源」を、**hook 本体 (claude-config, public)
+#   と literal data (odakin-prefs/sensitive-terms.txt, gitignore)
+#   の構造分離** で回避する。本 script source には literal が一切
+#   埋め込まれない。詳細は claude-config/DESIGN.md §公開リポ leak 防止。
+
+set -uo pipefail
+
+SENSITIVE_TERMS="$HOME/Claude/odakin-prefs/sensitive-terms.txt"
+
+# ----------------------------------------------------------------------
+# Stage 済みファイルを列挙。削除済み (D)・merge commit は skip。
+# ----------------------------------------------------------------------
+STAGED="$(git diff --cached --name-status 2>/dev/null | awk '$1 != "D" { print $NF }')"
+[ -z "$STAGED" ] && exit 0
+
+# ----------------------------------------------------------------------
+# 各ファイルの追加行を 1 つのバッファに集約 (file:line prefix 付き)
+# `git diff --cached -U0 --no-color -- <file>` の出力から `+` 行を抜く。
+# +++ ヘッダを除外し、先頭の `+` を剥がす。
+# 結果: 1 行ごとに "<file>\t<content>" の tab-separated 形式
+# ----------------------------------------------------------------------
+ADDED_BUF="$(mktemp)"
+trap 'rm -f "$ADDED_BUF"' EXIT
+
+while IFS= read -r file; do
+  [ -z "$file" ] && continue
+  [ -f "$file" ] || continue  # skip non-regular files (symlink 等は read)
+  # Binary detection: git が "Binary files ... differ" と出すのでその
+  # 行は grep に引っかからず scan 空振りで安全に skip される
+  git diff --cached -U0 --no-color -- "$file" 2>/dev/null \
+    | awk -v f="$file" '
+        /^\+\+\+/ { next }
+        /^\+/     { sub(/^\+/, ""); print f "\t" $0 }
+      ' >> "$ADDED_BUF"
+done <<< "$STAGED"
+
+if [ ! -s "$ADDED_BUF" ]; then
+  exit 0  # 追加行なし (削除のみ・空 commit 等)
+fi
+
+# ----------------------------------------------------------------------
+# Tier A regex check
+# ----------------------------------------------------------------------
+HITS=""
+
+# Tier A-1: email (allowlist を除外)
+EMAIL_HITS="$(
+  awk -F'\t' '{ print $2 }' "$ADDED_BUF" \
+    | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' 2>/dev/null \
+    | grep -vE '^(noreply@anthropic\.com|noreply@github\.com|support@github\.com)$' \
+    | sort -u \
+    || true
+)"
+if [ -n "$EMAIL_HITS" ]; then
+  HITS="${HITS}
+[tier-a/email] $(printf '%s' "$EMAIL_HITS" | head -5 | tr '\n' ' ')"
+fi
+
+# Tier A-2: /Users/<name>
+PATH_HITS="$(
+  awk -F'\t' '{ print $2 }' "$ADDED_BUF" \
+    | grep -oE '/Users/[a-z][a-z0-9_-]*' 2>/dev/null \
+    | sort -u \
+    || true
+)"
+if [ -n "$PATH_HITS" ]; then
+  HITS="${HITS}
+[tier-a/abs_path] $(printf '%s' "$PATH_HITS" | head -5 | tr '\n' ' ')"
+fi
+
+# Tier A-3: IPv4 (allowlist 除外)
+IPV4_ALL="$(
+  awk -F'\t' '{ print $2 }' "$ADDED_BUF" \
+    | grep -oE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' 2>/dev/null \
+    || true
+)"
+IPV4_HITS=""
+if [ -n "$IPV4_ALL" ]; then
+  while IFS= read -r ip; do
+    [ -z "$ip" ] && continue
+    case "$ip" in
+      0.0.0.0|255.255.255.255) continue ;;
+      127.*|10.*|192.168.*|169.254.*) continue ;;
+      172.16.*|172.17.*|172.18.*|172.19.*|172.2[0-9].*|172.3[01].*) continue ;;
+    esac
+    IPV4_HITS="${IPV4_HITS}${ip}
+"
+  done <<< "$IPV4_ALL"
+fi
+if [ -n "$IPV4_HITS" ]; then
+  HITS="${HITS}
+[tier-a/ipv4] $(printf '%s' "$IPV4_HITS" | sort -u | head -5 | tr '\n' ' ')"
+fi
+
+# Tier A-4: token prefix (本体を晒さず redact 表示)
+TOKEN_HITS="$(
+  awk -F'\t' '{ print $2 }' "$ADDED_BUF" \
+    | grep -oE '(ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9]{30,})' 2>/dev/null \
+    | sort -u \
+    || true
+)"
+if [ -n "$TOKEN_HITS" ]; then
+  TOKEN_REDACTED="$(printf '%s' "$TOKEN_HITS" | head -3 | sed -E 's/^(.{10}).*/\1.../')"
+  HITS="${HITS}
+[tier-a/token_prefix] $TOKEN_REDACTED"
+fi
+
+# ----------------------------------------------------------------------
+# Tier B: sensitive-terms.txt ephemeral literal check
+# ----------------------------------------------------------------------
+if [ -f "$SENSITIVE_TERMS" ] && [ -s "$SENSITIVE_TERMS" ]; then
+  # grep -F -f でファイル参照のみ。script の memory に literal が残らない
+  LITERAL_HITS="$(
+    awk -F'\t' '{ print $2 }' "$ADDED_BUF" \
+      | grep -Ff "$SENSITIVE_TERMS" 2>/dev/null \
+      | head -5 \
+      || true
+  )"
+  if [ -n "$LITERAL_HITS" ]; then
+    # 表示時も literal 本体を晒さず「何行 hit した」と該当ファイル名のみ
+    LITERAL_COUNT="$(printf '%s\n' "$LITERAL_HITS" | wc -l | tr -d ' ')"
+    LITERAL_FILES="$(
+      awk -F'\t' 'NR==FNR { bad[$0]=1; next }
+        bad[$2] { print $1 }' \
+        <(printf '%s\n' "$LITERAL_HITS") "$ADDED_BUF" \
+      | sort -u | head -5 | tr '\n' ' '
+    )"
+    HITS="${HITS}
+[tier-b/literal] ${LITERAL_COUNT} line(s) match sensitive-terms.txt in: ${LITERAL_FILES}"
+  fi
+fi
+
+# ----------------------------------------------------------------------
+# 判定
+# ----------------------------------------------------------------------
+if [ -z "$HITS" ]; then
+  exit 0
+fi
+
+cat >&2 << EOF
+[public-precommit-runner] commit rejected: potential leak detected.
+
+repo:        $(git rev-parse --show-toplevel 2>/dev/null)
+staged hits:$HITS
+
+本 repo は .claude/public-repo.marker で public と宣言されています。
+上記の追加行に構造 (Tier A) または literal (Tier B) の leak 候補が
+含まれます。
+
+対処:
+  - tier-a/email       → placeholder または noreply allowlist へ
+  - tier-a/abs_path    → \$HOME/ or ~/ 相対 path へ
+  - tier-a/ipv4        → 0.0.0.0 / 127.0.0.1 / RFC1918 へ
+  - tier-a/token_prefix → 即 revoke + secret manager へ移動
+  - tier-b/literal     → odakin-prefs/sensitive-terms.txt の term を
+                          本文から除去 or 一般化
+
+意図的に commit したい場合は \`git commit --no-verify\` で bypass 可能
+(escape hatch)。bypass 事例は odakin-prefs/leak-incidents.md に記録
+することを推奨。
+EOF
+
+exit 1
