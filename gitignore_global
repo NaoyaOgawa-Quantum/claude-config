@@ -10,7 +10,11 @@ Thumbs.db
 *.swo
 
 # === Claude Code ===
-.claude/
+# .claude/ の中身は基本 ignore だが、public-repo.marker だけは tracked
+# (leak 防止 hook の visibility 正本)。詳細は
+# claude-config/DESIGN.md §公開リポ leak 防止。
+.claude/*
+!.claude/public-repo.marker
 
 # === LaTeX intermediates (NOT pdf — PDFs are tracked) ===
 *.aux

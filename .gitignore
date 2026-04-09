@@ -3,4 +3,5 @@
 *.swp
 *.swo
 __pycache__/
-.claude/
+.claude/*
+!.claude/public-repo.marker
