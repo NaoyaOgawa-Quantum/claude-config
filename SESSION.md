@@ -61,3 +61,4 @@ dropbox-refs convention 新規追加 (per-repo `dropbox-refs/` symlink + persona
 
 - [ ] **RUNBOOK 系ファイルの実例運用後再検討**: トリガーは「いずれかのリポで CLAUDE.md からランブックを切り出す具体的ニーズが出たとき」。詳細は DESIGN.md「RUNBOOK 系ファイル」セクション参照
 - [ ] **規約 rollout 原則の一般化の再検討**: case 2 発生 (RUNBOOK 導入 or 他 content-reorganization 系 convention 追加) で一般原則 (principles §7 新設など) に昇格するか再判断。1 データポイントでの formalize は YAGNI で defer 中
+- [ ] **principles.md 昇格候補 4 件の再判定**: 2026-04-08 の STALE_DIRT 関連作業で浮上した 4 原則 (Narrower-but-active、Generator owns commit、Event-driven vs time-driven safety net、Multi-commit workflow checkpoint) の再発時昇格。詳細と un-defer トリガーは `DESIGN.md` 末尾「検討事項: principles.md への昇格候補」参照。**最 strong** は Event-driven vs time-driven (既に対比表あり)、最新で 1 データポイントしかないが緊急性が高いのは Multi-commit workflow checkpoint (人間の指示無しで Claude 自身が横断 sweep を実行する習慣づくり)
