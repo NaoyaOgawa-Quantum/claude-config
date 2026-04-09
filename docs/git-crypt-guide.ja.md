@@ -1,6 +1,8 @@
 # git-crypt で機密リポを暗号化する
 
 > **English version**: [git-crypt-guide.md](git-crypt-guide.md)
+>
+> **関連**: [sensitive-repo-patterns.ja.md](sensitive-repo-patterns.ja.md) — git-crypt を使った機密リポの設計パターン集 (ファイル名・commit message・ブートストラップ経路・公開面の最小化など、ツールの使い方よりも一段上の運用設計)
 
 [git-crypt](https://github.com/AGWA/git-crypt) は Git リポジトリ内のファイルを透過的に暗号化する。push 時に暗号化、clone/pull 時に復号されるため、ローカルでは平文で作業しつつ GitHub 上は暗号文で保存できる。
 

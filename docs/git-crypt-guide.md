@@ -1,6 +1,8 @@
 # Encrypting Sensitive Repos with git-crypt
 
 > **日本語版**: [git-crypt-guide.ja.md](git-crypt-guide.ja.md)
+>
+> **Related**: [sensitive-repo-patterns.md](sensitive-repo-patterns.md) — design patterns for repositories containing sensitive data (filename/commit message hygiene, bootstrap chain design, public-surface minimization). One layer above tool mechanics.
 
 [git-crypt](https://github.com/AGWA/git-crypt) transparently encrypts files in a Git repository. Files are encrypted on push and decrypted on clone/pull, so you work with plaintext locally while GitHub stores ciphertext.
 
