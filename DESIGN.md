@@ -523,6 +523,17 @@ sensitive-terms.txt に分離) で当面の risk は大きく下がる。段階 
 (中間解) 方針にし、古い git log に残る既存 leak は受容。`leak-incidents.md`
 に判断を記録。例外: 認証情報、または push 1 時間以内の個人識別情報。
 
+**Tier A regex の 3 ファイル重複** — `public-leak-guard.sh` (PreToolUse)
+/ `public-precommit-runner.sh` (pre-commit) / `audit-public-repos.sh`
+(audit) に同じ 4 regex + allowlist が独立に定義されている。
+`convention-design-principles.md §2` (定義は 1 箇所) に技術的に
+違反するが、以下の理由で現状維持:
+(1) 3 ファイルの実行コンテキストが完全に独立 (Claude hook stdin /
+git diff / git grep)。共通 source file への extract は shell
+portability と debugging 容易性のリスクが利得を上回る。
+(2) Tier A regex 自体は安定 (email / path / ipv4 / token prefix)
+で変更頻度が極めて低い。変更時は 3 ファイルを同時更新する。
+
 **実装順序: 5 セッション分割** — `sensitive-repo-patterns.ja.md §5-2`
 「新規ルールと既存違反の同日 sweep」は同日完結を推奨するが、今回は
 step 数が多いので「1 セッション = 1 論理単位」で分割し、各セッション

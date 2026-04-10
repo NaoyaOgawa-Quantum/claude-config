@@ -31,7 +31,9 @@ set -uo pipefail
 
 HOME_CLAUDE="$HOME/Claude"
 SENSITIVE_TERMS="$HOME/Claude/odakin-prefs/sensitive-terms.txt"
-REPORT="/tmp/public-leak-audit-$(date +%Y%m%d-%H%M%S).md"
+# mktemp で unpredictable filename + owner-only permission
+REPORT="$(mktemp /tmp/public-leak-audit-XXXXXX.md)"
+chmod 600 "$REPORT"
 
 # Tier A regex (public-leak-guard.sh と同じ。
 # 各 pattern を個別に `git grep -nE` して後で allowlist 除外する)
