@@ -153,6 +153,10 @@ if [ -f "$SENSITIVE_TERMS" ] && [ -s "$SENSITIVE_TERMS" ]; then
     HITS="${HITS}
 [tier-b/literal] ${LITERAL_COUNT} line(s) match sensitive-terms.txt in: ${LITERAL_FILES}"
   fi
+else
+  # sensitive-terms.txt が不在または空 — Tier B は skip
+  # Dropbox sync 未完了 or 新 Mac 初回 clone 時に到達する想定
+  echo "[tier-b/skip] sensitive-terms.txt not found or empty — Tier B literal check skipped. Tier A regex check only." >&2
 fi
 
 # ----------------------------------------------------------------------

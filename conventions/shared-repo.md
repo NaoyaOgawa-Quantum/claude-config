@@ -64,6 +64,11 @@ grep -rE '<owner-personal-calendar-id>|<owner-personal-email>' --exclude-dir=.gi
 
 `<owner>` 等は実際の所有者・リポ名に置き換える。所有者は自分の個人層に「公開禁止のキーワード一覧」を持っておくと監査が楽。
 
+> **Note**: 上記の手動 audit は hook 未導入の共同編集者向けの fallback。
+> 個人運用では `hooks/public-leak-guard.sh` (PreToolUse) と
+> `scripts/public-precommit-runner.sh` (pre-commit) で自動化済み。
+> 設計詳細は `DESIGN.md` §公開リポ leak 防止。
+
 ## 共有 git-crypt 鍵パターン
 
 共有プロジェクトを git-crypt で暗号化したい場合、**個人鍵とは別の鍵**を作って共同編集者と共有する。
