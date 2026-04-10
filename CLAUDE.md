@@ -31,15 +31,19 @@ claude-config/
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§2 判別強制）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（警告のみ）
+│   ├── public-leak-guard.sh        # 公開リポ leak 防止 — PreToolUse(Edit|Write|MultiEdit) Tier A 構造制約 regex
 │   ├── git-state-nudge.sh          # PostToolUse(Bash): 直近 commit の未 push 検出 + first-sighting で fetch+stale 検出
 │   └── fix-snapshot-path-patch.sh   # PATH スナップショット自動パッチ（REQUIRED_PATHS 方式、launchd WatchPaths から呼ばれる）
 ├── hammerspoon/
 │   └── init.lua                # Hammerspoon 設定（Claude Cmd+Q 誤終了防止）
 ├── scripts/
-│   ├── fix-bib-unicode.py      # Unicode→LaTeX 変換スクリプト
-│   ├── pre-commit-bib          # Git pre-commit hook（上記を呼ぶ）
-│   ├── dropbox-root.sh         # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
-│   └── setup-dropbox-refs.sh   # personal layer の dropbox-collabs.yaml を読んで symlink を生成
+│   ├── fix-bib-unicode.py              # Unicode→LaTeX 変換スクリプト
+│   ├── pre-commit-bib                  # Git pre-commit hook（上記を呼ぶ）
+│   ├── public-precommit-runner.sh      # 公開リポ pre-commit gate（Tier A + sensitive-terms.txt ephemeral）
+│   ├── install-public-precommit.sh     # 各 public repo に pre-commit stub を冪等配置
+│   ├── audit-public-repos.sh           # 全 public repo の leak 定期監査（週次 scheduled-task 対象）
+│   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
+│   └── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
 ├── docs/
 │   ├── usage-tips.md                 # 運用Tips（English）
 │   ├── usage-tips.ja.md              # 運用Tips（日本語）

@@ -16,6 +16,8 @@
 #   6.  LaTeX リポに pre-commit hook をインストール（Unicode→LaTeX 自動修正）
 #   6b. JHEP.bst を texmf-local にインストール（全リポからグローバル利用）
 #   7.  Hammerspoon 設定をインストール（Claude Cmd+Q 誤終了防止、macOS のみ）
+#   8.  Public repo pre-commit stubs をインストール（`.claude/public-repo.marker`
+#        を持つ repo のみ、冪等）+ missing marker の警告
 #
 # 使い方:
 #   mkdir -p <base> && cd <base>
@@ -166,6 +168,10 @@ HOOK_ENTRIES='[
     "hooks": [{"type": "command", "command": "~/.claude/hooks/memory-guard.sh"}]
   },
   {
+    "matcher": "Edit|Write|MultiEdit",
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/public-leak-guard.sh"}]
+  },
+  {
     "matcher": "Bash",
     "hooks": [{"type": "command", "command": "~/.claude/hooks/memory-guard-bash.sh"}]
   }
@@ -264,7 +270,7 @@ install_hooks() {
                 "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         else
             # PreToolUse が存在する場合、各 hook が含まれているか個別確認
-            for HOOK_CMD in "memory-guard.sh" "memory-guard-bash.sh"; do
+            for HOOK_CMD in "memory-guard.sh" "public-leak-guard.sh" "memory-guard-bash.sh"; do
                 if ! jq -e --arg cmd "$HOOK_CMD" \
                     '.hooks.PreToolUse[] | select(.hooks[]?.command | contains($cmd))' \
                     "$SETTINGS" > /dev/null 2>&1; then
@@ -924,6 +930,53 @@ else
     else
         ln -s "$HS_SRC" "$HS_DST"
         echo "  Created: $HS_DST -> $HS_SRC"
+    fi
+fi
+
+
+# --- 8. Install pre-commit stubs on public repos ---
+# claude-config/hooks/public-leak-guard.sh (PreToolUse) と組み合わせて
+# pre-commit 層で Tier A 構造制約 + Tier B literal (ephemeral) をかける。
+# `.claude/public-repo.marker` を持つ repo のみが対象で、installer が
+# 冪等 (既存 stub は refresh) かつ marker なしは refuse する。
+# `gh repo list --visibility public` と付き合わせて missing marker も
+# 警告する。
+echo ""
+echo "=== Step 8: Installing pre-commit stubs on public repos ==="
+
+INSTALLER="$SCRIPT_DIR/scripts/install-public-precommit.sh"
+if [ ! -x "$INSTALLER" ]; then
+    echo "  WARNING: installer not found or not executable: $INSTALLER"
+else
+    # marker を持つ local repo に install
+    INSTALLED_COUNT=0
+    for d in "$CLAUDE_DIR"/*/; do
+        [ -d "$d.git" ] || continue
+        if [ -f "$d.claude/public-repo.marker" ]; then
+            "$INSTALLER" "${d%/}" 2>&1 | sed 's/^/  /'
+            INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
+        fi
+    done
+    echo "  Installed pre-commit stubs in $INSTALLED_COUNT repo(s) with marker."
+
+    # gh list と marker の diff で missing marker を警告
+    if [ -n "$GH_USER" ] && command -v gh >/dev/null 2>&1; then
+        MISSING_COUNT=0
+        while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            [ -d "$CLAUDE_DIR/$name/.git" ] || continue
+            if [ ! -f "$CLAUDE_DIR/$name/.claude/public-repo.marker" ]; then
+                if [ "$MISSING_COUNT" -eq 0 ]; then
+                    echo ""
+                    echo "  ⚠ Public repos without .claude/public-repo.marker:"
+                fi
+                echo "    - $name"
+                MISSING_COUNT=$((MISSING_COUNT + 1))
+            fi
+        done < <(gh repo list --visibility public --limit 200 --json name --jq '.[].name' 2>/dev/null)
+        if [ "$MISSING_COUNT" -gt 0 ]; then
+            echo "  To opt each in, create \`.claude/public-repo.marker\` and re-run setup.sh."
+        fi
     fi
 fi
 

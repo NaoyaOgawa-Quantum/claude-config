@@ -1,9 +1,34 @@
 # SESSION — claude-config
 
 ## 現在の状態
-**完了**: git-state-nudge.sh に STALE_DIRT 検出を追加 (2026-04-08)。cross-session WIP leakage の汎用 safety net。
+**完了**: 公開リポ leak 防止システム全 5 セッション実装完了 (2026-04-09〜10)。Tier A regex hook + pre-commit Tier B literal check + audit + marker 12 repo 展開 + setup.sh Step 8 追加 + 週次 scheduled-task 登録。
 
-## 今セッションの変更（2026-04-08）
+## 今セッションの変更（2026-04-09〜10）
+
+### 公開リポ leak 防止 — 設計・実装・全 repo 展開
+
+**契機**: LorentzArena (public) で組織環境を暗示する間接表現が 5 ファイル 16 行に累積していた (commit `ae25604` で修正済み)。Claude 側は catch できていなかった。
+
+**設計**: `sensitive-repo-patterns.ja.md §3-3` 優先で構造制約 hook と情報配置分離の 2 本柱。5 セッションで段階実装。詳細は DESIGN.md §公開リポ leak 防止。
+
+**成果物 (主要)**:
+- `hooks/public-leak-guard.sh` — PreToolUse Tier A regex
+- `scripts/public-precommit-runner.sh` — pre-commit Tier A + literal ephemeral
+- `scripts/install-public-precommit.sh` — 冪等 stub installer
+- `scripts/audit-public-repos.sh` — 定期 sweep
+- `.claude/public-repo.marker` — 12 public repo に設置
+- `setup.sh` Step 2 + Step 8 更新
+- `odakin-prefs/sensitive-terms.txt` (gitignore + Dropbox symlink) + `work-network.md` placeholder 化
+- `odakin-prefs/leak-incidents.md` + `next-steps.md`
+- scheduled-task `public-repo-leak-audit-weekly` (毎週月曜 09:23)
+
+**初回 audit 結果**: 12 repo scan、hit 10 sections (全て既存、受容判断済み)、missing markers 0。`leak-incidents.md` に初回 audit エントリ追記済み。
+
+## 過去セッションの変更（2026-04-09 前半）
+
+docs: add sensitive-repo-patterns (ja/en) — 機密情報を含むリポの設計パターン集を `docs/` に追加。conventions: Substack 取得と Gmail MCP read_email の大容量出力パターンを `conventions/substack.md` に記録。
+
+## 過去セッションの変更（2026-04-08）
 
 ### git-state-nudge.sh に STALE_DIRT (porcelain-hash-age) 検出を追加
 

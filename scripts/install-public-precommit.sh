@@ -37,10 +37,16 @@ if [ ! -f "$REPO/.claude/public-repo.marker" ]; then
   exit 1
 fi
 
-# --- hooks dir 取得 (worktree や bare repo でも動く) ---
-# `git rev-parse --git-path hooks` は repo 内からの相対 path を返す
-# ので、REPO に cd してから取得し、相対なら REPO を prefix する。
-HOOKS_DIR="$(cd "$REPO" && git rev-parse --git-path hooks 2>/dev/null || true)"
+# --- hooks dir 取得 (core.hooksPath 対応、worktree や bare repo でも動く) ---
+# 優先順位:
+#   1. core.hooksPath の設定 (per-clone カスタム)
+#   2. git rev-parse --git-path hooks (GIT_DIR/hooks)
+#   3. $REPO/.git/hooks (最終 fallback)
+# 1. と 2. はどちらも repo 内相対 path を返しうるので、相対なら REPO を prefix する。
+HOOKS_DIR="$(cd "$REPO" && git config --get core.hooksPath 2>/dev/null || true)"
+if [ -z "$HOOKS_DIR" ]; then
+  HOOKS_DIR="$(cd "$REPO" && git rev-parse --git-path hooks 2>/dev/null || true)"
+fi
 if [ -z "$HOOKS_DIR" ]; then
   HOOKS_DIR="$REPO/.git/hooks"
 elif [ "${HOOKS_DIR#/}" = "$HOOKS_DIR" ]; then
