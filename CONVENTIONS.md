@@ -19,7 +19,7 @@ cd <name> && git branch -M main
 git add . && git commit -m "Initial commit: <概要>" && git push -u origin main
 ```
 
-description は英語。リポ一覧の正本は **MEMORY.md**。新規作成前に既存リポを確認。
+description は英語。リポ一覧の正本は **`odakin-prefs/repos.md`**。新規作成前に既存リポを確認。
 
 ---
 
