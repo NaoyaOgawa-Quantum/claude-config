@@ -18,7 +18,7 @@
 - `scripts/audit-public-repos.sh` — 定期 sweep
 - `.claude/public-repo.marker` — 12 public repo に設置
 - `setup.sh` Step 2 + Step 8 更新
-- `odakin-prefs/sensitive-terms.txt` (gitignore + Dropbox symlink) + `work-network.md` placeholder 化
+- `odakin-prefs/sensitive-terms.txt` (gitignore + network-notes git-crypt symlink) + `work-network.md` placeholder 化
 - `odakin-prefs/leak-incidents.md` + `next-steps.md`
 - scheduled-task `public-repo-leak-audit-weekly` (毎週月曜 09:23)
 
