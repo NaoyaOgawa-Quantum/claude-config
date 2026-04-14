@@ -287,11 +287,15 @@ check_repo_state() {
 
   # Case (2): just-committed-not-pushed.
   #
-  # Auto-push enforcement (2026-04-14): per push-workflow.md §作業中, the
-  # "commit → push" pairing is treated as atomic in odakin's strict repos.
-  # Instead of just nudging, attempt `git push` from the hook. This makes
-  # the rule mechanically enforced rather than Claude-discipline-dependent.
-  # If BEHIND > 0 we fall back to nudge (need rebase first).
+  # Default: nudge only (per CONVENTIONS §4「コミット後は常に push」—
+  # recommendation, not strict enforcement).
+  #
+  # Opt-in auto-push (2026-04-14): set CLAUDE_GIT_AUTO_PUSH=1 in the
+  # environment and the hook itself will run `git push` after any commit
+  # that's AHEAD>0 / BEHIND=0. Users following odakin-prefs/push-workflow.md
+  # (strict "commit → push atomicity") typically want this; default
+  # claude-config users can stay with nudge-only.
+  # BEHIND > 0 always falls back to nudge (rebase first).
   if [ "$RECENT_COMMIT_NUDGE" -eq 1 ]; then
     printf '[git-nudge] %s%s\n' "$LABEL_PREFIX" "$REPO_ROOT"
     printf '  - You just committed (%ss ago); HEAD is %s commit(s) ahead of %s.\n' \
@@ -300,19 +304,23 @@ check_repo_state() {
       printf '  - DIVERGED: also %s commit(s) BEHIND %s.\n' "$BEHIND" "$UPSTREAM"
       printf '  - Run `git pull --rebase` first, then `git push`. A plain push\n'
       printf '    will be rejected as non-fast-forward. (auto-push skipped)\n'
-    else
-      # Attempt auto-push. Timeout guards against credential prompts /
-      # hung network. Output captured to be shown in nudge.
+    elif [ "${CLAUDE_GIT_AUTO_PUSH:-0}" = "1" ]; then
+      # Attempt auto-push (opt-in). Timeout guards against credential
+      # prompts / hung network. Output captured to be shown in nudge.
       local PUSH_OUT PUSH_RC
       PUSH_OUT="$(cd "$REPO_ROOT" && timeout 20 git push 2>&1)"
       PUSH_RC=$?
       if [ "$PUSH_RC" -eq 0 ]; then
-        printf '  - Auto-pushed (per push-workflow.md "commit → push" atomicity).\n'
+        printf '  - Auto-pushed (CLAUDE_GIT_AUTO_PUSH=1).\n'
       else
         printf '  - AUTO-PUSH FAILED (rc=%s). Investigate:\n' "$PUSH_RC"
         printf '%s\n' "$PUSH_OUT" | sed 's/^/      /'
-        printf '  - Per CONVENTIONS §4: resolve and push manually before continuing.\n'
+        printf '  - Resolve and push manually before continuing.\n'
       fi
+    else
+      printf '  - Per CONVENTIONS §4: コミット後は常に push. Run `git push` now\n'
+      printf '    unless you are intentionally stacking commits.\n'
+      printf '  - (Opt-in: export CLAUDE_GIT_AUTO_PUSH=1 to have this hook auto-push.)\n'
     fi
     echo "$HEAD_SHA" > "$NUDGED_FILE" 2>/dev/null || true
     return 0
