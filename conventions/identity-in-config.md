@@ -43,7 +43,7 @@ odakin の 4 層アーキテクチャ (`docs/personal-layer.md`) に従って、
 ┌─────────────────────────────────────────────────────────────────┐
 │ runtime (local, gitignored)                                     │
 │   <tool>/.env                                                   │
-│   DISCORD_MENTION_ALICE=<@1234567890123456789>                  │
+│   DISCORD_MENTION_ALICE=<@USER_ID>                              │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ os.environ[...] at load time
                            ▼
