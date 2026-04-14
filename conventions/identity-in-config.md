@@ -6,14 +6,16 @@
 
 下のような field は **application config のフォルトラインに紛れこんだ PII** で、email や phone number と同等の識別子として扱う必要がある。しかし field 名が innocent (timeout や retry_count と同クラス) のため、書き手の認識が起動しない。
 
-| 形式 | プラットフォーム | 例 |
+| 形式 | プラットフォーム | 例（placeholder） |
 |---|---|---|
-| `<@NNNNNNNNNNNNNNNNN>` | Discord (user mention) | `<@1234567890123456789>` |
-| `<@&NNNNNNNNNNNNNNNNN>` | Discord (role mention) | `<@&9876543210987654321>` |
+| `<@NNNNNNNNNNNNNNNNN>` | Discord (user mention) | `<@USER_ID>` |
+| `<@&NNNNNNNNNNNNNNNNN>` | Discord (role mention) | `<@&ROLE_ID>` |
 | `UXXXXXXXXXX` / `WXXXXXXXXXX` | Slack (user ID) | `U01A2B3C4D5` |
 | `@user:server.tld` | Matrix | (既存 email regex で拾う) |
 | `@user@instance.tld` | Mastodon / ActivityPub | (既存 email regex で拾う) |
 | 数値のみ (int64) | Telegram / LINE chat ID | regex で拾えない — field 名から推測するしかない |
+
+> **例示の書き方**: 上表および後述の diagram では、例示を `<@USER_ID>` や `<18-digit snowflake>` のように **regex に非マッチな形**で書く。17-20 桁の実数字を例に使うと hook / audit が自分自身の convention doc を false positive として flag する（self-reference 問題）。将来 editor が「例なんだから数字にしよう」と修正したくなっても、**ここはあえて非数字のまま**にするのが正しい。
 
 ### なぜ危険か
 
@@ -34,7 +36,7 @@ odakin の 4 層アーキテクチャ (`docs/personal-layer.md`) に従って、
 │ layer 3 (private, git-crypt)                                    │
 │   research-collab/collaborators.yaml                            │
 │   - id: alice                                                   │
-│     discord_id: "1234567890123456789"  ← 正本                  │
+│     discord_id: "<18-digit snowflake>"  ← 正本                 │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ odakin が手動 (or sync script で)
                            ▼
