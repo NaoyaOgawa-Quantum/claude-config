@@ -32,6 +32,11 @@
 #                      private range / 169.254.*  link-local を allowlist)
 #   4. token_prefix — ghp_[A-Za-z0-9]{30,} / github_pat_[A-Za-z0-9_]{30,}
 #                     / sk-[A-Za-z0-9]{30,}
+#   5. discord_mention — <@&?[0-9]{17,20}>
+#                     Discord snowflake user/role mention. Config field
+#                     names like "mention_target" look innocent but carry
+#                     persistent cross-server PII — see
+#                     `conventions/identity-in-config.md`.
 
 set -uo pipefail
 
@@ -162,6 +167,23 @@ if [ -n "$TOKEN_HITS" ]; then
 [token_prefix] $TOKEN_REDACTED"
 fi
 
+# --- 5. discord_mention ---
+# Discord snowflake user (`<@NNN>`) or role (`<@&NNN>`) mention.
+# Fields like mention_target / notify_user 等は application config の顔
+# をしていても中身は persistent cross-server PII (dox 素材になりうる)。
+# allowlist を設けない: `<@USER_ID>` のような placeholder は数字部分が
+# 17 桁以上にならないため regex に hit しない。
+DISCORD_HITS="$(
+  printf '%s' "$CONTENT" \
+    | grep -oE '<@&?[0-9]{17,20}>' 2>/dev/null \
+    | sort -u \
+    || true
+)"
+if [ -n "$DISCORD_HITS" ]; then
+  HITS="${HITS}
+[discord_mention] $(printf '%s' "$DISCORD_HITS" | head -3 | tr '\n' ' ')"
+fi
+
 # ----------------------------------------------------------------------
 # 判定と出力
 # ----------------------------------------------------------------------
@@ -186,6 +208,9 @@ hit pattern(s):$HITS
   - /Users/<name>/ → \`\$HOME/\` or \`~/\` 相対 path へ
   - IPv4 → 0.0.0.0 / 127.0.0.1 / RFC1918 の汎用例示 IP へ
   - token → 即 revoke + secret manager へ移動
+  - discord_mention → layer 3 (collaborator registry) に canonical を置き、
+    config は \`mention_target_env: DISCORD_MENTION_<NAME>\` で env 変数名のみ保持
+    (詳細: \`conventions/identity-in-config.md\`)
 EOF
 
 jq -n '{

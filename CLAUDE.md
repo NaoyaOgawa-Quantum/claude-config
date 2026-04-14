@@ -24,6 +24,7 @@ claude-config/
 │   ├── mcp.md              # MCP 固有規約（MCP 使用時に参照）
 │   ├── research-email.md   # 研究メール分類・記録規約
 │   ├── collaborators.md    # 共同研究者DB規約
+│   ├── identity-in-config.md # Identity-in-Config 規約（Discord 等 PII-in-disguise、layer 3 + env var bridge）
 │   ├── scheduled-tasks.md  # Scheduled Tasks 規約（SKILL.md 二重構造・同期ルール）
 │   ├── substack.md         # Substack 規約（入稿: Markdown→リッチテキスト変換手順 / 取得: notes・コメントの Gmail MCP + WebFetch 経由回収）
 │   ├── shell-env.md        # シェル環境（PATH 二層防御: .zprofile 修正 + スナップショットパッチ、macOS deny ルール）

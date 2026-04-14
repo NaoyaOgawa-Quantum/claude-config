@@ -6,7 +6,7 @@
 #   2. `~/Claude/<name>/` に存在する repo を対象に絞る
 #   3. 各対象 repo で:
 #        a. `.claude/public-repo.marker` の有無 (missing は warn)
-#        b. Tier A 構造制約 regex (public-leak-guard.sh と同じ 4 種)
+#        b. Tier A 構造制約 regex (public-leak-guard.sh と同じ 5 種)
 #           を `git grep -nE` で適用
 #        c. `$HOME/Claude/odakin-prefs/sensitive-terms.txt` が存在すれば
 #           ephemeral に `git grep -nFf` で literal check
@@ -41,6 +41,7 @@ EMAIL_RE='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 PATH_RE='/Users/[a-z][a-z0-9_-]*'
 IPV4_RE='([0-9]{1,3}\.){3}[0-9]{1,3}'
 TOKEN_RE='(ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9]{30,})'
+DISCORD_ID_RE='<@&?[0-9]{17,20}>'
 
 # ----------------------------------------------------------------------
 # Target repos enumeration
@@ -156,6 +157,17 @@ $(printf '%s\n' "$path_raw" | head -20)
 ### [tier-a/ipv4]
 \`\`\`
 $(printf '%s' "$ipv4_filtered" | head -20)
+\`\`\`"
+  fi
+
+  # discord_mention (Discord snowflake `<@NNN>` / `<@&NNN>`)
+  discord_raw="$(git -C "$repo" grep -nE "$DISCORD_ID_RE" 2>/dev/null || true)"
+  if [ -n "$discord_raw" ]; then
+    repo_hits="${repo_hits}
+
+### [tier-a/discord_mention]
+\`\`\`
+$(printf '%s\n' "$discord_raw" | head -20)
 \`\`\`"
   fi
 
