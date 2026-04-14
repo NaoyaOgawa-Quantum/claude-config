@@ -17,6 +17,7 @@
   alt_email:                  # 複数メールがある場合
     - "alt1@example.com"
   inspire_id: null            # INSPIRE 著者ID（あれば）
+  discord_id: null            # Discord 数値 ID（arxiv-digest 等で mention に使う、あれば）
   projects: [project-id]      # 関連プロジェクト（projects.yaml の id）
   notes: null                 # 備考
 ```
