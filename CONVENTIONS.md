@@ -8,6 +8,8 @@
 > ドメイン固有規約は `conventions/` に分離: [shared-repo.md](conventions/shared-repo.md), [latex.md](conventions/latex.md), [mcp.md](conventions/mcp.md), [research-email.md](conventions/research-email.md), [collaborators.md](conventions/collaborators.md), [identity-in-config.md](conventions/identity-in-config.md), [substack.md](conventions/substack.md), [scheduled-tasks.md](conventions/scheduled-tasks.md), [shell-env.md](conventions/shell-env.md), [dropbox-refs.md](conventions/dropbox-refs.md)
 >
 > **パスの記述規則:** CLAUDE.md・SESSION.md 等でローカルパスを記述する際は `~` で表記（例: `~/Dropbox/...`）。`/Users/odakin/` のようなユーザー固有の絶対パスは共同編集者の環境で壊れるため使わない。
+>
+> **内部参照の規則:** dynamic docs が他 doc のセクションを参照する際は **セクション名 (semantic)** で参照し、行番号は使わない。dynamic docs は snapshot 原理に従い reorg されうるため行番号は安定しない。例: `DESIGN.md § 物理「初回スポーン = リスポーン統一」参照` (◯) / `DESIGN.md:875 参照` (×)。
 
 ---
 
