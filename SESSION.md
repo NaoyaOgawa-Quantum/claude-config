@@ -3,6 +3,8 @@
 ## 現在の状態
 **完了**: 公開リポ leak 防止システム全 5 セッション実装完了 (2026-04-09〜10)。Tier A regex hook + pre-commit Tier B literal check + audit + marker 12 repo 展開 + setup.sh Step 8 追加 + 週次 scheduled-task 登録。
 
+**2026-04-14 追加**: `git-state-nudge.sh` の case (2)「commit 直後で AHEAD>0 / BEHIND=0」分岐に **opt-in auto-push** を追加。`CLAUDE_GIT_AUTO_PUSH=1` が環境変数で設定されている場合のみ hook 自身が `git push` を実行する。default は従来通り nudge のみ (claude-config は public で他ユーザーの流儀を強制しないため)。20s timeout で credential prompt / 固まりを guard。failure 時は `AUTO-PUSH FAILED` で push 出力を表示するので Claude/ユーザーが手動 resolve 可。詳細は odakin-prefs/push-workflow.md と odakin-prefs/shell-env.md。
+
 ## 今セッションの変更（2026-04-09〜10）
 
 ### 公開リポ leak 防止 — 設計・実装・全 repo 展開
