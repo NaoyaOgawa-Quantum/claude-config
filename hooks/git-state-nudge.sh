@@ -286,6 +286,12 @@ check_repo_state() {
   fi
 
   # Case (2): just-committed-not-pushed.
+  #
+  # Auto-push enforcement (2026-04-14): per push-workflow.md §作業中, the
+  # "commit → push" pairing is treated as atomic in odakin's strict repos.
+  # Instead of just nudging, attempt `git push` from the hook. This makes
+  # the rule mechanically enforced rather than Claude-discipline-dependent.
+  # If BEHIND > 0 we fall back to nudge (need rebase first).
   if [ "$RECENT_COMMIT_NUDGE" -eq 1 ]; then
     printf '[git-nudge] %s%s\n' "$LABEL_PREFIX" "$REPO_ROOT"
     printf '  - You just committed (%ss ago); HEAD is %s commit(s) ahead of %s.\n' \
@@ -293,10 +299,20 @@ check_repo_state() {
     if [ "$BEHIND" -gt 0 ]; then
       printf '  - DIVERGED: also %s commit(s) BEHIND %s.\n' "$BEHIND" "$UPSTREAM"
       printf '  - Run `git pull --rebase` first, then `git push`. A plain push\n'
-      printf '    will be rejected as non-fast-forward.\n'
+      printf '    will be rejected as non-fast-forward. (auto-push skipped)\n'
     else
-      printf '  - Per CONVENTIONS §4: コミット後は常に push. Run `git push` now\n'
-      printf '    unless you are intentionally stacking commits.\n'
+      # Attempt auto-push. Timeout guards against credential prompts /
+      # hung network. Output captured to be shown in nudge.
+      local PUSH_OUT PUSH_RC
+      PUSH_OUT="$(cd "$REPO_ROOT" && timeout 20 git push 2>&1)"
+      PUSH_RC=$?
+      if [ "$PUSH_RC" -eq 0 ]; then
+        printf '  - Auto-pushed (per push-workflow.md "commit → push" atomicity).\n'
+      else
+        printf '  - AUTO-PUSH FAILED (rc=%s). Investigate:\n' "$PUSH_RC"
+        printf '%s\n' "$PUSH_OUT" | sed 's/^/      /'
+        printf '  - Per CONVENTIONS §4: resolve and push manually before continuing.\n'
+      fi
     fi
     echo "$HEAD_SHA" > "$NUDGED_FILE" 2>/dev/null || true
     return 0
