@@ -34,9 +34,36 @@ description は英語。リポ一覧の正本は個人層の `repos.md`（未設
 | `CLAUDE.md` | 永続的な構造・実行方法・復帰手順の**記述** (「こうなっている」の事実、判断理由は DESIGN.md へ)。構造変更時のみ更新 |
 | `SESSION.md` | 揮発的な現在状態（作業中タスク・直近の決定）。進行に応じて更新 |
 | `DESIGN.md` | 現在採用されている設計**判断**・Defer 判断・横断原則 (LESSON) の snapshot。Why / 代替案 / tradeoff を記録。判断が生じたら即記録、超越されたら `docs/convention-design-principles.md` §7 の lifecycle で処理 (pedagogy 抽出後に旧本体削除、履歴は git log)。構造の記述は CLAUDE.md へ。未決定の探索は `EXPLORING.md`（任意）へ |
+| `README.md` / `README.ja.md` | **外部訪問者向けの玄関** (public リポで必須、private リポでは任意)。30 秒で「何か / 使うか」を判断させる index。構造ツリー・setup 手順の enumeration・規約本体・設計根拠は **正本 (CLAUDE.md / CONVENTIONS.md / DESIGN.md / conventions/ / docs/) へリンクするだけ** で、README 内に転載しない。詳細は下の「README の流儀」 |
 | `.gitignore` | ビルド成果物・OS/エディタファイル・機密情報の除外。共有リポでは全パターン明記 |
 
-CLAUDE.md は「どうなっているか」(descriptive)、DESIGN.md は「なぜそうしたか」(judgmental)、SESSION.md は「今どこにいるか」(揮発的)。
+CLAUDE.md は「どうなっているか」(descriptive)、DESIGN.md は「なぜそうしたか」(judgmental)、SESSION.md は「今どこにいるか」(揮発的)、README は「外の人が 30 秒で判断するための玄関」。
+
+### README の流儀
+
+**役割**: GitHub を開いた未知の訪問者が、(a) これは何か、(b) 自分の問題を解くか、(c) 次にどこを読むべきか、を短時間で判断するための index。リポの開発者・Claude 自身が日常作業で読むのは CLAUDE.md / SESSION.md で、README ではない。
+
+**言語別ファイルの命名**: 英語 README を `README.md`、日本語 README を `README.ja.md` (他言語も ISO 639-1 サフィックス)。**相互リンクや tips リンクのラベルは英語に統一** (`English version` / `Japanese version` / `English tips` / `Japanese tips` 等) — 英語話者は日本語文字を読めないので英語 README 内に「日本語版」のような日本語文字を置くと引っかかる。逆方向は日本語話者も `English` 程度の英語は読めるため、対称を崩して「英語版」と書くより両方を英語ラベルで統一する方が単純でミスが起きにくい。
+
+**推奨セクション構成** (public リポ):
+1. 1 行 tagline + 他言語版があれば相互リンク (上記の命名規則で)
+2. **Why this exists** — 動機・解く問題
+3. **具体例を 1 つ** — 抽象説明ではなく、このリポが何を起こすかを示す short walkthrough (例: autocompact 復帰の 3 ステップ、典型ワークフロー の before/after)
+4. **Quick start** — 1 コマンドだけ。詳細な手順は CLAUDE.md へのリンク
+5. **What's where / どこに何があるか** — 正本ファイルと主要ディレクトリへの bullet リスト (各 1–2 行)。構造ツリーは張らず CLAUDE.md を参照
+6. **Core concepts** (必要なら) — 核となる設計の 2–4 項目を 1 行ずつ要約、詳細は CONVENTIONS.md / DESIGN.md へのリンク
+7. Customization / License
+
+**禁忌** (これが書かれていたら引き剥がす):
+- `setup.sh` / bootstrap script の全手順を enumerate する → CLAUDE.md が正本、README はリンクのみ
+- 完全なディレクトリ構造ツリー → CLAUDE.md が正本
+- 規約本体の表・判別ルールの転載 → CONVENTIONS.md / 対応する `conventions/*.md` へリンク
+- 設計根拠・トレードオフの議論 → DESIGN.md が正本
+- SESSION 的な現在進捗 (「現在〜を実装中」)
+
+**判定規則**: 同じ情報が README と CLAUDE.md/CONVENTIONS.md/DESIGN.md の両方にあるときは、**README 側を削ってリンクに置き換える** (正本の update で README がドリフトするため)。例外は「具体例を 1 つ」のセクションで、これは訪問者の判断のために意図的に短い再構成を置いてよい。
+
+**他リポ整備時**: 既存リポが claude-config 準拠になったとき、README を上のパターンで整える。CLAUDE.md / SESSION.md / DESIGN.md の整備と並行で行い、重複が見つかれば README 側を削る。
 
 ### 任意ファイル
 

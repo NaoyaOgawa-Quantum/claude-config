@@ -6,17 +6,19 @@
 
 ## なぜこのリポが必要か
 
-Claude Code のコンテキストウィンドウは有限で、長い会話は圧縮（autocompact）される。構造化された復帰パスがなければ、作業中の状態は失われる。プロジェクトが増えるほどこの問題は倍増し、手作業で規律を維持するのは現実的でない。
+Claude Code のコンテキストウィンドウは有限で、長い会話は圧縮（autocompact）される。構造化された復帰パスがなければ作業中の状態は失われる。プロジェクトが増えるほどこの問題は倍増し、手作業で規律を維持するのは現実的でない。
 
-このリポが提供するもの:
+このリポは、正本として 1 つの規約 ([`CONVENTIONS.md`](CONVENTIONS.md)) をワークスペースへ symlink し、それを機械的に強制する hooks を備えることで、全プロジェクトに重複なく同じプロトコルを適用する。
 
-- **CONVENTIONS.md** — 「何をどこに書くか」のルール一式。autocompact 復帰が常に機能する
-- **conventions/** — ドメイン固有規約（LaTeX、MCP、共有リポ）。必要な場面でのみロード
-- **setup.sh** — ワンコマンドでセットアップ完了: symlink・hooks・パーミッション・全リポ clone
-- **hooks/** — 規約を機械的に強制する Claude Code hooks
-- **scripts/** — Git pre-commit hooks（LaTeX Unicode 自動修正）
+## 具体例: autocompact 復帰
 
-規約の正本を1つだけ持ち、ワークスペースに symlink する。全プロジェクトが重複なく同じプロトコルに従う。
+長いセッションのあと Claude Code は会話を圧縮する。構造化された復帰パスがなければ「今どこにいたか」が失われる。このセットアップでは:
+
+1. `CLAUDE.md` は常にコンテキストに載っている。末尾の **How to Resume** が「SESSION.md を読め」と指示する。
+2. `SESSION.md` に現在のタスク・進捗・未決事項がある（作業中は継続的に更新）。
+3. Claude は説明し直さずに中断点から再開できる。
+
+生命線は `SESSION.md` を陳腐化させないこと。`git push` 前の 4 軸レビュー（整合性・無矛盾性・効率性・安全性）がドリフトを出荷前に捕まえる — 実運用ではほぼ毎回何かが見つかる。
 
 ## クイックスタート
 
@@ -26,167 +28,28 @@ gh repo clone <your-username>/claude-config
 cd claude-config && ./setup.sh
 ```
 
-`setup.sh` が行うこと:
+`setup.sh` は symlink・グローバル gitignore・Claude Code hooks とパーミッション・`post-merge` による自動同期・LaTeX pre-commit hooks・git-crypt 自動 unlock、macOS では PATH スナップショット修正と Hammerspoon 設定（オプション）までを一括で処理する。**全ステップの列挙と副作用の範囲**は [CLAUDE.md](CLAUDE.md) を参照。
 
-1. `CONVENTIONS.md` を親ディレクトリに symlink
-2. グローバル gitignore をインストール（`~/.gitignore_global` → `claude-config/gitignore_global`）
-3. Claude Code hooks（memory-guard）を `~/.claude/hooks/` にインストール + `settings.json` に設定マージ
-4. *(macOS のみ)* launchd エージェントをインストール（スナップショット PATH 自動修正）
-5. Claude Code パーミッション設定 — 安全なツール（Bash, Read, Edit, Write, Glob, Grep, WebFetch, WebSearch）を自動許可
-6. git `post-merge` hook をインストール（`git pull` 後に自動同期）
-7. GitHub 上の全リポを clone（既存はスキップ）
-   - *(条件付き)* 個人層 (`.claude-personal-layer` マーカーを持つ兄弟ディレクトリ) を検出し、`<base>/CLAUDE.md` をその個人層へ symlink。詳細は [`docs/personal-layer.md`](docs/personal-layer.md)
-   - *(条件付き)* 個人層に `dropbox-collabs.yaml` があれば `scripts/setup-dropbox-refs.sh` を呼んで `<base>/<repo>/dropbox-refs` symlink を Dropbox 配下に張る + 個人層 `.git/hooks/post-merge` に同スクリプトを install (次回 `git pull` で再生成)。詳細は [`conventions/dropbox-refs.md`](conventions/dropbox-refs.md)
-8. LaTeX リポに pre-commit hook をインストール（`.tex`/`.bib` の Unicode→LaTeX 自動修正）
-9. *(条件付き)* git-crypt 暗号化リポを自動 unlock（`~/.secrets/git-crypt.key` が存在する場合のみ）
-10. *(条件付き)* Hammerspoon 設定をインストール（macOS + Hammerspoon インストール済みの場合のみ）
+Windows（MSYS/Cygwin）では symlink の代わりにファイルコピーを使い、`post-merge` hook が自動同期する。
 
-> **`<base>`** = `claude-config` を clone した親ディレクトリ（例: `~/Claude/`）。`setup.sh` が自動検出。
+## どこに何があるか
 
-Windows（MSYS/Cygwin）では symlink の代わりにファイルコピーを使用し、`post-merge` hook が自動同期する。
-
-## リポ構成
-
-```
-~/Claude/                       # 推奨ベースディレクトリ
-├── CONVENTIONS.md → claude-config/CONVENTIONS.md  (symlink)
-├── claude-config/              # このリポ
-│   ├── CLAUDE.md               # リポ固有の指示書
-│   ├── SESSION.md              # 現在の作業状態・残タスク
-│   ├── CONVENTIONS.md          # 共有規約（正本）
-│   ├── README.md               # English 版
-│   ├── README.ja.md            # このファイル（日本語）
-│   ├── setup.sh                # セットアップスクリプト
-│   ├── DESIGN.md               # 設計判断とその理由
-│   ├── conventions/            # ドメイン固有規約
-│   │   ├── shared-repo.md      # 共有リポ: Git workflow、.gitignore、~ パス
-│   │   ├── latex.md            # LaTeX: 式の安全規則、コンパイラ、JHEP.bst、pre-commit
-│   │   ├── mcp.md              # MCP/GCal: 操作前確認、命名規則
-│   │   ├── research-email.md   # 研究メール分類・記録規約
-│   │   ├── collaborators.md    # 共同研究者DB規約
-│   │   ├── scheduled-tasks.md  # Scheduled Tasks: SKILL.md 二重構造・同期ルール
-│   │   ├── substack.md         # Substack: Markdown→リッチテキスト変換手順
-│   │   ├── shell-env.md        # シェル環境: PATH スナップショット修正、macOS deny ルール
-│   │   └── dropbox-refs.md     # Dropbox 上の共同 PDF をリポから symlink で参照する規約
-│   ├── hooks/                  # Claude Code hooks
-│   │   ├── memory-guard.sh             # Edit/Write ガード
-│   │   ├── memory-guard-bash.sh        # Bash ガード（警告のみ）
-│   │   ├── git-state-nudge.sh          # PostToolUse(Bash): 直近 commit 未 push 検出 + first-sighting fetch
-│   │   └── fix-snapshot-path-patch.sh  # PATH スナップショット修正（launchd 用）
-│   ├── scripts/                # Git hooks + 補助スクリプト
-│   │   ├── fix-bib-unicode.py      # Unicode→LaTeX 変換
-│   │   ├── pre-commit-bib          # pre-commit hook シェルラッパー
-│   │   ├── dropbox-root.sh         # Dropbox install root を OS 横断で resolve
-│   │   └── setup-dropbox-refs.sh   # personal layer の YAML から symlink 生成
-│   ├── hammerspoon/            # Hammerspoon 設定（macOS）
-│   │   └── init.lua                # Claude Cmd+Q 誤終了防止（eventtap）
-│   ├── docs/
-│   │   ├── usage-tips.md           # 運用Tips（English）
-│   │   ├── usage-tips.ja.md        # 運用Tips（日本語）
-│   │   ├── git-crypt-guide.md      # git-crypt 暗号化ガイド（English）
-│   │   └── git-crypt-guide.ja.md   # git-crypt 暗号化ガイド（日本語）
-│   ├── gitignore_global        # → ~/.gitignore_global (symlink)
-│   ├── gfm-rules.md            # CJK markdown リファレンス
-│   └── LICENSE                  # MIT
-├── project-a/
-├── project-b/
-└── ...
-```
-
-各プロジェクトの `CLAUDE.md` は `CONVENTIONS.md` を共通規約として参照し、`conventions/*.md` のドメイン固有規約を必要に応じて参照する。ドメイン規約は必要な場面でのみロードされ、毎セッションでは読まれない。
-
-## 含まれるもの
-
-### CONVENTIONS.md
-
-全プロジェクト共通の規約。詳細は [CONVENTIONS.md](CONVENTIONS.md) 参照。
-
-### conventions/
-
-ドメイン固有規約。必要な場面でのみロード:
-
-- **[shared-repo.md](conventions/shared-repo.md)** — 共有リポ向けルール: Git workflow ガード、`.gitignore` 要件、`~` パス禁止
-- **[latex.md](conventions/latex.md)** — LaTeX 固有ルール: 式の安全規則（AI による無断編集禁止）、コンパイラ設定、`JHEP.bst`、Unicode クリーンアップ pre-commit hook
-- **[mcp.md](conventions/mcp.md)** — MCP コネクタルール: 操作前のアカウント確認、Google Calendar 命名規則
-- **[research-email.md](conventions/research-email.md)** — 研究メール分類・記録規約
-- **[collaborators.md](conventions/collaborators.md)** — 共同研究者DB スキーマ・更新ルール
-- **[scheduled-tasks.md](conventions/scheduled-tasks.md)** — Scheduled Tasks: SKILL.md 二重構造・同期ルール
-- **[substack.md](conventions/substack.md)** — Substack: Markdown→リッチテキスト変換手順
-- **[shell-env.md](conventions/shell-env.md)** — シェル環境: Claude Code デスクトップ版の PATH 修正、macOS 危険コマンド deny ルール
-- **[dropbox-refs.md](conventions/dropbox-refs.md)** — リポ直下に `dropbox-refs/` symlink を置いて Dropbox 上の共同 PDF を per-machine で参照する規約。Dropbox の install 場所が OS / user で違う問題を personal layer の YAML registry で吸収
-
-### Hooks: memory-guard
-
-CONVENTIONS.md §2 は情報の書き先を明確に定義している:
-
-| 情報の性質 | 書き先 |
-|---|---|
-| ユーザーの好み・フィードバック・外部参照 | メモリ（`~/.claude/`） |
-| 現在の作業状態・タスク | SESSION.md |
-| 永続的な仕様・構造 | CLAUDE.md |
-| 設計判断とその理由 | DESIGN.md |
-| 全プロジェクト共通の規約 | CONVENTIONS.md |
-| コード・git から導出可能 | 書かない |
-
-memory-guard hooks はこの判別を機械的に強制する:
-
-- **`memory-guard.sh`**（Edit/Write 対象）— メモリディレクトリへの書き込み時にユーザー確認を表示。書き先が本当にメモリで正しいか確認を促す。MEMORY.md（インデックス）は通過。
-- **`memory-guard-bash.sh`**（Bash 対象）— シェルコマンドでメモリへの書き込みを検出したら警告。ブロックはしない（誤検知リスクがあるため）。
-
-どちらも `setup.sh` が symlink でインストールするため、`git pull` で自動更新。
-
-### Scripts
-
-- **`fix-bib-unicode.py`** — `.tex`/`.bib` ファイル中の非 LaTeX Unicode 文字（em ダッシュ、波ダッシュ、丸括弧付き数字等）を LaTeX 等価物に変換
-- **`pre-commit-bib`** — 上記スクリプトを自動実行する Git pre-commit hook。`setup.sh` が LaTeX ファイルを含むリポにインストール。
-
-### 暗号化
-
-- **[git-crypt-guide.ja.md](docs/git-crypt-guide.ja.md)** — git-crypt で機密リポを暗号化する方法: セットアップ、鍵管理、`.gitattributes` 設定、複数リポでの鍵共有、トラブルシューティング。`setup.sh` は鍵があれば自動 unlock する。
-
-### その他
-
-- **`gitignore_global`** — OS ファイル・TeX 中間ファイル・エディタファイルのグローバル gitignore。`setup.sh` が `~/.gitignore_global` に symlink。
-- **`gfm-rules.md`** — GFM で CJK テキストを扱う際のレンダリング問題リファレンス。bold マーカー（`**`）が日本語文字に隣接すると崩れる問題と回避策。
+- **[CONVENTIONS.md](CONVENTIONS.md)** — 規約本体。何をどこに書くか、安全ガードレール、push プロトコル、情報書き先の判別表。
+- **[CLAUDE.md](CLAUDE.md)** — このリポの運用ドキュメント: ディレクトリツリー、`setup.sh` の全手順、復帰方法。
+- **[DESIGN.md](DESIGN.md)** — 規約がこの形になっている理由、設計判断、代替案、トレードオフ。
+- **[conventions/](conventions/)** — ドメイン固有規約（LaTeX, MCP, 共有リポ, Substack, Scheduled Tasks, shell 環境, Dropbox refs, …）。各ファイルの冒頭に「いつロードするか」が書いてある。
+- **[docs/](docs/)** — 運用 Tips, git-crypt ガイド, 機密リポ設計パターン, 規約設計の原則。[日本語 Tips](docs/usage-tips.ja.md) または [English tips](docs/usage-tips.md) から。
+- **[hooks/](hooks/) と [scripts/](scripts/)** — 機械的強制: memory-guard, git-state-nudge, public-leak-guard, LaTeX Unicode 自動修正, 公開リポ監査。
 
 ## 核となるコンセプト
 
-### CLAUDE.md と SESSION.md
-
-- **CLAUDE.md** = 「このプロジェクトの作業方法」— 構造、ビルドコマンド、復帰手順。更新は稀。
-- **SESSION.md** = 「今どこにいるか」— 現在のタスク、進捗、直近の決定。継続的に更新。
-
-この分離が autocompact 復帰の土台: CLAUDE.md は常に読み込まれ、「How to Resume」セクションが SESSION.md を指し、SESSION.md に作業継続に必要な全情報がある。
-
-### push 前チェック
-
-`git push` の前に、SESSION.md と CLAUDE.md がプロジェクトの実態を反映しているか確認する。4軸レビュー（整合性・無矛盾性・効率性・安全性）を含むプロトコル。この1つの習慣がドキュメントの陳腐化を防ぐ — 実運用では、ほぼ毎回何か見つかる。
-
-### autocompact 復帰
-
-Claude Code のコンテキストが圧縮されたとき:
-
-1. CLAUDE.md が自動読み込みされる（常にコンテキスト内）
-2. 「How to Resume」セクションが SESSION.md の参照を指示
-3. SESSION.md が現在の状態・残タスク・直近の決定を提供
-4. シームレスに作業を継続
-
-SESSION.md の正確さが生命線。古ければ復帰は失敗する。
-
-### 安全規則
-
-[CONVENTIONS.md §5](CONVENTIONS.md) および [conventions/latex.md](conventions/latex.md)（LaTeX 固有ルール）参照。
-
-## 運用Tips
-
-20以上のプロジェクトの実運用で見つけた実践パターン:
-
-- **日本語**: [docs/usage-tips.ja.md](docs/usage-tips.ja.md)
-- **English**: [docs/usage-tips.md](docs/usage-tips.md)
+- **CLAUDE.md と SESSION.md** — CLAUDE.md は「このプロジェクトの作業方法」（更新稀）、SESSION.md は「今どこにいるか」（継続更新）。この分離が autocompact 復帰を確実なものにする。
+- **情報の書き先** — すべての情報に正しい住所がある（メモリ / SESSION.md / CLAUDE.md / DESIGN.md / CONVENTIONS.md / 書かない）。表と論拠は [CONVENTIONS.md §2](CONVENTIONS.md)。`memory-guard` hooks がメモリディレクトリへの Edit/Write を機械的に検査する。
+- **push 前 4 軸レビュー** — `git push` の前に整合性・無矛盾性・効率性・安全性をチェック。詳細は [CONVENTIONS.md §3](CONVENTIONS.md)。
 
 ## カスタマイズ
 
-フォークして CONVENTIONS.md を自分のワークフローに合わせて編集する。規約は日本語だが構造は言語非依存。`setup.sh` は認証ユーザーを自動検出するのでそのまま動作する。
+フォーク後、自分のワークフローに合わせて `CONVENTIONS.md` と `conventions/` を編集し、各マシンで `./setup.sh` を走らせる。
 
 ## ライセンス
 
