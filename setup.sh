@@ -703,11 +703,58 @@ HOOK_EOF
     fi
 fi
 
-# --- 5b. Unlock git-crypt repos ---
+# --- 5b. Recover shared keys from Dropbox + Unlock git-crypt repos ---
 # git-crypt + 鍵が両方ある場合のみ実行（なければサイレントスキップ）
 GIT_CRYPT_KEY="$HOME/.secrets/git-crypt.key"
+DROPBOX_ROOT_SCRIPT="$SCRIPT_DIR/scripts/dropbox-root.sh"
 
-if command -v git-crypt &> /dev/null && [ -f "$GIT_CRYPT_KEY" ]; then
+# 5b-pre: Recover missing shared keys from Dropbox encrypted backups
+# 各リポの .claude/git-crypt-backup に Dropbox-relative パスが書かれていれば、
+# ~/.secrets/<repo>.key が無い場合に openssl で復号を試みる（パスフレーズ入力のみ対話）
+if command -v git-crypt &> /dev/null && [ -x "$DROPBOX_ROOT_SCRIPT" ]; then
+    DROPBOX_ROOT="$("$DROPBOX_ROOT_SCRIPT" 2>/dev/null)" || true
+    if [ -n "$DROPBOX_ROOT" ]; then
+        RECOVERED=0
+        for REPO_DIR in "$CLAUDE_DIR"/*/; do
+            [ -d "$REPO_DIR/.git" ] || continue
+            [ -f "$REPO_DIR/.gitattributes" ] || continue
+            grep -q "git-crypt" "$REPO_DIR/.gitattributes" 2>/dev/null || continue
+            REPO_NAME="$(basename "$REPO_DIR")"
+            REPO_KEY="$HOME/.secrets/${REPO_NAME}.key"
+            BACKUP_CONF="$REPO_DIR/.claude/git-crypt-backup"
+
+            # 鍵が既にある or backup 設定がない → スキップ
+            [ -f "$REPO_KEY" ] && continue
+            [ -f "$BACKUP_CONF" ] || continue
+
+            BACKUP_REL="$(head -1 "$BACKUP_CONF" | tr -d '\r')"
+            [ -z "$BACKUP_REL" ] && continue
+            BACKUP_PATH="$DROPBOX_ROOT/$BACKUP_REL"
+
+            if [ -f "$BACKUP_PATH" ]; then
+                echo ""
+                echo "  Key missing for $REPO_NAME — encrypted backup found in Dropbox."
+                echo "  Decrypting: $BACKUP_PATH"
+                mkdir -p "$HOME/.secrets"
+                if /usr/bin/openssl enc -aes-256-cbc -d -pbkdf2 \
+                    -in "$BACKUP_PATH" \
+                    -out "$REPO_KEY" 2>&1; then
+                    chmod 600 "$REPO_KEY"
+                    echo "  Recovered: $REPO_KEY"
+                    RECOVERED=$((RECOVERED + 1))
+                else
+                    echo "  WARNING: Decryption failed for $REPO_NAME. Skipping."
+                    rm -f "$REPO_KEY"
+                fi
+            fi
+        done
+        if [ "$RECOVERED" -gt 0 ]; then
+            echo "  Recovered $RECOVERED shared key(s) from Dropbox."
+        fi
+    fi
+fi
+
+if command -v git-crypt &> /dev/null && { [ -f "$GIT_CRYPT_KEY" ] || ls "$HOME"/.secrets/*.key &>/dev/null; }; then
     echo ""
     echo "=== Step 5b: Unlocking git-crypt repos ==="
     UNLOCKED=0
@@ -730,9 +777,13 @@ if command -v git-crypt &> /dev/null && [ -f "$GIT_CRYPT_KEY" ]; then
                 fi
                 echo "    shared key failed, trying personal key ..."
             fi
-            echo "  Unlocking $REPO_NAME ..."
-            (cd "$REPO_DIR" && git-crypt unlock "$GIT_CRYPT_KEY" 2>&1 | sed 's/^/    /')
-            UNLOCKED=$((UNLOCKED + 1))
+            if [ -f "$GIT_CRYPT_KEY" ]; then
+                echo "  Unlocking $REPO_NAME ..."
+                (cd "$REPO_DIR" && git-crypt unlock "$GIT_CRYPT_KEY" 2>&1 | sed 's/^/    /')
+                UNLOCKED=$((UNLOCKED + 1))
+            else
+                echo "  WARNING: No key available for $REPO_NAME. Skipping."
+            fi
         else
             SKIPPED_CRYPT=$((SKIPPED_CRYPT + 1))
         fi
