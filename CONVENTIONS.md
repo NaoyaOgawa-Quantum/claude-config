@@ -5,7 +5,7 @@
 > **正本は `~/Claude/claude-config/CONVENTIONS.md`。** `~/Claude/CONVENTIONS.md` は symlink。
 > 編集後は `cd ~/Claude/claude-config && git add -A && git commit && git push`。
 > **規約を追加・修正する前に** [docs/convention-design-principles.md](docs/convention-design-principles.md) を読むこと（配置原則・重複回避・追加判断基準）。
-> ドメイン固有規約は `conventions/` に分離: [shared-repo.md](conventions/shared-repo.md), [latex.md](conventions/latex.md), [mcp.md](conventions/mcp.md), [research-email.md](conventions/research-email.md), [collaborators.md](conventions/collaborators.md), [identity-in-config.md](conventions/identity-in-config.md), [substack.md](conventions/substack.md), [scheduled-tasks.md](conventions/scheduled-tasks.md), [shell-env.md](conventions/shell-env.md), [dropbox-refs.md](conventions/dropbox-refs.md), [preview.md](conventions/preview.md)
+> ドメイン固有規約は `conventions/` に分離: [shared-repo.md](conventions/shared-repo.md), [latex.md](conventions/latex.md), [mcp.md](conventions/mcp.md), [research-email.md](conventions/research-email.md), [collaborators.md](conventions/collaborators.md), [identity-in-config.md](conventions/identity-in-config.md), [substack.md](conventions/substack.md), [scheduled-tasks.md](conventions/scheduled-tasks.md), [shell-env.md](conventions/shell-env.md), [dropbox-refs.md](conventions/dropbox-refs.md), [preview.md](conventions/preview.md), [google-url.md](conventions/google-url.md)
 >
 > **パスの記述規則:** CLAUDE.md・SESSION.md 等でローカルパスを記述する際は `~` で表記（例: `~/Dropbox/...`）。`/Users/odakin/` のようなユーザー固有の絶対パスは共同編集者の環境で壊れるため使わない。
 >
