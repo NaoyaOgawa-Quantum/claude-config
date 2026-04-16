@@ -81,4 +81,5 @@ Classroom 2026 量子力学: https://classroom.google.com/c/ODU5MTM4NTYxMjg5
 ## 既存の具体例 (この規則が適用される箇所)
 
 - `lectures/CLAUDE.md` の Classroom クラス一覧: stable URL `classroom.google.com/c/{ID}` を使用 (本規則の初出 context、本ファイル新設の契機)
-- `odakin-prefs/user-profile.md` の「ブラウザでアクセス: `/mail/u/1/`」: これは odakin 本人がブラウザで開く用の meta 情報であって、Claude が生成する URL の規範ではない。混同しない
+- `odakin-prefs/user-profile.md` の「ブラウザでアクセス」: 2026-04-16 に `/u/1/` → `authuser=<email>` 形式に修正済み。本規則と整合
+- `odakin-prefs/hooks/google-url-guard.sh`: PreToolUse hook で `/u/N/` パターンを機械的にブロック (2026-04-16 追加)。settings.json への登録が別途必要 (マシンローカル)
