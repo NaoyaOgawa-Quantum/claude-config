@@ -709,8 +709,10 @@ GIT_CRYPT_KEY="$HOME/.secrets/git-crypt.key"
 DROPBOX_ROOT_SCRIPT="$SCRIPT_DIR/scripts/dropbox-root.sh"
 
 # 5b-pre: Recover missing shared keys from Dropbox encrypted backups
-# 各リポの .claude/git-crypt-backup に Dropbox-relative パスが書かれていれば、
-# ~/.secrets/<repo>.key が無い場合に openssl で復号を試みる（パスフレーズ入力のみ対話）
+# 各リポの .claude/git-crypt-backup にファイル名 (例: twcu-phys-web.key.enc) が
+# 書かれていれば、~/.secrets/<repo>.key が無い場合に Dropbox 内を find で検索し、
+# 見つかったら openssl で復号を試みる（パスフレーズ入力のみ対話）。
+# 共有フォルダの受け手側パスが異なっていても find で発見できる。
 if command -v git-crypt &> /dev/null && [ -x "$DROPBOX_ROOT_SCRIPT" ]; then
     DROPBOX_ROOT="$("$DROPBOX_ROOT_SCRIPT" 2>/dev/null)" || true
     if [ -n "$DROPBOX_ROOT" ]; then
@@ -727,32 +729,33 @@ if command -v git-crypt &> /dev/null && [ -x "$DROPBOX_ROOT_SCRIPT" ]; then
             [ -f "$REPO_KEY" ] && continue
             [ -f "$BACKUP_CONF" ] || continue
 
-            BACKUP_REL="$(head -1 "$BACKUP_CONF" | tr -d '\r')"
-            [ -z "$BACKUP_REL" ] && continue
-            BACKUP_PATH="$DROPBOX_ROOT/$BACKUP_REL"
+            BACKUP_FILENAME="$(head -1 "$BACKUP_CONF" | tr -d '\r')"
+            [ -z "$BACKUP_FILENAME" ] && continue
 
-            if [ -f "$BACKUP_PATH" ]; then
-                echo ""
-                echo "  Key missing for $REPO_NAME — encrypted backup found in Dropbox."
-                echo "  Decrypting: $BACKUP_PATH"
-                install -d -m 700 "$HOME/.secrets"
-                TMPKEY="$(mktemp "$HOME/.secrets/.tmp.XXXXXX")"
-                if /usr/bin/openssl enc -aes-256-cbc -d -pbkdf2 \
-                    -in "$BACKUP_PATH" \
-                    -out "$TMPKEY"; then
-                    if [ -s "$TMPKEY" ]; then
-                        chmod 600 "$TMPKEY"
-                        mv "$TMPKEY" "$REPO_KEY"
-                        echo "  Recovered: $REPO_KEY"
-                        RECOVERED=$((RECOVERED + 1))
-                    else
-                        echo "  WARNING: Decrypted key is empty for $REPO_NAME. Skipping."
-                        rm -f "$TMPKEY"
-                    fi
+            # Dropbox 内を find で検索（maxdepth 5 で十分深い）
+            BACKUP_PATH="$(find "$DROPBOX_ROOT" -maxdepth 5 -name "$BACKUP_FILENAME" -print -quit 2>/dev/null)"
+            [ -z "$BACKUP_PATH" ] && continue
+
+            echo ""
+            echo "  Key missing for $REPO_NAME — encrypted backup found:"
+            echo "    $BACKUP_PATH"
+            install -d -m 700 "$HOME/.secrets"
+            TMPKEY="$(mktemp "$HOME/.secrets/.tmp.XXXXXX")"
+            if /usr/bin/openssl enc -aes-256-cbc -d -pbkdf2 \
+                -in "$BACKUP_PATH" \
+                -out "$TMPKEY"; then
+                if [ -s "$TMPKEY" ]; then
+                    chmod 600 "$TMPKEY"
+                    mv "$TMPKEY" "$REPO_KEY"
+                    echo "  Recovered: $REPO_KEY"
+                    RECOVERED=$((RECOVERED + 1))
                 else
-                    echo "  WARNING: Decryption failed for $REPO_NAME. Skipping."
+                    echo "  WARNING: Decrypted key is empty for $REPO_NAME. Skipping."
                     rm -f "$TMPKEY"
                 fi
+            else
+                echo "  WARNING: Decryption failed for $REPO_NAME. Skipping."
+                rm -f "$TMPKEY"
             fi
         done
         if [ "$RECOVERED" -gt 0 ]; then
