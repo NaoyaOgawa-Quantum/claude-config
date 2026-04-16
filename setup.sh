@@ -735,16 +735,23 @@ if command -v git-crypt &> /dev/null && [ -x "$DROPBOX_ROOT_SCRIPT" ]; then
                 echo ""
                 echo "  Key missing for $REPO_NAME — encrypted backup found in Dropbox."
                 echo "  Decrypting: $BACKUP_PATH"
-                mkdir -p "$HOME/.secrets"
+                install -d -m 700 "$HOME/.secrets"
+                TMPKEY="$(mktemp "$HOME/.secrets/.tmp.XXXXXX")"
                 if /usr/bin/openssl enc -aes-256-cbc -d -pbkdf2 \
                     -in "$BACKUP_PATH" \
-                    -out "$REPO_KEY" 2>&1; then
-                    chmod 600 "$REPO_KEY"
-                    echo "  Recovered: $REPO_KEY"
-                    RECOVERED=$((RECOVERED + 1))
+                    -out "$TMPKEY"; then
+                    if [ -s "$TMPKEY" ]; then
+                        chmod 600 "$TMPKEY"
+                        mv "$TMPKEY" "$REPO_KEY"
+                        echo "  Recovered: $REPO_KEY"
+                        RECOVERED=$((RECOVERED + 1))
+                    else
+                        echo "  WARNING: Decrypted key is empty for $REPO_NAME. Skipping."
+                        rm -f "$TMPKEY"
+                    fi
                 else
                     echo "  WARNING: Decryption failed for $REPO_NAME. Skipping."
-                    rm -f "$REPO_KEY"
+                    rm -f "$TMPKEY"
                 fi
             fi
         done
