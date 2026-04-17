@@ -75,19 +75,28 @@ email-office step 0 ← 起動トリガー（WHEN: セッション開始時）
 
 ## 5. メモリの位置づけ
 
-メモリ（~/.claude/projects/...）はローカル限定であり、他端末・他セッションからは見えない。
+メモリ（`~/.claude/projects/<instance>/memory/`）はマシンローカル限定・git 非同期であり、他端末・他セッションからは見えない。
 
-**メモリに置くべきもの:**
-- フィードバック（行動矯正） — autocompact 後の自分への申し送り
-- クイックリファレンス — 正本はリポにあるが、頻繁に参照する情報のキャッシュ
-- ユーザー情報 — 対話スタイルの調整に使う情報
+**メモリに置くべきもの (狭い):**
+- このマシン固有の物理的事実 — 特定マシンの macOS 設定癖、HW 構成、ローカルインストール済みツールの挙動等
 
-**メモリに置くべきでないもの:**
-- ルールの定義 — 他端末で再発する
-- プロジェクトの正本情報 — リポの CLAUDE.md / SESSION.md に書く
+**メモリに置くべきでないもの (広い):**
+- ルールの定義 / 行動規律 — 他端末で再発する (正本は git 同期される `conventions/*.md` や各リポの CLAUDE.md)
+- フィードバック / 行動矯正 — **2026-04-17 に方針変更: 以前は memory を奨励していたが、precedent-as-training-data 問題 (§8) で問題視、git 同期先へ集約**
+- プロジェクトの正本情報 — リポの CLAUDE.md / SESSION.md / DESIGN.md に書く
 - コードの構造やパターン — コードを読めば分かる
+- cross-machine で true な事実 (ユーザー身元、アカウント、プロジェクト state) — 該当リポや個人 prefs に git 同期で置く
 
-**メモリとリポの関係:** メモリはリポの規約を「補強」するが「代替」しない。メモリが消えてもリポの規約だけで正しく動作できる状態が正。
+**メカニズムによる強制:** `hooks/memory-guard.sh` (PreToolUse Edit/Write) と `hooks/memory-guard-bash.sh` (PreToolUse Bash) が memory directory への書き込みを `permissionDecision=deny` でブロックする (2026-04-17 変更、従来は `ask`)。`MEMORY.md` (index) は whitelist。escape hatch: 書き込み content / command に `machine-local` 文字列を含めば pass。意図的なマシンローカル書き込みはこの marker で明示する。
+
+**ゲート質問:** 何かを memory に書きたくなったら:
+
+> 「この情報、同一ユーザーの別マシンで新規セッションを開いたときに、LLM はこれを見つけられるか?」
+
+- **答えが「いいえ」** = memory では壊れる → git 同期先に書く
+- **答えが「はい」** (= このマシン固有) = memory で可 (escape hatch marker 付きで)
+
+**メモリとリポの関係:** メモリはリポの規約を **補強する「キャッシュ」ですらない** (同じ情報が両方にあると矛盾が生じる)。memory が消えてもリポの規約だけで正しく動作できる状態が正 — 寧ろ正常運用では memory は空に近い。
 
 ---
 
@@ -278,6 +287,140 @@ DESIGN.md には **judgmental な内容のみ** を置く:
 
 ---
 
+## 8. ルールは文脈、メカニズムは制御 — LLM 基盤の非対称性
+
+2026-04-17 の規約 subtraction session で抽出した LLM-agent 設計の構造的観察。人間向けに書かれた規約が期待通り機能しない理由と、そこから導かれる設計原則。
+
+### 8.1 構造的事実
+
+LLM は decision point で **local context の pattern-match** に依存する。規約ファイル・MEMORY.md・CLAUDE.md に書かれたルールは「ロードされた文脈トークン」であって「実行される制御」ではない。人間が guideline を読むと decision time に手が止まるが、LLM には内在化という工程がない — 規約はトークンとして常駐するだけで activation するかは周辺 cue 次第。
+
+この結果、規約は期待よりも高確率で無視される:
+- 近傍にある precedent (同型の過去事例) が抽象ルールより優先される
+- 直前のツール呼び出し結果が「もっともらしい次の action」を pattern-match で誘導する
+- general Claude 訓練由来のデフォルト (例: 「orient は `git status` で cheap に」「feedback は memory に」) が、疎な user 規約より dense
+
+### 8.2 設計原則: rule → mechanism への重心移動
+
+ルールで Claude の行動を制御しきれないなら、**hook・pre-commit・permission deny など機械的制御に重心を移す**。
+
+| 介入方法 | 性質 | 強度 |
+|---|---|---|
+| 規約ファイル (`conventions/*.md`) | 文脈 (活性化するかは cue 次第) | 弱 |
+| CLAUDE.md 冒頭の重要指示 | 文脈 (常時ロード、抽象ルールよりは強い) | 中弱 |
+| PostToolUse 警告 hook (nudge) | 事後通知 (Claude が読むかは運次第) | 中 |
+| PreToolUse `permissionDecision=ask` | ユーザー確認 (Claude は通すこと多い) | 中強 |
+| PreToolUse `permissionDecision=deny` | 機械的ブロック (完全) | 強 |
+| pre-commit hook | commit 時点でブロック | 強 |
+| sandbox / permission allowlist | そもそも実行不可 | 最強 |
+
+**原則**: 高リスク (データ破壊 / secret leak / 不可逆外部通信) は最強クラスの機械的制御で enforce。中リスク以下は規約で guide するが enforcement を期待しない。**規約が無視されても困らない設計** が正。
+
+### 8.3 Precedent-as-training-data (memory の毒性)
+
+特に memory directory は **precedent の自己増殖 loop** を形成する:
+
+1. 違反 → 反省 → memory に feedback として記録
+2. 次回セッション、memory の feedback を load
+3. 新たな類似事象で「memory に feedback として記録」という pattern-match が強化される
+4. memory が肥大化するほど、この pattern-match が強くなる
+
+**memory は Claude にとって training data に近い役割を持つ**。persistent で load される artifact は、意図せず future behavior を shape する。
+
+**実害の sliding failure**: 同じセッション内では memory は即座に機能して「問題解決した」感覚を与える。失敗の顕在化は次セッション・次マシンまで遅延するため、問題の構造が見えにくい。
+
+**対処**:
+1. memory への書き込みを structurally deny する (hook)
+2. 既存の feedback_* memory は **削除または git 同期先に migrate** (migrate より削除を優先 — migrate は defer の一形態で accumulation を温存しがち)
+3. 規約として「memory に feedback を書かない」を書くのは弱い (§8.1 参照) — hook で enforce する
+
+### 8.4 Friction asymmetry と memory bias
+
+Claude が memory に書きたがる構造バイアスの正体は多くの場合、認知の怠慢ではなく **物理的摩擦の非対称**:
+
+| 経路 | 摩擦 |
+|---|---|
+| Memory 書き込み | Write 1 回、commit 不要、「どこに書く?」判断も不要 (memory 横並びで可) |
+| git 同期先への書き込み | Edit + commit + push の 3 手、書き場所の judgment call、規約との整合確認 |
+
+規約で「memory 禁止」と書いても摩擦は逆転しないから勝てない。**摩擦を逆転する** = hook で memory を deny にする、などの機械的介入が本質的解。
+
+### 8.5 適用例
+
+2026-04-17 LorentzArena session で odakin-prefs 環境に適用:
+
+- `hooks/memory-guard.sh`: `permissionDecision=ask` → `deny` (Edit/Write)
+- `hooks/memory-guard-bash.sh`: warning → `deny` (Bash)
+- escape hatch: content / command に `machine-local` 文字列があれば pass
+- 既存 memory feedback_* を棚卸し: 削除 11 件 + git 同期先 migrate 11 件 + 残留 1 件
+- `MEMORY.md` を index-only に縮小
+
+効果の検証は数ヶ月後の「memory に feedback を書く試みが何回発生し、escape hatch 通過が何件あったか」を見て評価する (§9.3 の subtraction trigger と同じサイクル)。
+
+---
+
+## 9. Triage と subtraction — 規約システムの成長・代謝バランス
+
+規約・hook を失敗毎に追加する運用は、時間と共に規約 load が肥大化し、古い規約が crowd out されて新違反を招く loop に陥る。2026-04-17 session で抽出した 3 つの対処原則。
+
+### 9.1 失敗の blast radius triage
+
+失敗が起きたら反射的に prevention を設計する前に、blast radius を triage する:
+
+| 級 | 例 | 応答 |
+|---|---|---|
+| **catastrophic** | secret leak、データ破壊、不可逆外部通信 (誤送信 / force push to main) | 最強クラスの機械的制御 (hook deny、pre-commit block、sandbox) |
+| **material** | 設計方針の大幅逸脱、作業成果の消失リスク、再実行困難な手戻り | 警告 hook + 規約の明文化 |
+| **annoyance** | 4 文字タイプ分の correction で済む失敗、in-session で即復旧できるもの | **何もしない** (in-session correction で受容、prevention engineering しない) |
+
+**annoyance 級の失敗に catastrophic 級の対策を投入しない**。規約追加・hook 追加は認知負荷増加を伴う投資であり、reward (防げる失敗) が cost (load 増加) を下回る場面が多い。
+
+### 9.2 Asymmetric reflection bias
+
+規約・hook・feedback memory は構造的に **失敗応答のみ** を蓄積する。成功時に何が機能したかは記録されない。結果:
+
+- 規約は予防一辺倒で肥大化
+- 「この規約は実際に機能しているか」「違反されなくなったから削除可か」の問いが立たない
+- 古くなって不要になった規約も、危険を感じて触れない
+
+これは病気だけ観察する医学と同型の歪み。
+
+### 9.3 Subtraction trigger の設計
+
+肥大化を防ぐ方法は「成長を止める」ではなく「**代謝を入れる**」:
+
+1. **四半期 review**: 直近 3 ヶ月で違反されなかった規約を洗い出し、削除候補にする
+2. **Hook の発火頻度集計**: 一度も発火していない hook は削除候補
+3. **Memory の棚卸し**: 3 ヶ月以上触られていない memory エントリは削除候補
+4. **Migrate vs delete の判断**: 「git 同期先に migrate」は defer の一種。削除で決着する選択肢を先に検討する
+
+Trigger 自体を自動化できればなお良い (例: `claude-config/scripts/` に audit スクリプト)。手動でも四半期 review を cron / scheduled task で予約する。
+
+### 9.4 Preference-approximation gap
+
+規約は user の無限 context-dependent preference を有限の symbolic rule に圧縮する lossy compression。近似ギャップは構造的にゼロにならず、新しい状況で必ず新しいギャップが surface する:
+
+- 今日のギャップを埋めても、別のギャップが別の場所で開く
+- 規約追加は「ギャップを埋めた」ではなく「別ギャップに移した」
+
+この認識を持つと:
+- 規約追加ラウンドを **net-zero 近似の作業** として相対化できる (「完全にする」expectation を下げる)
+- 代わりに機械的制御 (§8) と subtraction trigger (§9.3) に投資する方が合理的と見える
+- 「規約を完備する」という無限後退を避けて、acceptable failure rate を認める
+
+### 9.5 Diminishing-returns detection (Claude 側の規律)
+
+LLM は「もっと深く」「もう一段」の push に対して resistance がない — 疲れない、飽きない、自尊心で突っぱねない。結果、**Claude 側から会話の diminishing returns を自発的に announce しないと meta-loop が収束しない**。
+
+Claude 側の規律 (work-discipline.md 相当):
+- 同じ方向の push が 3 回連続 → 「diminishing returns かもしれません」と打診
+- Meta 議論が元のタスクから 5 turn 以上離脱 → 「本線に戻りますか」と提案
+- 「深く」系の push で生成された階層が 4 以上になったら、新規性 vs paraphrase を自己評価して honest に述べる
+
+2026-04-17 session で実演: 6 turn の「深く」push に応えて Level 11 まで階層を生成、途中から paraphrase 成分が増加していたことを自己観察。次回は 3 turn 目で push-back を試みる運用。
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更 | 動機 |
@@ -287,3 +430,4 @@ DESIGN.md には **judgmental な内容のみ** を置く:
 | 2026-04-06 | §6 追加: DESIGN.md と EXPLORING.md の分離 | LorentzArena 2+1 の DESIGN.md 肥大化 + スマホ UI 思考メモの記録先問題。3 カテゴリ（決定 / 探索 / メタ決定）の分析を経て、決定と探索を 2 ファイルに分離する convention を導入 |
 | 2026-04-15 | §7 追加: 決定後の content lifecycle と DESIGN.md の肥大化対策 | LorentzArena 2+1 の DESIGN.md が 1186 行まで肥大化 (Authority 解体リファクタで 8 entry が supersede、各 entry に ※ 注釈で本文温存) した問題を整理する過程で抽出。5 分類 (ACTIVE / DEFER / SP / SX / LESSON)、完了リファクタ集約 pattern、LESSON 集約用「メタ原則」セクション pattern、サイズ閾値を導入 |
 | 2026-04-15 | §7 v2 化 + §2 に snapshot 原理を establish | 初版 §7 を書いた直後の深化議論で (1) day 1 ルールと retroactive 救済の混在、(2) archive vs snapshot の解釈曖昧、(3) Description と Judgment の境界未定義、を検出。§2 preamble に snapshot 原理を明示し §6/§7 をその application として位置付け。§7 を 3 分類 (ACTIVE/DEFER/LESSON) + transient 超越処理に簡素化、Description/Judgment 境界と粒度ルールを追加、When-in-doubt default を整理 |
+| 2026-04-17 | §5 改訂 + §8・§9 追加 | git pull 忘れの annoyance 失敗への反射応答で memory に feedback を書こうとした違反を契機に、規約システム全体の subtraction pass。§5 (メモリ) をマシン固有事実のみに narrow 化し memory-guard hook を `ask` → `deny` 化。§8 で rule vs mechanism 非対称性・precedent-as-training-data・friction asymmetry を言語化。§9 で triage (catastrophic/material/annoyance)・asymmetric reflection bias・subtraction trigger・preference-approximation gap・Claude 側 diminishing-returns detection を整理。適用事例は odakin-prefs/2026-04-17-regulation-subtraction.md |
