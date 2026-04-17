@@ -491,6 +491,79 @@ Claude 側の規律 (work-discipline.md 相当):
 
 ---
 
+### 9.8 単一観察から構造対策に飛ばない (scope 確認先行)
+
+違反・不具合・ユーザー報告を受けた時、反射的に構造的対策 (新 rule / 新 hook / abstract framework) を設計する前に **現象の scope を確認する**。典型的な failure mode:
+
+1 回の観察 → パターン仮説 → 構造対策の設計・実装 → 後から「実は scope 違い」が判明 → revert (実装コスト + 規約追加コスト + revert コスト + ユーザー説明コスト が全て無駄)。
+
+**scope 確認の質問**: (a) 観察は独立した複数事例か 1 事例か? (b) ユーザーが継続的に直面する場面か偶発的か? (c) 対策の前提はユーザーの実運用に合致するか?
+
+**適用例 (2026-04-17)**: odakin 環境で Haiku 使用時に日本語フォールバック観察 → 2 軸配置原則 (cross-machine × always-attention cell に CLAUDE.md inline が必要) を設計・実装 → odakin が「Haiku は一生使わない」と scope 確認 → 前提崩壊で全 revert。scope 確認を先行していれば対策設計も revert も不要だった。
+
+§9.1 triage との組み合わせ: annoyance 級 × scope 不明 = **対策せず受容が基本**。material 級以上 × scope 確認済 = 対策設計へ。
+
+---
+
+## 10. File-role architecture — context 効率のための auto-load tier 設計
+
+2026-04-17 の subtraction + compression session を経て抽象化した、cross-machine 規約システムの file 配置原則。LLM の session 冒頭 context 量が有限なので、**同じ情報量を保ちながら auto-load を削減する**設計。
+
+### 10.1 4 tier 分類
+
+| Tier | 性質 | 例 | auto-load? |
+|---|---|---|---|
+| **T0: harness auto-load** | session 冒頭に強制 load | `CLAUDE.md`, `MEMORY.md` | ✓ (全 session) |
+| **T1: regulation table 必読** | 「必ず読む」指示が明示的 | `work-discipline.md`, `push-workflow.md` | ✓ (Claude が table 経由 active read) |
+| **T2: regulation table 条件付き** | 特定 task 発生時のみ読む | `email-style.md`, `paper-style.md`, `user-profile.md` 等 | △ (task 関連時のみ) |
+| **T3: pointer-only** | regulation table 不記載、pointer 経由 | `incidents.md`, `staging-incidents.md`, `leak-incidents.md`, 各 `DESIGN.md` | ✗ |
+
+### 10.2 切り分け基準
+
+「この content は毎 session 読まれる必要があるか?」を自問する:
+
+- **rule 定義本体 / trigger 条件 / How to apply** → 必要 → T1 or T2
+- **rule の supporting narrative (過去事例、具体 file path、exact sequence)** → 不要 → T3 に隔離
+- **meta-procedure (ファイル追加手順、staging lifecycle 等)** → 不要 → T3 (DESIGN.md)
+- **archive 目的の session log** → 不要 → T3 (日付付きファイル、規約 table 不記載)
+
+### 10.3 narrative 抽出 pattern (T1 → T3)
+
+T1 file が肥大化した時の救済 method:
+
+1. 各 rule の「過去事例」block を T3 の narrative archive file に抽出 (chronological)
+2. T1 側は 1 行 pointer に置換 (「詳細 → `<archive>.md` §YYYY-MM-DD」)
+3. archive 側に「Related rules:」逆 link を置く
+
+**例**: work-discipline.md の 4 過去事例 block (Memory gate / $-chat / 汎用原則 / Meta-loop) と push-workflow.md の 3 過去の失敗事例 を `odakin-prefs/incidents.md` に集約して T1 から pointer 化 (2026-04-17 実施、net -~40 lines T1 auto-load)。
+
+### 10.4 失敗 pattern
+
+- T0/T1 に narrative を詰めると context 圧迫 → autocompact 頻発 (2026-04-17 odakin 環境で実地観察、1 日で +468 lines T0/T1 拡大 → autocompact 頻度急増)
+- T1 の rule 内に incident 詳細を embed すると後から T3 抽出に手間
+
+### 10.5 Tier 間 lifecycle
+
+content は tier 間を移動しうる。2026-04-17 odakin-prefs で観察された例:
+
+- **T0 → T1**: MEMORY.md (T0) から work-discipline.md (T1) へ規律を移す (cross-machine 要件を満たすため、§5 参照)
+- **T1 → T3**: narrative 抽出 (§10.3)
+- **T1 内部 sub-tier**: rule 本体を T1 に残し、meta-procedure を `DESIGN.md` (T3) に移す
+
+**incidents archive の 3-stage lifecycle** (odakin-prefs で実装):
+`staging-incidents.md` (未結晶、2 件目待ち) → 結晶化 → `work-discipline.md` rule (T1) + narrative を `incidents.md` (T3) に移管。
+
+### 10.6 適用例 (2026-04-17 odakin-prefs)
+
+- T0: `CLAUDE.md` (125→108 lines)、`MEMORY.md` (100→41 lines)
+- T1: `work-discipline.md` (268→321 lines、新規 7 rule 追加後に -40 の narrative 抽出)、`push-workflow.md` (87→85 lines、3 incident narrative 抽出後)
+- T2: 既存 regulation table 配下 10+ ファイル
+- T3 (新規): `incidents.md` (209 lines, 19 narratives)、`staging-incidents.md` (33 lines, 2 entries)、`DESIGN.md §2026-04-17 系 2 entries` (規約追加手順 + work-discipline.md 運用方針)
+
+結果: T0+T1 auto-load 569 (pre-restructure 推定) → 555 lines (post-restructure)、T3 に ~600+ lines の narrative/meta を隔離保持 (情報損失なし)。
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更 | 動機 |
@@ -502,3 +575,4 @@ Claude 側の規律 (work-discipline.md 相当):
 | 2026-04-15 | §7 v2 化 + §2 に snapshot 原理を establish | 初版 §7 を書いた直後の深化議論で (1) day 1 ルールと retroactive 救済の混在、(2) archive vs snapshot の解釈曖昧、(3) Description と Judgment の境界未定義、を検出。§2 preamble に snapshot 原理を明示し §6/§7 をその application として位置付け。§7 を 3 分類 (ACTIVE/DEFER/LESSON) + transient 超越処理に簡素化、Description/Judgment 境界と粒度ルールを追加、When-in-doubt default を整理 |
 | 2026-04-17 | §5 改訂 + §8・§9 追加 | git pull 忘れの annoyance 失敗への反射応答で memory に feedback を書こうとした違反を契機に、規約システム全体の subtraction pass。§5 (メモリ) をマシン固有事実のみに narrow 化し memory-guard hook を `ask` → `deny` 化。§8 で rule vs mechanism 非対称性・precedent-as-training-data・friction asymmetry を言語化。§9 で triage (catastrophic/material/annoyance)・asymmetric reflection bias・subtraction trigger・preference-approximation gap・Claude 側 diminishing-returns detection を整理。適用事例は odakin-prefs 2026-04-17 の commit 群 (git log) |
 | 2026-04-17 | §8.5-8.7 + §9.5-9.7 追加 (coverage sweep) | 同日 session で session log に記録されていたが claude-config 側に無かった洞察を補完: §8.5 不安応答としての memory write、§8.6 agent 学習の錯覚 (correction は session 越えて persist しない、system 改変のみ残る)、§9.5 規約構造と Claude 応答の closed loop、§9.6 subtraction 形態 (削除 > migrate > 規約追加) + migrate-as-defer 警告 |
+| 2026-04-17 | §9.8 追加 + §10 新設 (final sweep) | 同日 session の未捕捉 insight 2 件を durable 化: §9.8 単一観察から構造対策に飛ばない (Haiku false positive の lesson を一般化、scope 確認先行)、§10 File-role architecture (auto-load tier 0-3 分類、narrative 抽出 pattern、incidents archive lifecycle)。odakin-prefs での実証値も収録 (569 → 555 lines auto-load、T3 に 600+ lines 隔離) |
