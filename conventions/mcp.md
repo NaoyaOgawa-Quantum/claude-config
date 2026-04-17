@@ -6,8 +6,8 @@ MCP ツールを使うリポで適用。CLAUDE.md から参照: `~/Claude/claude
 
 - **確認方法**: Gmail は `gmail_get_profile`、Calendar は `gcal_list_calendars` で接続先アカウントを確認
 - **複数 MCP がある場合**: セッションの deferred tools 一覧で同一サービスの MCP が何個あるか確認し、それぞれ `get_profile` を実行して UUID→アカウントの対応を把握する
-- **UUID→アカウント対応表をメモリに保持**: MEMORY.md に `reference_mcp_uuid_map.md` へのポインタがなければ、全 MCP で `get_profile` を実行して作成する。既にあれば deferred tools の UUID 一覧と照合し、差分があれば更新する
-- **アカウント一覧の正本**: 各 MCP 設定リポの CLAUDE.md を参照（メモリや各リポの CLAUDE.md にハードコードしない）
+- **UUID→アカウント対応表は MCP 設定リポに保持**: 各 MCP 設定リポ (例: `gmail-mcp-config`) の CLAUDE.md または SESSION.md に UUID→アカウントの対応を記録する。memory には書かない (machine-local で cross-machine 不整合を招く。詳細: [docs/convention-design-principles.md §5](../docs/convention-design-principles.md))。新規セッションで対応表が不明・古ければ、全 MCP で `get_profile` を実行して deferred tools の UUID 一覧と照合し、差分を MCP 設定リポに追記する
+- **アカウント一覧の正本**: 各 MCP 設定リポの CLAUDE.md を参照（各プロジェクトリポの CLAUDE.md にはハードコードしない）
 
 ## MCP 設定リポの役割
 
