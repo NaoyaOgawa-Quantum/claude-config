@@ -98,6 +98,25 @@ email-office step 0 ← 起動トリガー（WHEN: セッション開始時）
 
 **メモリとリポの関係:** メモリはリポの規約を **補強する「キャッシュ」ですらない** (同じ情報が両方にあると矛盾が生じる)。memory が消えてもリポの規約だけで正しく動作できる状態が正 — 寧ろ正常運用では memory は空に近い。
 
+### 5.1 軸 2: 常時 attention 必要度と CLAUDE.md inline
+
+**2026-04-17 追補 — Haiku 実観察 由来**: 規約の配置は (1) cross-machine vs machine-local の軸に加え、(2) **常時 attention 必要度** の軸でも判断する。
+
+| 軸 1 (同期範囲) | 軸 2 (常時 attention) | 正しい配置 |
+|---|---|---|
+| cross-machine | **always-attention** (全応答で効く必要) | **CLAUDE.md inline** (git 同期 ∧ auto-load) |
+| cross-machine | situational (該当場面でのみ) | regulation table 配下の個別ファイル |
+| machine-local | always-attention | MEMORY.md (auto-load) |
+| machine-local | situational | memory の category ファイル |
+
+**動機:** Haiku など context 圧縮率が高いモデルは、CLAUDE.md 本体は auto-load で拾うが、CLAUDE.md から table 経由でリンクされた外部ファイル (`user-profile.md`, `work-discipline.md` 等) の active read が薄くなる。結果、cross-machine で true でも situational でない rule (例: 応答言語 default、autocompact 復帰手順) を regulation table に置くと Haiku が取りこぼす。
+
+**対処原則:** 該当 rule の canonical 定義は規約 table 配下 (詳細記述) に残し、**CLAUDE.md 冒頭に inline で最小要約** を置く。CLAUDE.md は git-synced ∧ 全モデル auto-load なので、inline に書けば Haiku でも確実に拾える。
+
+**適用事例:** 2026-04-17、「日本語でやりとり」preference を MEMORY.md から `user-profile.md` に migrate した直後、Haiku が英語にフォールバックする現象を observe。CLAUDE.md 冒頭に `🌐 全セッション・全モデル共通 default` セクションを新設し、「応答言語は日本語」「autocompact 復帰手順」を inline 化することで復元を試みた (Haiku での動作確認は次セッション以降)。
+
+**MEMORY.md fallback**: CLAUDE.md inline でも Haiku が拾えないと観察されたら、MEMORY.md にも duplicated copy を置く (`<!-- machine-local: Haiku attention boost -->` marker で pass)。canonical は CLAUDE.md / 規約 table、MEMORY.md copy は attention-boost だけと明記。複数 Mac で Haiku 使用なら各 Mac の MEMORY.md に同じ copy が必要 (そこは machine-local のまま)。
+
 ---
 
 ## 6. DESIGN.md と EXPLORING.md の分離
@@ -502,3 +521,4 @@ Claude 側の規律 (work-discipline.md 相当):
 | 2026-04-15 | §7 v2 化 + §2 に snapshot 原理を establish | 初版 §7 を書いた直後の深化議論で (1) day 1 ルールと retroactive 救済の混在、(2) archive vs snapshot の解釈曖昧、(3) Description と Judgment の境界未定義、を検出。§2 preamble に snapshot 原理を明示し §6/§7 をその application として位置付け。§7 を 3 分類 (ACTIVE/DEFER/LESSON) + transient 超越処理に簡素化、Description/Judgment 境界と粒度ルールを追加、When-in-doubt default を整理 |
 | 2026-04-17 | §5 改訂 + §8・§9 追加 | git pull 忘れの annoyance 失敗への反射応答で memory に feedback を書こうとした違反を契機に、規約システム全体の subtraction pass。§5 (メモリ) をマシン固有事実のみに narrow 化し memory-guard hook を `ask` → `deny` 化。§8 で rule vs mechanism 非対称性・precedent-as-training-data・friction asymmetry を言語化。§9 で triage (catastrophic/material/annoyance)・asymmetric reflection bias・subtraction trigger・preference-approximation gap・Claude 側 diminishing-returns detection を整理。適用事例は odakin-prefs/2026-04-17-regulation-subtraction.md |
 | 2026-04-17 | §8.5-8.7 + §9.5-9.7 追加 (coverage sweep) | 同日 session で session log に記録されていたが claude-config 側に無かった洞察を補完: §8.5 不安応答としての memory write、§8.6 agent 学習の錯覚 (correction は session 越えて persist しない、system 改変のみ残る)、§9.5 規約構造と Claude 応答の closed loop、§9.6 subtraction 形態 (削除 > migrate > 規約追加) + migrate-as-defer 警告 |
+| 2026-04-17 | §5.1 追加: 2 軸配置原則 (Haiku 実観察 由来) | subtraction pass 直後の Haiku セッションで「日本語でやりとり」preference が効かず英語フォールバックする事故を observe。原因は MEMORY.md (auto-load) から `user-profile.md` (regulation table 経由 active read) に migrate したこと。Haiku は table 配下の active read が薄い。§5.1 で「cross-machine × always-attention」の cell には CLAUDE.md inline が正解、と軸 2 を追加。odakin-prefs/CLAUDE.md 冒頭に `🌐 全セッション・全モデル共通 default` section を新設して実装 |
