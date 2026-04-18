@@ -254,6 +254,7 @@ DESIGN.md には **judgmental な内容のみ** を置く:
 | 同じ教訓が複数 decision に重複 (3+) | メタ原則未集約 | §7.5 を retroactive 適用 |
 | Description と Judgment 混在 | §7.3 違反 | CLAUDE.md / overview へ退避 |
 | 代替検討なしの決定が entry に (tuning param 等) | §7.4 違反 | constants.* へ格下げ、entry 削除 |
+| 行数 threshold 内だが byte 密度高い (1 行 200+ bytes) | inline 実装 how / 変遷履歴 / 冗長な注記 | byte 単位で測定、dense 部を pointer 化 (§10.7 参照) |
 
 **retroactive reorg playbook**:
 
@@ -282,6 +283,8 @@ DESIGN.md には **judgmental な内容のみ** を置く:
 ### 7.8 適用事例と self-consistency
 
 **初回適用** (2026-04-15): LorentzArena 2+1/DESIGN.md 大規模再編。1186 行 → 925 行 (内 Defer 205 行は現状維持)。超越 entry 14 件処理 (8 削除、6 吸収)、LESSON 12 件を § メタ原則 (M1-M12) に集約。Description 混在 (Zustand 構造表が CLAUDE.md と DESIGN.md に重複) を発見、次回棚卸し対象として記録。
+
+**2 回目適用** (2026-04-18): LorentzArena 2+1 の 3 dynamic doc を再圧縮。DESIGN.md 1627 → 1303 行 (-19.9%)、SESSION.md 94 行 / 23.8 KB → 75 行 / 6.6 KB (-73% bytes)、CLAUDE.md 371 → 357 行 (byte も大幅減)。**1 回目では見えなかった byte 密度問題**が浮上: SESSION.md は 80 行 threshold 内 (94 行) だが 23.8 KB と重く、autocompact 頻度を早めていた。line count は proxy metric に過ぎず、token 消費は byte に従う。この観察を §7.7 table に 1 行追加 + §10.7 auto-context byte budget 節として規約化。
 
 **self-consistency**: §7 自身が **LESSON の一例** である。LorentzArena の肥大化を観察 → 「超越 content の lifecycle を規律化すれば肥大化は防げる」という横断原則を抽出 → §7 として一般化。この `convention-design-principles.md` 自体が「§ メタ原則」を持つ DESIGN.md 相当の文書であり、§7 は自身が snapshot 原理に従う entry として書かれている。
 
@@ -562,6 +565,21 @@ content は tier 間を移動しうる。2026-04-17 odakin-prefs で観察され
 
 結果: T0+T1 auto-load 569 (pre-restructure 推定) → 555 lines (post-restructure)、T3 に ~600+ lines の narrative/meta を隔離保持 (情報損失なし)。
 
+### 10.7 auto-context byte budget (行数 proxy からの脱却)
+
+Tier 切り分けと並行で、**T0+T1 の byte 総量**を測定する。LLM context は token (≈ 4 bytes) で measured されるため、行数 threshold だけでは autocompact 頻度を説明できない。行数を満たしていても 1 行 あたりの密度が高いと context 消費は膨らみ、session 当たりの autocompact 回数を早める。
+
+**観測指標** (参考値、環境により変動):
+- T0+T1 合計 **50 KB 未満** → autocompact 稀
+- T0+T1 合計 **100 KB 超** → 1 session 中に 1-2 回 autocompact
+- 1 ファイル内 **line 当たり 200 bytes 超** → dense 化の疑い (descriptive / narrative が embedded)
+
+**処置**: 行数 threshold を満たしているが autocompact 頻発する場合、**byte 密度** を疑い、§7.3 Description / Judgment 境界 + §10.3 narrative 抽出を実行する。inline 実装 how、変遷履歴、冗長な注記は判断文を残し DESIGN.md / T3 への pointer に delegate する。
+
+**事例** (2026-04-18 LorentzArena 2+1): SESSION.md 94 行 / 23.8 KB (line density ~253 bytes) → 75 行 / 6.6 KB (line density ~88 bytes) へ圧縮。inline 実装詳細 (migration / ghost 物理統合 / worldLine 二分探索 etc.) を DESIGN.md 各節の pointer に delegate した結果、行数は -20% だが byte は -72%。CLAUDE.md も同系の dense 部 (ネットワーク migration detail、アーキ表 long cell、主要機能 bullets) を pointer 化して 371 → 357 行 / ~45 → ~36 KB。**line count threshold を守っていても byte で見ると context-heavy** という観測が §7.7 diagnostic の新 row を動機付けた。
+
+**運用**: SESSION.md を書き足す時は `wc -c` で byte を即確認。8 KB 超過が見えたら dense row を pointer に差し戻す ( retroactive reorg ほど大掛かりでなく、その場で逆流を止める習慣で充分)。
+
 ---
 
 ## 変更履歴
@@ -576,3 +594,4 @@ content は tier 間を移動しうる。2026-04-17 odakin-prefs で観察され
 | 2026-04-17 | §5 改訂 + §8・§9 追加 | git pull 忘れの annoyance 失敗への反射応答で memory に feedback を書こうとした違反を契機に、規約システム全体の subtraction pass。§5 (メモリ) をマシン固有事実のみに narrow 化し memory-guard hook を `ask` → `deny` 化。§8 で rule vs mechanism 非対称性・precedent-as-training-data・friction asymmetry を言語化。§9 で triage (catastrophic/material/annoyance)・asymmetric reflection bias・subtraction trigger・preference-approximation gap・Claude 側 diminishing-returns detection を整理。適用事例は odakin-prefs 2026-04-17 の commit 群 (git log) |
 | 2026-04-17 | §8.5-8.7 + §9.5-9.7 追加 (coverage sweep) | 同日 session で session log に記録されていたが claude-config 側に無かった洞察を補完: §8.5 不安応答としての memory write、§8.6 agent 学習の錯覚 (correction は session 越えて persist しない、system 改変のみ残る)、§9.5 規約構造と Claude 応答の closed loop、§9.6 subtraction 形態 (削除 > migrate > 規約追加) + migrate-as-defer 警告 |
 | 2026-04-17 | §9.8 追加 + §10 新設 (final sweep) | 同日 session の未捕捉 insight 2 件を durable 化: §9.8 単一観察から構造対策に飛ばない (Haiku false positive の lesson を一般化、scope 確認先行)、§10 File-role architecture (auto-load tier 0-3 分類、narrative 抽出 pattern、incidents archive lifecycle)。odakin-prefs での実証値も収録 (569 → 555 lines auto-load、T3 に 600+ lines 隔離) |
+| 2026-04-18 | §7.7 に byte-density row + §7.8 に 2 回目適用 + §10.7 新設 | LorentzArena 2+1 の 2 回目 retroactive reorg (DESIGN.md 1627→1303 行) で、SESSION.md が 80 行 threshold 内 (94 行) なのに 23.8 KB と重く autocompact を早める事象を観測。line count は proxy に過ぎず token 消費は byte に従うという lesson を §10.7 auto-context byte budget として規約化 (50 KB / 100 KB / 200 bytes/line の観測指標 + 処置 + SESSION.md 23.8→6.6 KB 事例)。§7.7 diagnostic table に「行数 threshold 内だが byte 密度高い」row、§7.8 適用事例に 2 回目適用段落を追記 |
