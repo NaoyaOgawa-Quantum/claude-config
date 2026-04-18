@@ -288,6 +288,8 @@ DESIGN.md には **judgmental な内容のみ** を置く:
 
 **2 回目適用** (2026-04-18): LorentzArena 2+1 の 3 dynamic doc を再圧縮。DESIGN.md 1627 → 1303 行 (-19.9%)、SESSION.md 94 行 / 23.8 KB → 75 行 / 6.6 KB (-73% bytes)、CLAUDE.md 371 → 357 行 (byte も大幅減)。**1 回目では見えなかった byte 密度問題**が浮上: SESSION.md は 80 行 threshold 内 (94 行) だが 23.8 KB と重く、autocompact 頻度を早めていた。line count は proxy metric に過ぎず、token 消費は byte に従う。この観察を §7.7 table に 1 行追加 + §10.7 auto-context byte budget 節として規約化。
 
+**3 回目適用** (2026-04-18 claude-config): claude-config 自身への §7 初適用。DESIGN.md 637 → 576 行 (-9.6%)。4 entries 処理: symlink 化 (21→8)、scrubbing 見送り (32→11)、自己言及的 odakin (27→12)、DESIGN/EXPLORING 分離 (32→3、§6 への pointer 化)。`~/Claude/CLAUDE.md` 解体時の bundle 判断 (関連密接かつ合計 10 行未満) を §1 の LESSON として promote、§7 の cross-domain validation (物理/描画 2 回 + 規約/メタ 1 回) を達成。**lesson**: 規則を定義したリポが規則を自ら適用していない状態は self-consistency 違反 → §10.8 self-application discipline として規約化。
+
 **self-consistency**: §7 自身が **LESSON の一例** である。LorentzArena の肥大化を観察 → 「超越 content の lifecycle を規律化すれば肥大化は防げる」という横断原則を抽出 → §7 として一般化。この `convention-design-principles.md` 自体が「§ メタ原則」を持つ DESIGN.md 相当の文書であり、§7 は自身が snapshot 原理に従う entry として書かれている。
 
 ---
@@ -582,6 +584,27 @@ Tier 切り分けと並行で、**T0+T1 の byte 総量**を測定する。LLM c
 
 **運用**: SESSION.md を書き足す時は `wc -c` で byte を即確認。8 KB 超過が見えたら dense row を pointer に差し戻す ( retroactive reorg ほど大掛かりでなく、その場で逆流を止める習慣で充分)。
 
+### 10.8 削除・委譲判断の trap
+
+tier 化 (§10.2) と byte budget (§10.7) で「どのファイルを減量するか」の方向性は見えるが、**どの行を削るか**の判断には系統的な失敗パターンがある。2026-04-18 の claude-config への §7 retroactive reorg 自己適用で抽出。
+
+**Tier-direction asymmetry**: 委譲の効果は **tier の下り (T0→T1/T2、T1→T2/T3)** のみで発生する。T2→T2 や T3→T3 の横ずらしは auto-context bytes を減らさず、grep 手間だけ増やす ROI ゼロの作業。「file を分けると綺麗になる」という美意識で横ずらしに手を出すのは **autocompact 削減目的の文脈では anti-value**。委譲判断では先に「委譲先の tier が委譲元より低頻度か」を問う。
+
+**T0/T1 chain pre-check**: T0 ファイルを圧縮する前に、T0 から link される T1 群が auto-context byte に含まれることを確認する。T0 の 1 行が dense な T1 表を指す pointer だった場合、T0 削減は総量 1 行分しか減らさない。**T0 の line count だけ見て判断すると miss する** — T1 の dense 行を pointer 化する方が ROI が高いケースが多い。
+
+**Grep-substitute value**: auto-load された表 / 小辞典 / レジストリは Claude の session 内で **pre-computed grep cache** として機能する。削除/委譲すると、そのデータが欲しい時に `grep` / `Read` tool call が発生し、per-session tool invocation cost が増える。**auto-context byte の節約 vs session 当たり tool call 増加** を天秤に掛ける。「頻繁に参照される table」「description column が code に存在しない table」は auto-load のまま残すのが合理的。
+
+**削除提案の self-correction** (2026-04-18 事例): LorentzArena 2+1/CLAUDE.md の ゲームパラメータ表 (87 行) を「`constants.ts` が正本なので参照置換で ROI 高い」と初期判断したが再評価で **anti-value** と結論。理由: (1) byte 節約は autocompact budget の 0.2% で不可視、(2) 説明 column は code に存在せず table 全体を崩さないと抽出不能、(3) grep-substitute 価値大 (constants.ts には numeric value のみで human-readable 説明が無い、per-session Read コスト発生)。**最初の ROI 判断は byte savings のみで grep cost と description column loss を見落としていた**。委譲判断では byte savings だけで決めず、使用頻度 × grep-substitute cost × description column 抽出可能性 の三方視点が必要。
+
+**DESIGN.md 分割閾値** (§10 の派生指標): 単一 DESIGN.md が以下のいずれかを満たしたら分割検討:
+- 2000 行超 / 150 KB 超
+- domain が独立変化するようになった (例: 物理と描画が別 sub-project 化)
+- `grep` で見出し anchor が曖昧になる (同名見出しが複数 domain に存在)
+
+分割先の配置原則は §1 (影響範囲の最大公約数) + §10.2 (tier 維持)。分割は **一方向の decision** — 再結合は別の reorg event として扱うため、分割前に条件の複数を満たすまで保留する。
+
+**Self-application discipline**: 規則を claude-config で定義する commit には、その規則を **claude-config 自身に同時 apply する pass** を含める。2026-04-15 に §7 (retroactive reorg) を定義、LorentzArena に 2 回適用 (2026-04-15 / 2026-04-18) したが claude-config DESIGN.md 自身への適用は 2026-04-18 まで遅延し、4 entries (symlink 化 / scrubbing 見送り / 自己言及的 odakin / EXPLORING 分離) が冗長に残存していた。**「規則を作ったリポが規則を守っていない」状態は self-consistency を損なう**。規約追加 commit では `-- claude-config/` に類似 pattern が残っていないか grep する工程を入れる。
+
 ---
 
 ## 変更履歴
@@ -598,3 +621,4 @@ Tier 切り分けと並行で、**T0+T1 の byte 総量**を測定する。LLM c
 | 2026-04-17 | §9.8 追加 + §10 新設 (final sweep) | 同日 session の未捕捉 insight 2 件を durable 化: §9.8 単一観察から構造対策に飛ばない (Haiku false positive の lesson を一般化、scope 確認先行)、§10 File-role architecture (auto-load tier 0-3 分類、narrative 抽出 pattern、incidents archive lifecycle)。odakin-prefs での実証値も収録 (569 → 555 lines auto-load、T3 に 600+ lines 隔離) |
 | 2026-04-18 | §7.7 に byte-density row + §7.8 に 2 回目適用 + §10.7 新設 | LorentzArena 2+1 の 2 回目 retroactive reorg (DESIGN.md 1627→1303 行) で、SESSION.md が 80 行 threshold 内 (94 行) なのに 23.8 KB と重く autocompact を早める事象を観測。line count は proxy に過ぎず token 消費は byte に従うという lesson を §10.7 auto-context byte budget として規約化 (50 KB / 100 KB / 200 bytes/line の観測指標 + 処置 + SESSION.md 23.8→6.6 KB 事例)。§7.7 diagnostic table に「行数 threshold 内だが byte 密度高い」row、§7.8 適用事例に 2 回目適用段落を追記 |
 | 2026-04-18 | §1 に bundle rule (pragmatic relaxation) 追加 | claude-config DESIGN.md 自身への §7 初適用 (規則を定義したリポに規則を適用する self-consistency 回復) で、`~/Claude/CLAUDE.md` 解体時の bundle 判断 (「1 rule = 1 file 厳格適用は 1 行ファイルを生む、関連密接かつ合計 10 行未満は bundle 可」) を §1 の corollary として昇格。配置先は影響範囲の最大公約数に従う原則は保持したまま粒度の下限を緩和 |
+| 2026-04-18 | §10.8 新設「削除・委譲判断の trap」+ §7.8 に 3 回目適用 | claude-config への §7 自己適用 session で抽出した 6 件の insight を §10.8 に集約: tier-direction asymmetry (横ずらし委譲は ROI ゼロ) / T0-T1 chain pre-check / grep-substitute value (auto-load 表は pre-computed grep cache) / 削除提案 self-correction 事例 (LorentzArena ゲームパラメータ表 anti-value 判定) / DESIGN.md 分割閾値 / self-application discipline (規則定義リポへの同時 apply pass)。§7.8 に 3 回目適用段落で cross-domain validation (物理/描画 + 規約/メタ) を記録 |
