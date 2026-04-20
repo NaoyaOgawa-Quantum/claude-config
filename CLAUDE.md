@@ -31,8 +31,8 @@ claude-config/
 │   ├── dropbox-refs.md     # 共同 PDF を Dropbox に置いてリポから symlink で参照する規約
 │   └── scientific-computing.md # 数値解析 gotchas (scale-dependent default 等、科学計算リポ共通)
 ├── hooks/
-│   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§2 判別強制）
-│   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（警告のみ）
+│   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
+│   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（§8 feedback deny + escape hatch）
 │   ├── public-leak-guard.sh        # 公開リポ leak 防止 — PreToolUse(Edit|Write|MultiEdit) Tier A 構造制約 regex
 │   ├── git-state-nudge.sh          # PostToolUse(Bash): 直近 commit の未 push 検出 + first-sighting で fetch+stale 検出
 │   └── fix-snapshot-path-patch.sh   # PATH スナップショット自動パッチ（REQUIRED_PATHS 方式、launchd WatchPaths から呼ばれる）
