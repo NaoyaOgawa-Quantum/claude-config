@@ -47,6 +47,19 @@ On Windows (MSYS/Cygwin) symlinks are replaced with file copies and the `post-me
 - **Information destinations** — every piece of information has one correct home (memory / SESSION.md / CLAUDE.md / DESIGN.md / CONVENTIONS.md / don't-write-it). Table and rationale in [CONVENTIONS.md §2](CONVENTIONS.md). The `memory-guard` hooks enforce it on Edit/Write into the memory directory.
 - **Push-before-check** — a 4-axis review (consistency, non-contradiction, efficiency, safety) before every `git push`. Detail in [CONVENTIONS.md §3](CONVENTIONS.md).
 
+## Context budget
+
+claude-config itself ships a near-empty auto-load: the default `<base>/CLAUDE.md` is ~25 lines and `CONVENTIONS.md` is reached via pointer, costing tokens only when Claude actually reads it. Out of the box, claude-config adds almost nothing to Claude Code's session-start context.
+
+Once you add a personal layer or sub-project `CLAUDE.md`s, watch the **combined auto-load size** — Claude Code auto-loads every `CLAUDE.md` from the working directory up the tree, so layers accumulate.
+
+Rough targets (from [`docs/convention-design-principles.md`](docs/convention-design-principles.md) §10.7):
+
+- **200K-context model** (autocompact fires ≈ 167K): keep the combined auto-load under ~50 KB to keep autocompact rare during long sessions.
+- **1M-context model**: the same target is effectively free, but the chain-load discipline still keeps session startup snappy.
+
+If autocompact fires more than you expect, check per-file byte density (§10.7) and the sub-project `CLAUDE.md` chain (§10.10–10.11) before cutting actual content.
+
 ## For English-speaking users
 
 The rule text in `CONVENTIONS.md` and most files under `conventions/` is written in Japanese, but the structure is language-agnostic. Fork the repo and translate or replace the rule text to match your workflow — `setup.sh` uses `gh auth` to detect your GitHub user and works as-is. READMEs, the git-crypt guide, and most script comments are bilingual.

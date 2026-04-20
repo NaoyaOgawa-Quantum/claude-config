@@ -65,3 +65,15 @@ MEMORY.md: 「リポ一覧は CONVENTIONS.md §1 が正本」
 CONVENTIONS.md: 「リポ一覧の正本は MEMORY.md の『リポ一覧（正本）』セクション」
 MEMORY.md → [実際のリポ一覧テーブルがここにある]
 ```
+
+## 8. サブプロジェクトの CLAUDE.md チェーンに注意
+
+Claude Code は作業ディレクトリから親方向に `CLAUDE.md` を全て auto-load する。`~/Claude/repo/sub/` で作業すると、`~/Claude/CLAUDE.md`・`~/Claude/repo/CLAUDE.md`・`~/Claude/repo/sub/CLAUDE.md` の 3 つが同時に載る。これは特に 200K コンテキストモデルで効いてくる — autocompact が 167K トークン付近で発火するため、チェーンが膨らむとセッション開始前に余裕を食い潰してしまう。
+
+各階層を役割ごとに分離する:
+
+- **トップレベル `~/Claude/CLAUDE.md`** — 身元・全体規約・リポ索引。
+- **リポ `CLAUDE.md`** — リポの概要・起動方法・詳細への pointer。
+- **サブプロジェクト `CLAUDE.md`** — コマンド・特有の注意・アーキ超要約（5〜8 項目 × 1 行 + `docs/architecture.md` への pointer）。80〜100 行目安。
+
+重い narrative・パラメータ表・設計根拠は `docs/`（auto-load されない）に置いて pointer で参照する。原則と事例は [`convention-design-principles.md`](convention-design-principles.md) §10.10–10.11。

@@ -65,3 +65,15 @@ MEMORY.md: "Repo list is in CONVENTIONS.md §1"
 CONVENTIONS.md: "Repo list: see MEMORY.md, section 'Repo Index'"
 MEMORY.md → [actual repo table lives here]
 ```
+
+## 8. Mind the CLAUDE.md chain in sub-projects
+
+Claude Code auto-loads every `CLAUDE.md` from your current working directory up the tree. Working in `~/Claude/repo/sub/` loads `~/Claude/CLAUDE.md`, `~/Claude/repo/CLAUDE.md`, and `~/Claude/repo/sub/CLAUDE.md` all at once. This matters more on the 200K-context model, where autocompact fires around 167K tokens — a bloated chain eats headroom before your session even starts.
+
+Keep each layer to its own role:
+
+- **Top-level `~/Claude/CLAUDE.md`** — identity, global rules, repo index.
+- **Repo `CLAUDE.md`** — repo overview, how to run things, pointers to details.
+- **Sub-project `CLAUDE.md`** — commands, quirks, an architecture super-summary of 5–8 one-line items with pointers to `docs/architecture.md`. Target ~80–100 lines.
+
+Heavy narrative, parameter tables, and design rationale live in `docs/` (not auto-loaded) and are referenced by pointer. Principles and worked examples in [`convention-design-principles.md`](convention-design-principles.md) §10.10–10.11.

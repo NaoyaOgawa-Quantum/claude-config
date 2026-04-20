@@ -5,7 +5,14 @@
 
 ## 共通規約
 
-このマシンで Claude Code を使うときの共通規約は `<base>/CONVENTIONS.md` を参照（`claude-config/CONVENTIONS.md` の symlink）。
+このマシンで Claude Code を使うときの共通規約は `<base>/CONVENTIONS.md`（`claude-config/CONVENTIONS.md` の symlink）。
+
+以下のタイミングで読み込む:
+
+- リポで作業を始める時 — §3「リポでの作業開始手順」
+- `git commit` / `git push` の前 — §3 push 前チェック + §4 Git 規約 + §5 安全規則
+- 新規リポ作成時 — §1, §2
+- 情報の記録先で迷った時 — §2「記録先の判別」表
 
 ## 個人層について
 
