@@ -48,9 +48,17 @@ Include the date. Circumstances change; dateless decisions look like permanent l
 
 Ask Claude to fetch a competitor's site and analyze: "What are we losing to this site?" Then critically evaluate each gap — often, what looks like a weakness is already covered by existing features, or isn't worth implementing.
 
-## 6. Save feedback memories for recurring mistakes
+## 6. Invest feedback in conventions and hooks, not memory
 
-When Claude makes a mistake, save it as a feedback memory (`~/.claude/` memory system). Structure: rule, then **Why** (what went wrong), then **How to apply** (when this kicks in). Also save when something works well — correction-only memory makes Claude overly cautious.
+When Claude makes a recurring mistake, the intuitive fix is to save a feedback memory (`~/.claude/` memory system). **Don't.** This repo's `memory-guard.sh` hook actively denies feedback-style writes to the memory directory, because memory behaves as precedent-as-training-data: the same entry that's supposed to correct behavior gets re-loaded each session and reinforces the pattern more than it corrects it. Full reasoning: [`convention-design-principles.md`](convention-design-principles.md) §8.3.
+
+Write durable corrections where they survive across machines and sessions:
+
+- **A canonical rule belongs in [CONVENTIONS.md](../CONVENTIONS.md) or `conventions/*.md`** — git-synced, loaded every session, editable, and pointed to from CLAUDE.md. This is the place for "always do X" / "never do Y" rules that generalize.
+- **A catastrophic-risk mistake (data loss, secret leak, unrecoverable external action) belongs in a hook** — PreToolUse `deny`, pre-commit block, or permission allowlist. §8.2 ranks the intervention strengths; §8.4 explains why mechanical enforcement is structurally stronger than any written rule.
+- **An annoyance-level mistake (four keystrokes to correct in-session) belongs in no artifact at all** — accept the correction and move on. §9.1 triage. Reaching for memory here is usually an anxiety response, not an engineering decision (§8.5).
+
+The original observation still holds: a correction-only record makes Claude overly cautious. When an unusual approach *worked*, write *that* into the same canonical convention alongside the "don't" rules. The balance between corrections and validated patterns lives in the convention file — not in memory, where the load-and-repeat loop would amplify whichever side is denser.
 
 ## 7. Single source of truth, no circular references
 
