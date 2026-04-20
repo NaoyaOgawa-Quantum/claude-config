@@ -28,7 +28,8 @@ claude-config/
 │   ├── scheduled-tasks.md  # Scheduled Tasks 規約（SKILL.md 二重構造・同期ルール）
 │   ├── substack.md         # Substack 規約（入稿: Markdown→リッチテキスト変換手順 / 取得: notes・コメントの Gmail MCP + WebFetch 経由回収）
 │   ├── shell-env.md        # シェル環境（PATH 二層防御: .zprofile 修正 + スナップショットパッチ、macOS deny ルール）
-│   └── dropbox-refs.md     # 共同 PDF を Dropbox に置いてリポから symlink で参照する規約
+│   ├── dropbox-refs.md     # 共同 PDF を Dropbox に置いてリポから symlink で参照する規約
+│   └── scientific-computing.md # 数値解析 gotchas (scale-dependent default 等、科学計算リポ共通)
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§2 判別強制）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（警告のみ）
