@@ -55,3 +55,40 @@
 - **module preload タイミング**: 本番 HTTP/2 + CDN の multiplexing 順序が local preview と異なり、初期化順序依存の error が本番だけ再現する
 
 したがって **build config 変更後の deploy は、視覚変化がなくても本番 URL を実ブラウザで踏んで console 0 error を確認するまで 'deployed' と呼ばない**。`pnpm preview` や chunk HTTP status 200 は必要条件で十分条件ではない。確認できるまで odakin に依頼する。
+
+## Claude Preview の headless throttling 制約
+
+Claude Preview (MCP `preview_*` ツール) の headless Chrome には、アニメーション駆動アプリを事実上動かなくする **二重制約** がある。React Three Fiber / Three.js / Canvas 2D animation / WebGL ゲーム / `requestAnimationFrame` ベースのどの app でも発火する。
+
+### 症状
+
+- (a) `document.hidden === true` 常時 (`visibilityState === 'hidden'`)。`visibilitychange` ガードを持つコードは毎 tick 早期 return
+- (b) 仮に (a) を `Object.defineProperty` で override しても効かない。Chrome が **occluded/headless context として rAF と timer を強制 throttle** する。実測 (2026-04-22 LorentzArena):
+  - `requestAnimationFrame` → 2 秒で **0 fire** (実質停止)
+  - `setInterval(16ms)` → 2.2 秒で **4 fire** (≈ 500 ms/fire。普通なら ~140 fire のはずが ~2% 以下)
+- 原因は Page Visibility API 判定ではなく、Chrome が headless の occluded window を背景 tab 扱いで throttle する内部機構。Page Visibility 経由で fix できない。
+
+### 帰結
+
+以下の類型の検証が **Claude Preview では不可能**:
+
+- ゲーム物理ループ (FPS / player 動作 / projectile / hit / damage / respawn)
+- アニメーション遷移 / transition timing
+- rAF-driven camera / view update
+- WebSocket / WebRTC の長時間 keep-alive (timer throttle で ping/pong が遅延)
+- `setTimeout(...)` / `setInterval(...)` を使う debounce や timeout の挙動検証
+
+`preview_screenshot` を撮っても「止まった時空」が映るだけで、FPS 0 / 動的状態の初期値が残った静止画になる。
+
+### 回避策
+
+| 対象 | 手段 |
+|---|---|
+| Pure 関数 (stateless、決定論的入出力) | `preview_eval` + `await import('.../pure-module.ts')` で unit-test 相当 |
+| Single-tab の静的 UI 確認 (初期レンダのみ) | `preview_screenshot` + `preview_inspect` で初期状態は撮れる |
+| Stateful な動的挙動全般 | **実ブラウザ検証を odakin に依頼** — localhost URL (`pnpm dev` background) か staging/prod URL を毎ターン明示 (本ファイル上部「ルール」節) |
+| マルチ client 必須 (peer-to-peer、multi-tab race) | 実ブラウザ 2 tab 以上を odakin に依頼。Claude 側の 1 tab を Claude Preview で補完する手も throttle で動かないので不可 |
+
+### 誤誘導を避けるための書き方
+
+過去 CLAUDE.md 等で「`document.hidden=true` が原因」と書いていた箇所があるが、これは症状の一部であり **原因は Chrome の headless throttle 機構**。document.hidden override で解決するかもしれない、という誤った workaround 期待を招かないよう、「override しても効かない」まで書く。
