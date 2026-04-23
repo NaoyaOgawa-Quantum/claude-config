@@ -35,7 +35,7 @@ description は英語。リポ一覧の正本は個人層の `repos.md`（未設
 | `SESSION.md` | 揮発的な現在状態（作業中タスク・直近の決定）。進行に応じて更新 |
 | `DESIGN.md` | 現在採用されている設計**判断**・Defer 判断・横断原則 (LESSON) の snapshot。Why / 代替案 / tradeoff を記録。判断が生じたら即記録、超越されたら `docs/convention-design-principles.md` §7 の lifecycle で処理 (pedagogy 抽出後に旧本体削除、履歴は git log)。構造の記述は CLAUDE.md へ。未決定の探索は `EXPLORING.md`（任意）へ |
 | `README.md` / `README.ja.md` | **外部訪問者向けの玄関** (public リポで必須、private リポでは任意)。30 秒で「何か / 使うか」を判断させる index。構造ツリー・setup 手順の enumeration・規約本体・設計根拠は **正本 (CLAUDE.md / CONVENTIONS.md / DESIGN.md / conventions/ / docs/ / SETUP.md) へリンクするだけ** で、README 内に転載しない。詳細は下の「README の流儀」 |
-| `SETUP.md` | **共同編集者向けセットアップ walkthrough** (任意、private collaborative repo で git-crypt 等 onboarding が複雑な場合に新設)。CLAUDE.md は auto-load コストがあるため full walkthrough を入れず、SETUP.md に分離して薄いポインタ + 反パターン警告のみ持たせる。配置はリポ root (`docs/` を git-crypt 暗号化していると未 unlock の collaborator が読めない catch-22)。テンプレ: `templates/shared-project/SETUP.md.template`、設計理由は `conventions/shared-repo.md` §「共同編集者向け SETUP.md」|
+| `SETUP.md` | **共同編集者向けセットアップ walkthrough** (任意、private collaborative repo で git-crypt 等 onboarding が複雑な場合に新設)。CLAUDE.md は auto-load コストがあるため full walkthrough を入れず、SETUP.md に分離して薄いポインタ + 反パターン警告のみ持たせる。配置はリポ root (`docs/` を git-crypt 暗号化していると未 unlock の collaborator が読めない catch-22)。テンプレ: `templates/shared-project/SETUP.md.template`、設計理由は `conventions/shared-repo.md` §「共同編集者向けの SETUP.md」|
 | `.gitignore` | ビルド成果物・OS/エディタファイル・機密情報の除外。共有リポでは全パターン明記 |
 
 CLAUDE.md は「どうなっているか」(descriptive)、DESIGN.md は「なぜそうしたか」(judgmental)、SESSION.md は「今どこにいるか」(揮発的)、README は「外の人が 30 秒で判断するための玄関」。

@@ -25,7 +25,7 @@
 
 **手動 `openssl enc -d ...` から始めない。** まず下記「推奨経路」(setup.sh) を試す。手動経路は最後の砦。
 
-過去 (claude-config の git-crypt-guide.ja.md §共有リポでの自動復元 末尾の事故事例) に手動 openssl の path 誤りで file-not-found に陥り、bad-decrypt の garbage が `~/.secrets/` に残って後続セッションで「鍵があるが unlock 失敗」状態に発展した事故あり。setup.sh の Step 5b-pre は `find` で path 非依存にし、復号失敗時は warning を出してファイルを残さない安全弁つき。
+過去に手動 openssl の path 誤りで file-not-found に陥り、bad-decrypt の garbage が `~/.secrets/` に残って後続セッションで「鍵があるが unlock 失敗」状態に発展した事故あり (詳細: `~/Claude/claude-config/docs/git-crypt-guide.ja.md` §共有リポでの自動復元 の「共同編集者向け運用」項に手動経路 anti-pattern として記載)。setup.sh の Step 5b-pre は `find` で path 非依存にし、復号失敗時は warning を出してファイルを残さない安全弁つき。
 
 ## 推奨経路 (claude-config setup.sh で全自動)
 

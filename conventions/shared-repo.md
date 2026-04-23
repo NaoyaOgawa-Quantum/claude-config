@@ -101,7 +101,7 @@ grep -rE '<owner-personal-calendar-id>|<owner-personal-email>' --exclude-dir=.gi
   - **新マシン初回セットアップ → [SETUP.md](SETUP.md) を必ず読んでから進める**。`cd ~/Claude/claude-config && ./setup.sh` で全自動。⚠️ **手動 `openssl enc -d ...` から始めない** (path 誤りで bad-decrypt 残骸事故が過去あり、SETUP.md §反パターン警告 参照)
   ```
 
-SETUP.md.template は復号失敗事故 (`docs/git-crypt-guide.ja.md` §共有リポでの自動復元 末尾) の 5 段アンチパターン全てに対する防御 (反パターン警告 + 推奨経路 setup.sh 最優先 + 手動 fallback の Step 0 事前確認 / Step 2 事後確認) を組み込んでいる。**項目を削らず内容だけ埋める**こと。
+SETUP.md.template は復号失敗事故 (`docs/git-crypt-guide.ja.md` §共有リポでの自動復元 「共同編集者向け運用」項の手動経路 anti-pattern bullet 群) の 5 段アンチパターン全てに対する防御 (反パターン警告 + 推奨経路 setup.sh 最優先 + 手動 fallback の Step 0 事前確認 / Step 2 事後確認) を組み込んでいる。**項目を削らず内容だけ埋める**こと。
 
 ### 暗号化スコープ最小化を検討する
 
