@@ -826,6 +826,42 @@ if command -v git-crypt &> /dev/null && { [ -f "$GIT_CRYPT_KEY" ] || ls "$HOME"/
     fi
 fi
 
+# --- 5d. Symlink secrets from <repo>/secrets/ to ~/.secrets/ ---
+# secrets-config/secrets/ (odakin solo) と twcu-phys-lab/secrets/ (org 共有) の
+# git-crypt encrypted secret 値を、~/.secrets/<basename> に symlink で配置する。
+# 各リポは git-crypt で unlock 済 (Step 5b 完了) を前提とする。
+# 通常ファイル (= ad-hoc 配置の secret) は保護のため上書きせず警告 (手動移行を促す)。
+SECRETS_DEST_DIR="$HOME/.secrets"
+SECRETS_REPOS=(secrets-config twcu-phys-lab)
+SECRETS_HEADER_PRINTED=0
+if command -v git-crypt &> /dev/null; then
+    install -d -m 700 "$SECRETS_DEST_DIR"
+    for SECRETS_REPO in "${SECRETS_REPOS[@]}"; do
+        SECRETS_SRC_DIR="$CLAUDE_DIR/$SECRETS_REPO/secrets"
+        [ -d "$SECRETS_SRC_DIR" ] || continue
+        for SRC in "$SECRETS_SRC_DIR"/*; do
+            [ -e "$SRC" ] || continue
+            BASENAME="$(basename "$SRC")"
+            case "$BASENAME" in .*) continue ;; esac
+            DEST="$SECRETS_DEST_DIR/$BASENAME"
+            if [ -L "$DEST" ] && [ "$(readlink "$DEST")" = "$SRC" ]; then
+                continue  # already correct symlink
+            fi
+            if [ $SECRETS_HEADER_PRINTED -eq 0 ]; then
+                echo ""
+                echo "=== Step 5d: Symlinking secrets/ → ~/.secrets/ ==="
+                SECRETS_HEADER_PRINTED=1
+            fi
+            if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
+                echo "  WARNING: $DEST is a regular file (manual migration required), skipping"
+                continue
+            fi
+            ln -sfn "$SRC" "$DEST"
+            echo "  Linked: $DEST -> $SRC"
+        done
+    done
+fi
+
 # --- 6. Install pre-commit hook for LaTeX repos ---
 # .tex or .bib を含むリポに pre-commit hook (Unicode→LaTeX 自動修正) をインストール
 echo ""
