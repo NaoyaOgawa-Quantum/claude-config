@@ -10,12 +10,19 @@ Thumbs.db
 *.swo
 
 # === Claude Code ===
-# .claude/ の中身は基本 ignore だが、public-repo.marker だけは tracked
-# (leak 防止 hook の visibility 正本)。詳細は
-# claude-config/DESIGN.md §公開リポ leak 防止。
+# .claude/ の中身は基本 ignore だが、以下のファイルだけ tracked にする。
+# 注: gitignore は inline コメント不可 (`!pattern  # comment` だと
+# pattern が `pattern  # comment` になり negate が無効化する)。
+# 説明は各 ! 行の上に書く。
+#
+# - public-repo.marker: leak 防止 hook の visibility 正本
+#   (詳細: claude-config/DESIGN.md §公開リポ leak 防止)
+# - git-crypt-backup: Dropbox-relative encrypted key backup の指定
+#   (private リポのみ、setup.sh 5b-pre が読む)
+# - launch.json: VS Code dev server 設定
 .claude/*
 !.claude/public-repo.marker
-!.claude/git-crypt-backup  # Dropbox-relative path to encrypted key backup (private repos only)
+!.claude/git-crypt-backup
 !.claude/launch.json
 
 # === LaTeX intermediates (NOT pdf — PDFs are tracked) ===
