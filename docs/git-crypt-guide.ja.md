@@ -103,6 +103,80 @@ cd my-sensitive-repo
 git-crypt unlock ~/.secrets/git-crypt.key
 ```
 
+## 共有リポでの自動復元 (`.claude/git-crypt-backup` 経路)
+
+共有 git-crypt 鍵を使う collaborative リポでは、**鍵バックアップを暗号化してクラウドストレージ (Dropbox / Google Drive / iCloud Drive 等) に置き、setup.sh で全自動復元**するパターンを推奨する。共同編集者が新端末でセットアップする時、Dropbox 内のフォルダ構造を覚えていなくても (= 共有フォルダのマウント先がデバイス間で違っていても) 動く。
+
+### 仕組み
+
+リポルートに `.claude/git-crypt-backup` ファイルを置き、暗号化バックアップの **ファイル名 (パスではない) を 1 行**で記載:
+
+```
+my-sensitive-repo.key.enc
+```
+
+新端末で `setup.sh` を実行すると、**Step 5b-pre** が以下を行う:
+
+1. 各リポの `.gitattributes` に `git-crypt` 設定があるかチェック
+2. `~/.secrets/<repo>.key` が既にあれば skip
+3. なければ `.claude/git-crypt-backup` のファイル名を読み、クラウドストレージ root を `~/Dropbox` 等から resolve (`scripts/dropbox-root.sh`)
+4. `find <storage-root> -maxdepth 5 -name "<filename>"` で暗号化バックアップを発見
+5. `openssl enc -aes-256-cbc -d -pbkdf2` で復号 (パスフレーズ入力のみ対話)
+6. `~/.secrets/<repo>.key` に配置 (mode 600)
+
+その後 **Step 5b** が `git-crypt unlock` を自動実行する。
+
+### 共同編集者向け運用
+
+このパターンを採用するリポでは、collaborator 向け README に以下を **必ず最優先で**記載:
+
+```bash
+# 推奨: claude-config の setup.sh で全自動復元 + unlock
+gh repo clone <your-config-repo>/claude-config
+cd claude-config && ./setup.sh
+# → パスフレーズプロンプトに答えるだけ
+```
+
+**手動 `openssl enc -d ...` を最初に書かない**。手動経路は「setup.sh の前提が崩れた時の最後の砦」として fallback 節に置く。理由:
+
+- 手動経路はクラウドストレージ内の literal path を覚えている必要があり、collaborator の環境で path がズレると file-not-found に陥る
+- placeholder 入りの中継ドキュメントを読んだ場合、prompt 上で誤展開されて誤った path で openssl を投げる事故が起きる
+- bad decrypt 時に exit code を確認しないと garbage を `~/.secrets/` に残し、後続セッションで「鍵があるが unlock 失敗」状態になり原因究明が長引く
+
+`setup.sh` Step 5b-pre は `find` で path 非依存にし、復号失敗時は warning を出してファイルを残さない。**手動 openssl では同等の防御を毎回書き直すコストがあるため、機械化された経路を最優先にする**。
+
+### セットアップ例 (公開しても安全な記述例)
+
+リポの README:
+
+```markdown
+## 共同編集者向けセットアップ
+
+**Quick start (推奨)**: `claude-config` の setup.sh で全自動。
+\`\`\`bash
+brew install git-crypt gh
+gh auth login
+gh repo clone <your-config-repo>/claude-config
+cd claude-config && ./setup.sh
+# パスフレーズは out-of-band で受領 (対面 / Signal 等)
+\`\`\`
+
+**手動セットアップ (fallback)**: setup.sh が動かない場合のみ。
+\`\`\`bash
+# 1. 暗号化鍵を Dropbox 共有フォルダから openssl で復号
+mkdir -p ~/.secrets
+openssl enc -aes-256-cbc -d -pbkdf2 \
+  -in ~/Dropbox/<shared-folder>/keys/my-repo.key.enc \
+  -out ~/.secrets/my-repo.key
+chmod 600 ~/.secrets/my-repo.key
+# 2. リポを clone + unlock
+gh repo clone <your-org>/my-repo
+cd my-repo && git-crypt unlock ~/.secrets/my-repo.key
+\`\`\`
+
+Dropbox の共有フォルダパスが手元と違う場合: `mdfind -name "my-repo.key.enc"` (macOS) で検索。
+```
+
 ## 鍵のバックアップ
 
 **鍵ファイルはデータを復号する唯一の手段。** 紛失してバックアップがなければ、GitHub 上の暗号化ファイルは復元不能。
