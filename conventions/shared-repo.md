@@ -71,37 +71,52 @@ grep -rE '<owner-personal-calendar-id>|<owner-personal-email>' --exclude-dir=.gi
 
 ## 共有 git-crypt 鍵パターン
 
-共有プロジェクトを git-crypt で暗号化したい場合、**個人鍵とは別の鍵**を作って共同編集者と共有する。
+共有プロジェクトを git-crypt で暗号化したい場合、**個人鍵とは別の鍵**を作って共同編集者と共有する。**鍵配布は openssl 暗号化 backup をクラウドストレージ (Dropbox 等) に置き、`.claude/git-crypt-backup` + `setup.sh` Step 5b-pre による全自動復元を canonical にする** (詳細: [`docs/git-crypt-guide.ja.md`](../docs/git-crypt-guide.ja.md) §共有リポでの自動復元)。
 
-### 鍵の生成と配布
+### 鍵の生成 + 配布 (initiator 側、初回のみ)
 
 1. リポで `git-crypt init` → 内部鍵生成
-2. `git-crypt export-key <somewhere>/<project-name>.key`
-3. 共同編集者全員がアクセスできる場所（チーム共有 Dropbox フォルダ等）に鍵をコピー
-4. 共同編集者は各自その場所から鍵を取得し、好きなローカルパスに保存
-5. `git-crypt unlock <local-path>` で復号
+2. `git-crypt export-key /tmp/<project-name>.key && chmod 600 /tmp/<project-name>.key`
+3. 鍵を openssl で暗号化してクラウドストレージ共有フォルダに配置:
+   ```bash
+   /usr/bin/openssl enc -aes-256-cbc -pbkdf2 -salt \
+     -in /tmp/<project-name>.key \
+     -out <shared-storage>/<project-name>.key.enc
+   shred -u /tmp/<project-name>.key   # 平文を即削除
+   ```
+4. 強いパスフレーズを共同編集者に **out-of-band で共有** (対面 / Signal 等。GitHub / クラウドストレージ / メール経由は禁止)
+5. リポに `.claude/git-crypt-backup` を作成、暗号化ファイル名 (= `<project-name>.key.enc`) を 1 行で記載 ← これが setup.sh の検索キー
+6. `~/.secrets/<project-name>.key` をローカルに配置して `git-crypt unlock` で動作確認
+
+### 共同編集者向けの SETUP.md
+
+共同編集者が新マシンで onboarding するための walkthrough は、**`SETUP.md` (リポ root)** に置く。CLAUDE.md は毎セッション auto-load されるため full walkthrough を入れるとコスト増、cold reference として SETUP.md に分離する。
+
+- テンプレ: [`templates/shared-project/SETUP.md.template`](../templates/shared-project/SETUP.md.template) を copy → このリポ固有のパラメータ (encrypted backup ファイル名 / Dropbox path / local key path / passphrase 受領経路 / plaintext test file) を埋める
+- 配置: **必ずリポ root**。`docs/**` を git-crypt 暗号化対象にしている場合、`docs/SETUP.md` だと未 unlock の collaborator が読めない catch-22
+- CLAUDE.md 側の git-crypt セクションは **SETUP.md への 1-2 行ポインタ + 反パターン警告 (手動 openssl から始めない) のみ**。例:
+  ```markdown
+  **git-crypt 有効** (`<encrypted-paths>` のみ暗号化)。
+  - 復号後の日常運用: `git-crypt unlock ~/.secrets/<project-name>.key`
+  - **新マシン初回セットアップ → [SETUP.md](SETUP.md) を必ず読んでから進める**。`cd ~/Claude/claude-config && ./setup.sh` で全自動。⚠️ **手動 `openssl enc -d ...` から始めない** (path 誤りで bad-decrypt 残骸事故が過去あり、SETUP.md §反パターン警告 参照)
+  ```
+
+SETUP.md.template は復号失敗事故 (`docs/git-crypt-guide.ja.md` §共有リポでの自動復元 末尾) の 5 段アンチパターン全てに対する防御 (反パターン警告 + 推奨経路 setup.sh 最優先 + 手動 fallback の Step 0 事前確認 / Step 2 事後確認) を組み込んでいる。**項目を削らず内容だけ埋める**こと。
 
 ### 暗号化スコープ最小化を検討する
 
-`.gitattributes` を `private/** filter=git-crypt diff=git-crypt` 1 行に絞ると、機微な情報のみ `private/` に入れて他は平文で扱える。鍵管理コストと audit のしやすさが大きく改善される。詳細は [`docs/git-crypt-guide.md`](../docs/git-crypt-guide.md) 参照。
+`.gitattributes` を `private/** filter=git-crypt diff=git-crypt` 1 行に絞ると、機微な情報のみ `private/` に入れて他は平文で扱える。鍵管理コストと audit のしやすさが大きく改善される。**逆に `docs/**` を暗号化対象にすると、SETUP.md を `docs/` に置けない catch-22 になるため SETUP.md は必ず repo root** (上記 §共同編集者向けの SETUP.md 参照)。詳細は [`docs/git-crypt-guide.md`](../docs/git-crypt-guide.md) 参照。
 
-### 鍵のローカルパスは共同編集者ごとに異なる
+### 鍵のローカルパスは共同編集者ごとに異なる (補助的、レガシー)
 
-CLAUDE.md には**単一のコマンド例**を書きつつ、ユーザごとの実パスは個人層側の `shared-project-keys.md` で管理する仕組みにする:
+`setup.sh` Step 5b-pre が `.claude/git-crypt-backup` + クラウドストレージ find で鍵を自動配置するため **path 知識自体が不要** になっており、これが canonical recovery 経路。
 
-CLAUDE.md 側の記述例:
+ただし個人層 (e.g., `<your>-prefs/`) を持つユーザは補助的に `shared-project-keys.md` レジストリで「自分のマシンに何の鍵があるか」を管理してもよい。schema:
+
 ```markdown
-**復号**: `git-crypt unlock <your-key-path>`
-- 鍵の正本: <共有フォルダ>/<project>.key
-- パスは個人層の `shared-project-keys.md` に登録（Claude が自動で拾う）
-- 個人層を持たない場合は `~/.secrets/<project-name>.key` に置けば fallback
+| Project | Local key path | `.claude/git-crypt-backup` の中身 |
+|---|---|---|
+| <project-name> | ~/.secrets/<project-name>.key | <project-name>.key.enc |
 ```
 
-`shared-project-keys.md` の schema:
-```markdown
-| Project | Local key path |
-|---|---|
-| <project-name> | ~/.secrets/<project-name>.key |
-```
-
-これで Claude は共有プロジェクトに入った時に個人層の `shared-project-keys.md` を参照し、該当エントリのパスで自動 unlock できる。なくても fallback で動作する（**共有プロジェクト層は個人層に依存しない**ことが守られる）。
+このレジストリは Claude が「どの鍵が手元にあるか」を一覧把握する用途であり、unlock 自体は setup.sh が自動で行うため依存ではない (**共有プロジェクト層は個人層に依存しない** 4 層モデルが守られる)。個人層の placeholder (`<workplace_short>` 等) は path 解決には**使わない** (誤展開事故防止 — `docs/git-crypt-guide.ja.md` §共有リポでの自動復元 参照)。
