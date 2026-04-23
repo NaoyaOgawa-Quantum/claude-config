@@ -1,0 +1,126 @@
+# 共同編集者向けセットアップ — <project-name>
+
+新マシンで本リポを使うときの手順。Claude Code に「このリポでセットアップして」と頼めば、CLAUDE.md → 本ファイルの順で読んで自動で進めます。
+
+> このファイルは [claude-config の shared-project テンプレ](https://github.com/<owner>/claude-config/tree/main/templates/shared-project) から生成。新規 collaborator が詰まらない流れを担保するため、項目を削らず内容だけ埋めること (特に「反パターン警告」「Step 0 事前確認」「Step 2 事後確認」は安全装置として必須)。
+
+## このリポ固有のパラメータ
+
+| 項目 | 値 |
+|---|---|
+| GitHub | `<github-owner>/<project-name>` (private) |
+| 暗号化バックアップ (クラウドストレージ) | `<storage-path>/<key-backup-filename>.key.enc` |
+| ローカル鍵パス | `~/.secrets/<project-name>.key` |
+| パスフレーズ受領経路 | <key-owner> から out-of-band (対面 / Signal 等。**GitHub / クラウドストレージ / メール経由は禁止**) |
+
+## 前提
+
+- macOS (Linux / Windows でも動くはずだが動作確認は Mac のみ)
+- Homebrew インストール済み
+- GitHub アカウント — `<github-owner>/<project-name>` の collaborator として招待・受諾済
+- クラウドストレージ — 共有フォルダ `<shared-folder>` が招待・受諾済
+- パスフレーズ受領済 (上記)
+
+## ⚠️ 必読: 反パターン警告
+
+**手動 `openssl enc -d ...` から始めない。** まず下記「推奨経路」(setup.sh) を試す。手動経路は最後の砦。
+
+過去 (claude-config の git-crypt-guide.ja.md §共有リポでの自動復元 末尾の事故事例) に手動 openssl の path 誤りで file-not-found に陥り、bad-decrypt の garbage が `~/.secrets/` に残って後続セッションで「鍵があるが unlock 失敗」状態に発展した事故あり。setup.sh の Step 5b-pre は `find` で path 非依存にし、復号失敗時は warning を出してファイルを残さない安全弁つき。
+
+## 推奨経路 (claude-config setup.sh で全自動)
+
+```bash
+brew install git-crypt gh
+gh auth login
+
+# claude-config を取得 (まだなら)
+mkdir -p ~/Claude && cd ~/Claude
+gh repo clone <owner>/claude-config
+
+# setup.sh 実行 — パスフレーズプロンプトに答えるだけ
+cd claude-config && ./setup.sh
+```
+
+setup.sh の **Step 5b-pre** が共有クラウドストレージ root を `find -maxdepth 5` で探して暗号化鍵 (`<key-backup-filename>.key.enc`) を発見 → openssl 復号 → `~/.secrets/<project-name>.key` 配置 → `git-crypt unlock` まで自動実行。**ストレージ内のフォルダ構造を覚えていなくても動く** (= path 誤りの余地ゼロ)。
+
+setup.sh の仕組みの詳細: `~/Claude/claude-config/docs/git-crypt-guide.ja.md` §共有リポでの自動復元
+
+### 動作確認
+
+```bash
+cd ~/Claude/<project-name>
+head <plaintext-test-file>  # 平文が見えれば unlock 成功 (バイナリは encrypted state)
+```
+
+## 手動セットアップ (fallback、setup.sh が動かない場合のみ)
+
+### Step 0: 事前確認 — 暗号化バックアップが期待した path にあるか
+
+```bash
+ls -la <storage-path>/<key-backup-filename>.key.enc
+```
+
+「No such file or directory」が出たら **以下のいずれかで実 path を探す** (decrypt を投げる前に必ず実 path を確定):
+
+```bash
+mdfind -name "<key-backup-filename>.key.enc"          # macOS Spotlight
+find <storage-root> -name "<key-backup-filename>.key.enc"  # find fallback
+```
+
+見つかった path を以下の `-in` に指定する。
+
+### Step 1: 暗号化鍵を openssl で復号
+
+```bash
+mkdir -p ~/.secrets
+/usr/bin/openssl enc -aes-256-cbc -d -pbkdf2 \
+  -in <storage-path>/<key-backup-filename>.key.enc \
+  -out ~/.secrets/<project-name>.key
+# パスフレーズを聞かれるので入力 (受領済のもの)
+```
+
+### Step 2: 必須事後確認 — bad-decrypt の garbage が残っていないか
+
+```bash
+echo "exit code: $?"
+ls -la ~/.secrets/<project-name>.key
+file ~/.secrets/<project-name>.key
+```
+
+- exit code が `0` でない → 復号失敗。`rm ~/.secrets/<project-name>.key` してパスフレーズを再確認 → Step 1 から再実行
+- ファイルサイズが ~150 bytes 程度でない (極端に小さい / 大きい) → 怪しい。`file` で `data` と出るのが期待 (本物の git-crypt 鍵は binary)。明らかにテキストやランダムなら復号失敗
+
+復号成功を確認したら:
+
+```bash
+chmod 600 ~/.secrets/<project-name>.key
+```
+
+### Step 3: リポを clone + unlock
+
+```bash
+mkdir -p ~/Claude && cd ~/Claude
+gh repo clone <github-owner>/<project-name>
+cd <project-name>
+git-crypt unlock ~/.secrets/<project-name>.key
+```
+
+### 動作確認 (上記の Quick start と同じ)
+
+```bash
+head <plaintext-test-file>
+```
+
+## トラブルシューティング
+
+| 症状 | 対処 |
+|---|---|
+| `git-crypt: command not found` | `brew install git-crypt` |
+| `openssl: bad decrypt` | パスフレーズ間違い。`rm ~/.secrets/<project-name>.key` → 受領したパスフレーズを再確認 → Step 1 を再実行 |
+| unlock エラーなしだが平文が見えない | `git-crypt status` で確認、必要なら `rm -rf .git/git-crypt && git-crypt unlock ~/.secrets/<project-name>.key` で再生成 |
+| どうにも詰まったら | 鍵を一度削除 (`rm ~/.secrets/<project-name>.key`) して setup.sh から再試行 |
+
+## 詳細リファレンス
+
+- git-crypt 一般運用: `~/Claude/claude-config/docs/git-crypt-guide.ja.md` (public)
+- 関連リポの SETUP.md: <list-related-shared-project-setup-files>

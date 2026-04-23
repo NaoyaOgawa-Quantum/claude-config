@@ -20,11 +20,13 @@ See [`docs/personal-layer.md`](../../docs/personal-layer.md) for the layer model
    cp ~/Claude/claude-config/templates/shared-project/CLAUDE.md.template ./CLAUDE.md
    cp ~/Claude/claude-config/templates/shared-project/README.md.template ./README.md
    cp ~/Claude/claude-config/templates/shared-project/AUDIT.md.template ./AUDIT.md
+   # If using git-crypt with collaborators (recommended for shared private repos):
+   cp ~/Claude/claude-config/templates/shared-project/SETUP.md.template ./SETUP.md
    ```
 
 3. Edit each file. **Important**: every reference to your personal layer or other private repos must be removed before sharing. Use the AUDIT.md checklist.
 
-4. (Optional) Set up git-crypt with a shared key — see [`docs/git-crypt-guide.md`](../../docs/git-crypt-guide.md) and the "共有 git-crypt 鍵パターン" section in `conventions/shared-repo.md`.
+4. (Optional) Set up git-crypt with a shared key — see [`docs/git-crypt-guide.md`](../../docs/git-crypt-guide.md) and the "共有 git-crypt 鍵パターン" section in `conventions/shared-repo.md`. **If using git-crypt, fill in `SETUP.md` (collaborator-facing setup walkthrough)** with this-repo specific values: encrypted backup path, local key path, plaintext test file. CLAUDE.md should keep only a 1-2 line pointer to SETUP.md (not the full walkthrough — auto-load cost). Both files must be at the repo root (NOT in `docs/` if you have `docs/**` git-crypt encrypted, otherwise un-unlocked collaborators can't read them — catch-22).
 
 5. Create the GitHub private repo and invite collaborators:
    ```bash

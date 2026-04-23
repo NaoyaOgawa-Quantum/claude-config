@@ -1,0 +1,24 @@
+# <project-name>
+
+<1-2 行のリポ説明: 何のリポか、何を集約するか>
+
+**⚠️ private リポ必須。** <機密の種類を 1 行で>。public 化しない。
+
+## セットアップ
+
+新規 collaborator は [`SETUP.md`](SETUP.md) を参照。Claude Code に「このリポでセットアップして」と頼めば自動で進めます。
+
+⚠️ git-crypt unlock は **必ず** SETUP.md の手順 (推奨経路: `cd ~/Claude/claude-config && ./setup.sh`) で進める。手動 `openssl enc -d ...` から始めない (path 誤りで bad-decrypt 残骸事故あり、SETUP.md §反パターン警告 参照)。
+
+## What's where
+
+- `<主要ディレクトリ 1>` — <1 行の説明>
+- `<主要ディレクトリ 2>` — <1 行の説明>
+- `<主要ファイル>` — <1 行の説明>
+
+正本: [`CLAUDE.md`](CLAUDE.md) (構造・運用) / [`DESIGN.md`](DESIGN.md) (判断理由) / [`SESSION.md`](SESSION.md) (現状)。
+
+## 関連リポ
+
+- `<related-repo-1>` — <関係性 1 行>
+- `<related-repo-2>` — <関係性 1 行>
