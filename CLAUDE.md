@@ -78,6 +78,7 @@ setup.sh が自動で行うこと:
    - *(条件付き)* 個人層 (`.claude-personal-layer` マーカーファイルを持つディレクトリ) を `<base>/` 直下から検出し、見つかれば `<base>/CLAUDE.md` をそのディレクトリの `CLAUDE.md` への symlink にする。`CLAUDE_PERSONAL_LAYER` 環境変数で明示指定可（`none` で無効化）。検出ロジックの詳細は `docs/personal-layer.md` 参照
    - *(条件付き)* 個人層が見つからない場合は `templates/root-CLAUDE.md.default` をデフォルトの `<base>/CLAUDE.md` として設置
    - *(条件付き)* 個人層に `dropbox-collabs.yaml` があれば `scripts/setup-dropbox-refs.sh` を呼んで `<base>/<repo>/dropbox-refs` symlink を生成 + 個人層 `.git/hooks/post-merge` に同スクリプトを install（次回 `git pull` で symlink 自動再生成）。詳細は `conventions/dropbox-refs.md` 参照
+   - *(条件付き、macOS のみ)* 個人層に `scripts/setup-file-associations.sh` があれば実行（Launch Services のファイル拡張子別デフォルトアプリ設定）
 8. LaTeX リポ（.tex/.bib を含む）に pre-commit hook をインストール（Unicode→LaTeX 自動修正）
 9. *(条件付き)* JHEP.bst を texmf-local にインストール（odakin: 自動、他ユーザー: オプション表示）
 10. *(条件付き)* git-crypt 暗号化リポを自動 unlock。共有プロジェクト鍵 (`~/.secrets/<repo>.key`) があればそれを優先、なければ個人鍵 (`~/.secrets/git-crypt.key`) で fallback

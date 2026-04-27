@@ -12,6 +12,8 @@
 #   5a. 個人層 (.claude-personal-layer マーカー) を検出し ~/Claude/CLAUDE.md を symlink
 #   5a2. 個人層に dropbox-collabs.yaml があれば dropbox-refs symlinks を作成
 #        + 個人層 .git/hooks/post-merge を設置（git pull で自動再生成）
+#   5a3. 個人層に scripts/setup-file-associations.sh があれば実行（macOS のみ、
+#        Launch Services のファイル拡張子別デフォルトアプリ設定）
 #   5b. git-crypt 暗号化リポを自動 unlock（鍵があれば）
 #   6.  LaTeX リポに pre-commit hook をインストール（Unicode→LaTeX 自動修正）
 #   6b. JHEP.bst を texmf-local にインストール（全リポからグローバル利用）
@@ -701,6 +703,26 @@ HOOK_EOF
             echo "  $ACTION: $LAYER_POST_MERGE"
         fi
     fi
+fi
+
+# --- 5a3. Personal-layer file associations (macOS only) ---
+# 個人層に scripts/setup-file-associations.sh があれば実行する。macOS の
+# Launch Services でファイル拡張子別のデフォルトアプリを固定するなど、
+# OS に依存する個人カスタマイズを personal layer 側に閉じ込めるための
+# generic な hook。条件:
+#   - macOS (Darwin) であること
+#   - 個人層 ($LAYER) が検出済み (Step 5a) であること
+#   - $LAYER/scripts/setup-file-associations.sh が存在し実行可能であること
+# どれか欠けたらサイレントスキップ (Linux/Windows では出力なし)。
+# 失敗してもセットアップは継続。冪等性は呼び出される側のスクリプトが保証する。
+if [ "$(uname -s)" = "Darwin" ] \
+        && [ -n "${LAYER:-}" ] \
+        && [ -d "$LAYER" ] \
+        && [ -x "$LAYER/scripts/setup-file-associations.sh" ]; then
+    echo ""
+    echo "=== Step 5a3: Personal-layer file associations ==="
+    "$LAYER/scripts/setup-file-associations.sh" || \
+        echo "  WARNING: setup-file-associations.sh failed (see above)"
 fi
 
 # --- 5b. Recover shared keys from Dropbox + Unlock git-crypt repos ---
