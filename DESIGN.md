@@ -603,6 +603,28 @@ leak gate と同じ挙動。
 `.claude/pre-commit-extra.sh` に旧 hook の placeholder 検出 +
 docs↔SESSION.md 警告を移設。本機能の動作確認も兼ねた。
 
+**extension 作成ガイド** (新しい public repo に extension を入れる時):
+
+1. `chmod +x .claude/pre-commit-extra.sh`。non-executable は runner が
+   skip する。
+2. **gitignore exception**: `.claude/*` は gitignore_global で ignore
+   され、`!.claude/pre-commit-extra.sh` は同 global に登録済 (commit
+   8efeaac)。各 repo が独自 `.gitignore` で `.claude/*` を再宣言
+   している場合 (現状: 数 repo) は、その local `.gitignore` にも同じ
+   exception を追加する必要がある。`git check-ignore -v` で確認可。
+3. **self-collision 回避**: extension が grep / regex で pattern を検出
+   する場合、その pattern 文字列は extension 自身の source に出現する
+   ため、pathspec exclude (`':(exclude).claude/pre-commit-extra.sh'`)
+   で自分を除外しないと自身の commit が self-block する。mhlw の例
+   参照。
+4. **テスト**: stage に該当 pattern の fixture を仕込んで
+   `~/Claude/claude-config/scripts/public-precommit-runner.sh` を直接
+   実行 (commit を打たずに hook chain だけ走らせられる)。`git reset
+   HEAD <fixture>` で stage を巻き戻す。
+5. **stub には触らない**: `install-public-precommit.sh` の冪等性は
+   stub-only 前提 (STUB_MARKER で識別して上書き)。repo 固有 logic を
+   stub に埋めると次回 install 時に消える。
+
 ### 関連文書
 - `docs/sensitive-repo-patterns.ja.md` — 設計思想の出所 (§3-3, §5-1, §5-2)
 - `odakin-prefs/leak-incidents.md` — 受容 leak の記録と類型判断
