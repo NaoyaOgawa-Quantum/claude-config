@@ -9,6 +9,22 @@ MCP ツールを使うリポで適用。CLAUDE.md から参照: `~/Claude/claude
 - **UUID→アカウント対応表は MCP 設定リポに保持**: 各 MCP 設定リポ (例: `gmail-mcp-config`) の CLAUDE.md または SESSION.md に UUID→アカウントの対応を記録する。memory には書かない (machine-local で cross-machine 不整合を招く。詳細: [docs/convention-design-principles.md §5](../docs/convention-design-principles.md))。新規セッションで対応表が不明・古ければ、全 MCP で `get_profile` を実行して deferred tools の UUID 一覧と照合し、差分を MCP 設定リポに追記する
 - **アカウント一覧の正本**: 各 MCP 設定リポの CLAUDE.md を参照（各プロジェクトリポの CLAUDE.md にはハードコードしない）
 
+## `claude mcp` の project 解決ルール (注意)
+
+`claude mcp add` / `claude mcp remove` の default scope は **local** = 「対象 Claude Code project 内の MCP 登録」(`~/.claude.json` の `projects[<path>].mcpServers` 配下)。"対象 project" は cwd ではなく **cwd から ancestor を辿って最初に見つかる `.claude/` を持つディレクトリ** で決まる (= claude CLI が project と認識するディレクトリ)。
+
+セットアップ用の bash スクリプト等が、**自分自身のリポ内**から `claude mcp` を呼ぶと、登録先が想定外の project に入る:
+
+- 期待: `~/Claude` project に gmail server を登録
+- 実態: スクリプトが `~/Claude/gmail-mcp-config/` 配下から走り、`~/Claude/gmail-mcp-config/.claude/` を最寄り `.claude/` として resolve → 登録先が `gmail-mcp-config` project になる
+
+回避策:
+
+- スクリプト冒頭で target project に **明示的に `cd`** してから `claude mcp` を呼ぶ。target は引数 / 環境変数で受け取れるようにしておく (cwd 暗黙依存をなくす)
+- あるいは `--scope user` で全 project 共通の user-level 登録にする (per-project 登録にしたい場合は不向き)
+
+設置時 / 撤去時の冪等化 (`claude mcp remove "<name>" 2>/dev/null || true; claude mcp add ...`) は target project が正しいときに初めて意味を持つので、target 解決を先に固める。
+
 ## MCP 設定リポの役割
 
 MCP サーバーの認証情報やセットアップ手順を一箇所で管理するためのリポ。複数のプロジェクトが同じ MCP サーバー（Gmail、Calendar 等）を利用する場合、認証情報の管理を各プロジェクトに分散させると更新漏れや不整合が起きる。設定リポに集約することで、アカウント追加・トークン更新・サーバー移行等の変更が1箇所で完結する。
