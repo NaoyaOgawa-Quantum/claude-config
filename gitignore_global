@@ -20,10 +20,13 @@ Thumbs.db
 # - git-crypt-backup: Dropbox-relative encrypted key backup の指定
 #   (private リポのみ、setup.sh 5b-pre が読む)
 # - launch.json: VS Code dev server 設定
+# - pre-commit-extra.sh: public-precommit-runner の repo-local extension
+#   (詳細: claude-config/DESIGN.md §2026-04-28 追補)
 .claude/*
 !.claude/public-repo.marker
 !.claude/git-crypt-backup
 !.claude/launch.json
+!.claude/pre-commit-extra.sh
 
 # === LaTeX intermediates (NOT pdf — PDFs are tracked) ===
 *.aux
