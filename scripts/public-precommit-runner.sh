@@ -169,11 +169,15 @@ fi
 # ----------------------------------------------------------------------
 if [ -z "$HITS" ]; then
   # Tier A/B leak gate を pass。
-  # repo-local extension があれば chain (exec で exit code 透過)。
+  # repo-local extension があれば chain (exit code 透過)。
+  # 注: exec ではなく call + exit にしているのは、bash の exec は EXIT
+  # trap (上で $ADDED_BUF cleanup を登録済) を skip するため。tempfile を
+  # leak させないため call → 終了コード透過 → 親の trap 発火、の順にする。
   REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   EXTRA_HOOK="$REPO_ROOT/.claude/pre-commit-extra.sh"
   if [ -n "$REPO_ROOT" ] && [ -x "$EXTRA_HOOK" ]; then
-    exec "$EXTRA_HOOK" "$@"
+    "$EXTRA_HOOK" "$@"
+    exit $?
   fi
   exit 0
 fi

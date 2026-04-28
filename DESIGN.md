@@ -578,8 +578,11 @@ gate (Tier A/B) は repo 横断で同一だが、repo 固有の commit 規律
 
 **設計**: stub は触らず、`public-precommit-runner.sh` 側に optional
 chain を追加。leak gate を pass した時点で
-`<repo_root>/.claude/pre-commit-extra.sh` が executable なら exec
-で chain (exit code 透過)。
+`<repo_root>/.claude/pre-commit-extra.sh` が executable なら call +
+exit で chain (exit code 透過)。`exec` ではなく call にしているのは、
+bash の `exec` が EXIT trap (runner が `$ADDED_BUF` の cleanup に使う)
+を skip するため — tempfile leak を避けるため親 shell に戻して trap を
+発火させる。
 
 利点:
 1. **stub の冪等性を保つ**: install-public-precommit.sh は STUB_MARKER
@@ -595,9 +598,9 @@ chain を追加。leak gate を pass した時点で
 
 **実装**: `public-precommit-runner.sh` の最終 `exit 0` の直前に
 `git rev-parse --show-toplevel` で repo root を取り、
-`$REPO_ROOT/.claude/pre-commit-extra.sh` が `-x` なら exec。chain
-された extension が `exit 1` すれば commit が reject されるのは
-leak gate と同じ挙動。
+`$REPO_ROOT/.claude/pre-commit-extra.sh` が `-x` なら呼び出し、戻り値
+で exit。chain された extension が `exit 1` すれば commit が reject
+されるのは leak gate と同じ挙動。
 
 **初回投入先**: mhlw-ec-pharmacy-finder の
 `.claude/pre-commit-extra.sh` に旧 hook の placeholder 検出 +
