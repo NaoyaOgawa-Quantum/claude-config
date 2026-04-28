@@ -2,6 +2,8 @@
 
 ## 現在の状態
 
+**2026-04-28**: `public-precommit-runner.sh` に optional な repo-local extension hook chain (`.claude/pre-commit-extra.sh`) を追加。stub の冪等性を保ったまま repo 固有の commit 規律 (placeholder 検出 / docs↔SESSION.md 同期警告等) を chain できる。mhlw-ec-pharmacy-finder で動作確認 (旧 inline hook の guard を extension に移設、外側 stub と差し替え)。5 commit (`590ab9f` chain + DESIGN §2026-04-28 追補 / `8efeaac` gitignore_global で `!.claude/pre-commit-extra.sh` / `25412e7` 作成 guide 5 項追記 / `7b6a112` exec→call で trap leak 修復 / 本 commit runner header doc を call+exit に同期 + 本 SESSION 記載)。詳細は DESIGN.md §2026-04-28 追補。
+
 **2026-04-23**: ある private collaborative git-crypt リポでの復号失敗事故 (個人層 satellite doc の placeholder 誤展開で file-not-found に陥った) を起点に、再発防止の規約・ガイド・テンプレ整備 4 commit (`e87d3df` / `ee84741` / `4ca20c3` / `46e2fb6`) 完遂。docs/git-crypt-guide.ja.md §共有リポでの自動復元 新設、templates/shared-project に SETUP.md.template + 既存バグ (README.md.template 不在) 修復、CONVENTIONS.md + conventions/shared-repo.md に SETUP.md パターン正式採用 + 4軸 audit drift 修復。
 
 **2026-04-21**: onboarding 補強 (commit `58a7696`) と §8 memory policy 整合 3 段 (`3a159c2` / `9d4ac3d` / `f1d026a`) 完遂。auto-push env var、leak 防止システム、README reorg、§7 retroactive reorg 等の過去セッション完了事項は git log と `DESIGN.md` 各 entry を参照。

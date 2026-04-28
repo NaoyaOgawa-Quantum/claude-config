@@ -22,9 +22,10 @@
 #   6. `--no-verify` で bypass 可能 (git 標準の escape hatch)
 #   7. leak gate を pass したら、対象 repo に
 #      `<repo_root>/.claude/pre-commit-extra.sh` (executable) があれば
-#      exec で chain する。repo 固有の commit 規律 (placeholder 検出・
-#      SESSION.md 同期警告等) はこちらに置く。stub は触らずに済むので
-#      install-public-precommit.sh の冪等性が保たれる
+#      call + `exit $?` で chain する (`exec` ではない理由は本体の
+#      該当箇所コメント参照)。repo 固有の commit 規律 (placeholder
+#      検出・SESSION.md 同期警告等) はこちらに置く。stub は触らずに
+#      済むので install-public-precommit.sh の冪等性が保たれる
 #
 # 設計思想:
 #   本 script は `sensitive-repo-patterns.ja.md §3-3` の批判 (b)
