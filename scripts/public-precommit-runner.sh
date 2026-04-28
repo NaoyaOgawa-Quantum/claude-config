@@ -20,6 +20,11 @@
 #       grep プロセスに file path を渡すだけで直接 read しない)
 #   5. hit があれば `exit 1` で commit を reject。詳細を stderr に出す
 #   6. `--no-verify` で bypass 可能 (git 標準の escape hatch)
+#   7. leak gate を pass したら、対象 repo に
+#      `<repo_root>/.claude/pre-commit-extra.sh` (executable) があれば
+#      exec で chain する。repo 固有の commit 規律 (placeholder 検出・
+#      SESSION.md 同期警告等) はこちらに置く。stub は触らずに済むので
+#      install-public-precommit.sh の冪等性が保たれる
 #
 # 設計思想:
 #   本 script は `sensitive-repo-patterns.ja.md §3-3` の批判 (b)
@@ -163,6 +168,13 @@ fi
 # 判定
 # ----------------------------------------------------------------------
 if [ -z "$HITS" ]; then
+  # Tier A/B leak gate を pass。
+  # repo-local extension があれば chain (exec で exit code 透過)。
+  REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  EXTRA_HOOK="$REPO_ROOT/.claude/pre-commit-extra.sh"
+  if [ -n "$REPO_ROOT" ] && [ -x "$EXTRA_HOOK" ]; then
+    exec "$EXTRA_HOOK" "$@"
+  fi
   exit 0
 fi
 
