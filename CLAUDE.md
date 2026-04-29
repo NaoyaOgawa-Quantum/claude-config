@@ -23,6 +23,7 @@ claude-config/
 │   ├── latex.md            # LaTeX 固有規約（物理リポで参照）
 │   ├── mcp.md              # MCP 固有規約（MCP 使用時に参照）
 │   ├── research-email.md   # 研究メール分類・記録規約
+│   ├── japanese-email-honorifics.md # 日本語メールの敬称規約 (内 vs 外、身内に「様」「皆様」を使わない)
 │   ├── collaborators.md    # 共同研究者DB規約
 │   ├── identity-in-config.md # Identity-in-Config 規約（Discord 等 PII-in-disguise、layer 3 + env var bridge）
 │   ├── scheduled-tasks.md  # Scheduled Tasks 規約（SKILL.md 二重構造・同期ルール）
