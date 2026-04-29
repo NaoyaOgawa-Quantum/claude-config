@@ -2,6 +2,8 @@
 
 ## 現在の状態
 
+**2026-04-29**: `conventions/research-email.md` に §「研究者連絡先 (email) の取得手順」を追加 (commit `2627468`)。論文 PDF 1 ページ目を最優先、所属機関の公式メンバーページ・OpenReview・Semantic Scholar は mask されることが多いため後回し、という lookup priority を明文化。失敗例 (twcu-seminar 2026-04-28 セッションで小島武さん依頼時に発生 — メンバーページ mask を見て user に尋ねたが arXiv PDF を見ればすぐ取れた case) と、取得経路を `researchers.yaml` notes に記録する規律も追加。
+
 **2026-04-28**: `public-precommit-runner.sh` に optional な repo-local extension hook chain (`.claude/pre-commit-extra.sh`) を追加。stub の冪等性を保ったまま repo 固有の commit 規律 (placeholder 検出 / docs↔SESSION.md 同期警告等) を chain できる。mhlw-ec-pharmacy-finder で動作確認 (旧 inline hook の guard を extension に移設、外側 stub と差し替え)。5 commit (`590ab9f` chain + DESIGN §2026-04-28 追補 / `8efeaac` gitignore_global で `!.claude/pre-commit-extra.sh` / `25412e7` 作成 guide 5 項追記 / `7b6a112` exec→call で trap leak 修復 / 本 commit runner header doc を call+exit に同期 + 本 SESSION 記載)。詳細は DESIGN.md §2026-04-28 追補。
 
 **2026-04-23**: ある private collaborative git-crypt リポでの復号失敗事故 (個人層 satellite doc の placeholder 誤展開で file-not-found に陥った) を起点に、再発防止の規約・ガイド・テンプレ整備 4 commit (`e87d3df` / `ee84741` / `4ca20c3` / `46e2fb6`) 完遂。docs/git-crypt-guide.ja.md §共有リポでの自動復元 新設、templates/shared-project に SETUP.md.template + 既存バグ (README.md.template 不在) 修復、CONVENTIONS.md + conventions/shared-repo.md に SETUP.md パターン正式採用 + 4軸 audit drift 修復。
