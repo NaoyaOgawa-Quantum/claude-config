@@ -25,6 +25,96 @@ MCP ツールを使うリポで適用。CLAUDE.md から参照: `~/Claude/claude
 
 設置時 / 撤去時の冪等化 (`claude mcp remove "<name>" 2>/dev/null || true; claude mcp add ...`) は target project が正しいときに初めて意味を持つので、target 解決を先に固める。
 
+## MCP 接続失敗時のセッション内復旧 (runbook)
+
+session 中に MCP server が `Failed to connect` / `disconnected` 状態になったときの対応手順。**Claude Code の設計上、stdio MCP server は session 起動時に bind されており、起動時に接続失敗するとそのセッション内で再接続する built-in 経路がない** (上流既知 bug、GitHub claude-code issues #20684, #33468 参照)。HTTP/SSE 系は exponential backoff で auto-retry するが、stdio は手動。以下、軽い順に試す:
+
+### 0. 状態確認
+
+```bash
+# 全 MCP の現状
+claude mcp list           # ✓ Connected / ✗ Failed to connect
+
+# 該当 server の詳細 (登録 args / env)
+claude mcp get <server-name>
+```
+
+`claude mcp list` の "Connected" は **session 起動時の bind 結果**で、その後 server が落ちても更新されない場合がある。実際のツール呼び出しが通るかどうかが真の動作確認。
+
+### 1. 該当 server を素手で立ち上げて handshake 通る確認
+
+stdio server の場合、生 stdio で `initialize` リクエストを投げて応答するか確認:
+
+```bash
+echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}' | \
+  env <NEEDED_ENV_VARS> node /path/to/server.mjs
+```
+
+応答に `"result":{"protocolVersion":...}` が返れば server 側は健全。問題は Claude Code の MCP daemon 側の cache。
+
+### 2. log を確認
+
+```bash
+ls -t ~/Library/Caches/claude-cli-nodejs/-Users-odakin-Claude/mcp-logs-<server>/ | head -3
+cat ~/Library/Caches/claude-cli-nodejs/-Users-odakin-Claude/mcp-logs-<server>/$(ls -t ~/Library/Caches/claude-cli-nodejs/-Users-odakin-Claude/mcp-logs-<server>/ | head -1)
+```
+
+`Successfully connected` で終わっていれば session 起動時は OK だった = mid-session で落ちた。`timeout` / `stderr` で終わっていれば起動時失敗。
+
+### 3. remove + re-add で再登録 (transient 失敗のリトライ誘発)
+
+```bash
+cd ~/Claude  # ★ ~/Claude project scope 必須
+claude mcp remove <server-name> -s local
+claude mcp add <server-name> \
+  -e KEY1=VALUE1 -e KEY2=VALUE2 \
+  -- <command> <args...>
+```
+
+env vars と args は `claude mcp get` で取った内容を再投入。再登録後、**少し待ってから (10-30s)** ToolSearch で当該 MCP の tool schema を取得し直す:
+
+```
+ToolSearch select:mcp__<server>__<tool>
+```
+
+実際に tool を呼んでみる。MCP daemon が新登録を pick up していれば動く。
+
+### 4. `/mcp` slash command (status 確認のみ、reconnect ボタンなし)
+
+Claude for Mac の Code タブで `/mcp` を打つと UI 一覧が出る。**stdio server の reconnect/restart アクションは無い** (上流バグ #33468 で feature request 中)。HTTP/SSE は auto-retry 進捗が見える。status 確認用途のみ。
+
+### 5. `claude --resume` で session 再起動 (最終手段)
+
+ステップ 0-4 で復旧しなければ:
+
+```bash
+# 1. Claude for Mac を Cmd+Q または Code タブを閉じる
+# 2. 元の作業ディレクトリで:
+cd ~/Claude/<project>
+claude --resume
+```
+
+session の会話 / context / tool 許可は **保たれる**。MCP server だけ再起動から bind し直される。stdio server の起動時失敗が transient だったなら今度は通る。**ただし起動時失敗が決定論的 (env / 設定不備) なら何度試しても同じ** → 設定を直してから resume。
+
+### 6. それでも動かない場合の根本原因別 checklist
+
+- **環境変数の missing**: MCP server は Claude Code 起動時の minimal env を継承する。`$PATH` / `$NODE_OPTIONS` / カスタム credential path 等。`-e KEY=VALUE` で明示的に渡す
+- **working directory**: stdio server は Claude Code の cwd を継承。絶対パスで file を参照する設計が安全
+- **credential lock 競合**: OAuth token file を読む系の server が、別プロセス (Python script 等) と同時に lock を取りに行くと timeout。MCP 起動と batch script の同時実行を避ける
+- **cold-start タイムアウト**: googleapis 等の重い import で 2-3 sec かかる。MCP daemon の timeout (30s) には収まるが、複数 server 同時起動で IO 競合があると押し出される。重い server は esbuild 等で single-file bundle を試す
+
+### Chrome MCP (Claude in Chrome) の特殊事情
+
+Chrome MCP は `claude mcp` 配下ではなく **Claude.app の Chrome extension 経由** で別経路。`claude mcp list` には出ない。復旧:
+
+1. Chrome で `chrome://extensions/` → Claude 拡張のトグル OFF → ON で reload
+2. または Chrome を quit + 再起動
+3. 上記でダメなら Mac app (Claude.app) も quit + 再起動
+
+### 過去事例
+
+- **2026-05-01**: classroom-cis (stdio) が session 中に disconnected。server.mjs 単独 stdio handshake は OK、log は `Successfully connected` で終わる (落ちた時刻のログなし)。`claude mcp remove + add` で再登録 → 数分後に ToolSearch + tool 呼び出し成功。Mac app は quit せず session 維持で復旧した sample。同時に gmail-* 4 server も system-reminder で disconnected と告知されたが、こちらは自動で再接続成功 (stdio でも `@gongrzhe` の MCP は graceful reconnect 機構を持つ模様)。Chrome MCP は別 incident で接続不可、Mac app 側の対応必要。
+
 ## MCP 設定リポの役割
 
 MCP サーバーの認証情報やセットアップ手順を一箇所で管理するためのリポ。複数のプロジェクトが同じ MCP サーバー（Gmail、Calendar 等）を利用する場合、認証情報の管理を各プロジェクトに分散させると更新漏れや不整合が起きる。設定リポに集約することで、アカウント追加・トークン更新・サーバー移行等の変更が1箇所で完結する。
