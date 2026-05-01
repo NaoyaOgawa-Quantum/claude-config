@@ -634,3 +634,50 @@ docs↔SESSION.md 警告を移設。本機能の動作確認も兼ねた。
 - `odakin-prefs/next-steps.md` — 段階 2-3 の分離計画と un-defer トリガー
 - `odakin-prefs/DESIGN.md §2026-04-14` — articulation→application gap と prose 追加バイアスの同定 (本追補の認知側対応)
 - `conventions/shared-repo.md §公開前 Audit` — 旧来の人間 audit 手順 (本設計で hook 化)
+
+## 4 層モデルの renumber: layer 2 ↔ 3 swap (2026-05-01)
+
+### 判断
+
+`docs/personal-layer.md` の 4 層モデル numbering を **概念導入順** から **audience 包含順** に変更:
+
+| old | new | layer | audience |
+|---|---|---|---|
+| 1 | **1** | 共通規約 (claude-config) | public (不変) |
+| 2 | **3** | 個人層 (= `<owner>-prefs/` + secret 配置) | owner |
+| 3 | **2** | 共有プロジェクト層 | collaborator set |
+| 4 | **4** | 揮発メモリ | machine-local (不変) |
+
+### Why
+
+旧 numbering (1=共通 / 2=個人 / 3=共有 / 4=memory) は概念の登場順 (= 共通 → 個人 → 共有 → 揮発) で書かれていたが、audience の広さ順 (`public ⊃ collaborator set ⊃ owner ⊃ machine-local`) と一致しなかった。**「番号が小さい = audience が広い = 依存される側」 という直感的対応が成立しない** 状態で、解説や実装判断のたびに「番号と直感の捩れ」 を意識する cognitive cost が発生していた (= 5/01 セッションで user 自身が気持ち悪さを表明)。
+
+### 影響範囲
+
+claude-config 26 箇所 + odakin-prefs 2 箇所 = 28 箇所 (= 各 owner の shared layer リポ群には 4 層 layer N 言及がないケースが多く、odakin の場合は影響範囲ゼロだった)。
+
+詳細: claude-config commit `146994f`、odakin-prefs commit `02658be`。
+
+### 後方互換性
+
+過去 commit message / chat log / 過去 doc snapshot で「layer 2 = 個人層」 (旧 numbering 前提) と書かれた箇所は immutable な history として残る。新 numbering で history を読む reader (Claude を含む) のために:
+
+- `docs/personal-layer.md` の表の下に「2026-05-01 swap 履歴」 1 行 + 本 section へのポインタを残す
+- 本 section が「2026-05-01 以前の commit log で『layer 2 = 個人層』 と書かれていれば旧 numbering」 という解読 key になる
+
+### 同時に行った関連変更
+
+- `personal-layer.md` の表に「numbering follows audience containment」 の根拠 1 段落を追加 (= future readers が「なぜこの numbering か」 を理解できる)
+- `odakin-prefs/work-discipline.md` L102 の依存方向逆記述 bug fix (= 「layer 1 → layer 2 OK」 と書かれていたのを「layer 3 → layer 1 OK」 に訂正、4 層モデル本体ルールと整合)
+- `odakin-prefs/work-discipline.md` L160 直前に別軸 Layer (= 規約配置 strategic) との用語注 1 行追加 (= 同 file 内に 2 軸の Layer N が同居していたため、混乱回避用 escape hatch)
+
+### 別軸 Layer N との関係
+
+odakin-prefs 内には 4 層モデルとは別軸の「Layer N」表記が 14 箇所ある:
+
+- **memory ガード system** (Layer 1=reflex / Layer 2=詳細): `DESIGN.md §「設計判断: 2 層ゲートを配置」`
+- **規約配置 strategic** (Layer 1=inline / Layer 2=convention / Layer 3=protocol): `incidents.md §「2026-04-16 Gmail URL ... 4 層防御」` / `work-discipline.md §「Send-time Protocol」`
+
+これらは renumber 対象外 (= 4 層モデル本体とは無関係)、現状維持。混乱回避は同居している唯一の場所 (= work-discipline.md) のみ用語注で対応、他は同居なし (= 文脈で意味明確) で放置。詳細: 同セッションで `personal-layer.md` / `shared-repo.md` を読む流れで判別可能。
+
+将来「Layer N」 を multi-axis で使う confusion が悪化したら、別軸を「Tier N」 に renumber する選択肢 (= Option D) があるが、現時点では judgment call。
