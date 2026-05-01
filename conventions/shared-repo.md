@@ -71,6 +71,38 @@ grep -rE '<owner-personal-calendar-id>|<owner-personal-email>' --exclude-dir=.gi
 > `scripts/public-precommit-runner.sh` (pre-commit) で自動化済み。
 > 設計詳細は `DESIGN.md` §公開リポ leak 防止。
 
+## 機能 literal と reading mirror の区別
+
+共有層の literal は 2 種類あり、混同すると drift リスクが発生する:
+
+| 種類 | 例 | 性質 |
+|---|---|---|
+| **機能 literal** | workflow yaml の identifier dict / script の URL / 設定ファイルの key | 機械が読むので変更すると動作が壊れる = 真正本 |
+| **reading mirror** | CLAUDE.md / README.md の identifier テーブル | 人間 reading 用、機能上は不要だが doc としてあると便利 |
+
+### drift 対策
+
+reading mirror には **真正本ポインタ** を併記する:
+
+```markdown
+| Channel | ID |
+|---|---|
+| #foo | 1234 |
+
+> `discord-fetch.yml` の `channels` dict が canonical、本テーブルは reading mirror。
+> 新規追加・rename 時は yaml 側を真正本として更新する。
+```
+
+これで次に編集する人が「真正本 → mirror」の順で更新できる。mirror が drift しても致命傷にはならないが、grep で検出しにくいバグ源。
+
+### 多層 mirror
+
+同じ identifier が 機能 literal + shared mirror + personal mirror の 3 段に重複する場合 (例: Discord channel ID = workflow yaml + shared CLAUDE.md + personal layer の reference doc) は mirror を 1 段に絞ることを優先検討する。ただし「auto-load される doc に書いておけば Claude が即参照できる」便宜と weight する — 残す場合は各 mirror に真正本ポインタを忘れず付ける。
+
+### 「standalone で成立」と「Token 必要操作」の関係
+
+§4 層モデルの依存ルール「shared 層は standalone で成立する」は **動作要件**であり、**operational 完結性とは別**。Token 等の secret を要する操作 (= 共同編集者単独では実行不能) を意図的に owner-only にしている場合、共有層の CLAUDE.md に「Token 必要操作は owner 依頼経路」と明記すれば、standalone 要件と矛盾しない (= 共同編集者が「自分は何ができないか」を doc から判別できる)。明記がないと collaborator が試行錯誤で行き止まりを発見する cost が発生する。
+
 ## 共有 git-crypt 鍵パターン
 
 共有プロジェクトを git-crypt で暗号化したい場合、**個人鍵とは別の鍵**を作って共同編集者と共有する。**鍵配布は openssl 暗号化 backup をクラウドストレージ (Dropbox 等) に置き、`.claude/git-crypt-backup` + `setup.sh` Step 5b-pre による全自動復元を canonical にする** (詳細: [`docs/git-crypt-guide.ja.md`](../docs/git-crypt-guide.ja.md) §共有リポでの自動復元)。
