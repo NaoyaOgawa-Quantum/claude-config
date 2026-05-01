@@ -27,13 +27,13 @@ Discord 数値 ID 単体の危険度は低いが、**実名・所属・役職・
 - 本人が ID を変更することは困難 (Discord は user ID 不変、Slack は workspace 固定)
 - archive.org / fork / clone されていたら完全除去不能
 
-## 対策: layer 3 + env var bridge パターン
+## 対策: layer 2 + env var bridge パターン
 
-odakin の 4 層アーキテクチャ (`docs/personal-layer.md`) に従って、identity-in-config は **layer 3 (collaborator registry)** を canonical source とし、public tool (layer 1) 側は **env 変数名のみ**を保持する:
+odakin の 4 層アーキテクチャ (`docs/personal-layer.md`) に従って、identity-in-config は **layer 2 (collaborator registry)** を canonical source とし、public tool (layer 1) 側は **env 変数名のみ**を保持する:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ layer 3 (private, git-crypt)                                    │
+│ layer 2 (private, git-crypt)                                    │
 │   research-collab/collaborators.yaml                            │
 │   - id: alice                                                   │
 │     discord_id: "<18-digit snowflake>"  ← 正本                 │
@@ -57,9 +57,9 @@ odakin の 4 層アーキテクチャ (`docs/personal-layer.md`) に従って、
 ### 実装ルール
 
 1. **public repo の config.yaml / profile には identity 数値 ID を直接書かない**。`mention_target_env: DISCORD_MENTION_<NAME>` のように env 変数**名**のみ保持する
-2. **canonical source は layer 3**。`collaborators.yaml` (git-crypt) の `discord_id` field に置く (`conventions/collaborators.md` 参照)
+2. **canonical source は layer 2**。`collaborators.yaml` (git-crypt) の `discord_id` field に置く (`conventions/collaborators.md` 参照)
 3. **runtime 側は `.env` (gitignored)** が実値を保持。`load_dotenv()` 等で env に展開
-4. **Cross-machine sync**: 新 Mac では `git-crypt unlock` 後に helper script (例: `tools/sync_mentions.py`) で `collaborators.yaml` → `.env` を再生成。Dropbox 暗号化 backup は不要 (layer 3 git-crypt が backup も兼ねる)
+4. **Cross-machine sync**: 新 Mac では `git-crypt unlock` 後に helper script (例: `tools/sync_mentions.py`) で `collaborators.yaml` → `.env` を再生成。Dropbox 暗号化 backup は不要 (layer 2 git-crypt が backup も兼ねる)
 5. **Fail-soft**: env 未設定時に tool が crash しない設計にする。mention なしで送信 + warning log が無難
 
 ## 自動検出

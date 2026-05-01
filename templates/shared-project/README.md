@@ -1,8 +1,8 @@
 # Shared Project Templates
 
-Skeleton files for bootstrapping a new shared-project layer (layer 3 in the four-layer architecture).
+Skeleton files for bootstrapping a new shared-project layer (layer 2 in the four-layer architecture).
 
-A **shared project** is a private repo that you collaborate on with a small team — e.g. an admin or coordination repo, a research collaboration, etc. Unlike your personal layer (layer 2, only you), a shared project has multiple humans editing it.
+A **shared project** is a private repo that you collaborate on with a small team — e.g. an admin or coordination repo, a research collaboration, etc. Unlike your personal layer (layer 3, only you), a shared project has multiple humans editing it.
 
 See [`docs/personal-layer.md`](../../docs/personal-layer.md) for the layer model and [`conventions/shared-repo.md`](../../conventions/shared-repo.md) for the operational rules.
 
@@ -36,6 +36,6 @@ See [`docs/personal-layer.md`](../../docs/personal-layer.md) for the layer model
 
 ## Critical rules
 
-- **Layer dependency**: shared projects can depend on `claude-config` (public, layer 1) only. NOT on your personal layer (`<your>-prefs/`, layer 2). See `conventions/shared-repo.md` for the rationale.
+- **Layer dependency**: shared projects can depend on `claude-config` (public, layer 1) only. NOT on your personal layer (`<your>-prefs/`, layer 3). See `conventions/shared-repo.md` for the rationale.
 - **Audit before sharing**: Always run AUDIT.md before adding the first collaborator.
 - **Standalone**: The repo's CLAUDE.md must work for someone who has no personal layer of their own.

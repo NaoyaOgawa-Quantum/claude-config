@@ -4,16 +4,18 @@
 
 ## What is the personal layer?
 
-Claude Code conventions live in **four layers**:
+Claude Code conventions live in **four layers**, numbered by **audience size** (largest to smallest):
 
 | # | Layer | Example | Audience | Depends on |
 |---|---|---|---|---|
 | 1 | Common conventions | this `claude-config` repo | public / shared | — |
-| 2 | **Personal layer** | `<base>/<your>-prefs/` (a private repo or local dir of your own) | only you | layer 1 |
-| 3 | Shared project layer | a private repo you share with collaborators (e.g. an admin or research repo) | the project's collaborator set | layer 1 only |
+| 2 | Shared project layer | a private repo you share with collaborators (e.g. an admin or research repo) | the project's collaborator set | layer 1 only |
+| 3 | **Personal layer** | `<base>/<your>-prefs/` (a private repo or local dir of your own) | only you | layers 1, 2 |
 | 4 | Volatile memory | `~/.claude/.../memory/MEMORY.md` | local | any |
 
-**Core rule**: each layer may only depend on layers whose audience contains its own. So a shared-project layer (layer 3) can reference claude-config (layer 1, public) but **must not** reference your personal layer (layer 2, only you), because your collaborators cannot see your personal layer.
+The numbering follows audience containment: `public ⊃ collaborator set ⊃ owner ⊃ machine-local`, so a smaller layer number always means a wider audience. This makes the dependency rule directional and intuitive — a layer can only depend on layers with **smaller or equal** numbers.
+
+**Core rule**: each layer may only depend on layers whose audience contains its own. So a shared-project layer (layer 2) can reference claude-config (layer 1, public) but **must not** reference your personal layer (layer 3, only you), because your collaborators cannot see your personal layer.
 
 ## When should you create a personal layer?
 

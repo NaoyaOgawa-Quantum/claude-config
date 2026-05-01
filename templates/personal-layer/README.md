@@ -1,6 +1,6 @@
 # Personal Layer Templates
 
-Skeleton files for bootstrapping your own personal layer (layer 2 in the four-layer architecture).
+Skeleton files for bootstrapping your own personal layer (layer 3 in the four-layer architecture).
 
 See [`docs/personal-layer.md`](../../docs/personal-layer.md) for the conceptual overview.
 
