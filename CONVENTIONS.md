@@ -148,7 +148,9 @@ git の状態管理は 1 本の `PostToolUse` hook で機械的に支援する: 
 
 ユーザーが「**3軸チェック**」と言った場合は上表のうち **整合性・無矛盾性・効率性** のみを指す（安全性は除外）。「4軸チェック」は全 4 軸。
 
-**リポでの作業開始手順（全場面共通）:** CLAUDE.md → SESSION.md（要対応を確認）→ 作業開始。autocompact 復帰・scheduled task・SKILL 実行・手動作業すべてに適用。親ディレクトリで作業中にタスクが既存リポの管轄だと判明した場合も同様（MEMORY.md リポ一覧で特定 → そのリポの CLAUDE.md を読む）。「簡単なタスク」も例外ではない。CLAUDE.md 内のポインタ（「正本は X」「詳細は Y 参照」）は必ず辿る
+**リポでの作業開始手順（全場面共通）:** `git fetch` → CLAUDE.md → SESSION.md（要対応を確認）→ 作業開始。autocompact 復帰・scheduled task・SKILL 実行・手動作業すべてに適用。親ディレクトリで作業中にタスクが既存リポの管轄だと判明した場合も同様（MEMORY.md リポ一覧で特定 → そのリポの CLAUDE.md を読む）。「簡単なタスク」も例外ではない。CLAUDE.md 内のポインタ（「正本は X」「詳細は Y 参照」）は必ず辿る
+
+**`git fetch` を最初に置く理由:** `git status` の `Your branch is up to date with 'origin/main'` 表示は **fetch 前なら local の origin/main ref が stale** であり、リモートが先行していても "up to date" と出る。共有リポ (共同編集者あり / 自分の別マシンも push しうる) では fetch なしの状態確認は誤読を生む。`git-state-nudge.sh` hook の first-sighting fetch は 4h window で抑制される (= 直近 4h 以内に同 repo を触ったマシン/セッションがあると fetch しない) ため hook 単独では穴がある。手動 fetch + behind 確認を作業開始時の必須項目にすることで、「いきなり commit して non-fast-forward reject」「stale ref 上の意思決定」を防ぐ。
 
 ---
 
