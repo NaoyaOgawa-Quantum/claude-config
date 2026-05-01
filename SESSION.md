@@ -2,6 +2,12 @@
 
 ## 現在の状態
 
+**2026-05-01**: 個別リポでの「git fetch first」 + 「MCP 中断時の復旧」の規約整備 (4 commit):
+- `cde652e` (CONVENTIONS §3): リポ作業開始手順に `git fetch` を一級項目として追加。`git status` の "up to date" は fetch 前なら stale ref に基づく嘘である理由を明記。同日 twcu-phys-lab で fetch 省略 → non-fast-forward reject 事件が起点。
+- `b8b9a46` (個別連動 push-workflow.md): 同日朝の twcu-phys-lab 事件を起点に「任意 → 必須」格上げ。各 personal-layer の push-workflow.md と相互参照。
+- `105718a` (conventions/mcp.md): 「MCP 接続失敗時のセッション内復旧 runbook」節を新設。Claude Code の stdio MCP は session 起動時 bind で in-session reconnect 経路がない (上流 bug #20684 / #33468) 制約下での 6 段復旧手順 (状態確認 → 素手 stdio handshake → log 確認 → remove+add 再登録 → /mcp UI → claude --resume → 根本原因 checklist) + Chrome MCP の別経路扱い + 同日 classroom-cis incident 事例。
+- 5 月新スクリプト (odakin-prefs/scripts/upcoming-irregular-events.py + shift-worship-period.py) との連動: events.yaml の irregular event を 2 週前から surface する dashboard 補強と、礼拝期間時限繰下げを CIS calendar に冪等反映する自動 sync。本リポ規約面では特に追加なし、odakin-prefs/DESIGN.md §2026-05-01 に詳細記録。
+
 **2026-04-29 (続)**: `conventions/japanese-email-honorifics.md` を新規作成。「身内に対して『様』『皆様』を使わない」という universal な日本語敬語ルールを公開規約として成文化。由来は同日のある研究セミナー業務セッションで、外部宛メール draft で身内側 (同僚と自分・研究室メンバー) に「皆様」を付けてしまい user から「身内に皆様は敬語おかしいやろ」と訂正されたケース。内 vs 外の区別、「様」「皆様」を身内に使わない原則、「先生」「さん」も同様、同姓内外の切り分け方を含む。
 
 **2026-04-29**: `conventions/research-email.md` に §「研究者連絡先 (email) の取得手順」を追加 (commit `2627468`)。論文 PDF 1 ページ目を最優先、所属機関の公式メンバーページ・OpenReview・Semantic Scholar は mask されることが多いため後回し、という lookup priority を明文化。失敗例 (twcu-seminar 2026-04-28 セッションで小島武さん依頼時に発生 — メンバーページ mask を見て user に尋ねたが arXiv PDF を見ればすぐ取れた case) と、取得経路を `researchers.yaml` notes に記録する規律も追加。
