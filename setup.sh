@@ -852,12 +852,23 @@ fi
 # secrets-config/secrets/ (odakin solo) と twcu-phys-lab/secrets/ (org 共有) の
 # git-crypt encrypted secret 値を、~/.secrets/<basename> に symlink で配置する。
 # 各リポは git-crypt で unlock 済 (Step 5b 完了) を前提とする。
-# 通常ファイル (= ad-hoc 配置の secret) は保護のため上書きせず警告 (手動移行を促す)。
+# 通常ファイル (= ad-hoc 配置の secret) は中身が canonical と一致するときのみ
+# 安全に symlink に置き換える (= out-of-band で運んだ token を git-crypt 経路に
+# 自動移行)。中身が違うときは保護のため警告のみ (手動移行を促す)。
 SECRETS_DEST_DIR="$HOME/.secrets"
 SECRETS_REPOS=(secrets-config twcu-phys-lab)
 SECRETS_HEADER_PRINTED=0
 if command -v git-crypt &> /dev/null; then
     install -d -m 700 "$SECRETS_DEST_DIR"
+    # Step 5d-pre: SECRETS_REPOS を fast-forward pull で最新化 (別 Mac での
+    # token rotate 等を取り込む)。失敗 (remote 不通 / auth failure / divergence)
+    # は既存 commit で続行できるので silently continue。範囲は SECRETS_REPOS に
+    # 限定 (全 repo 自動 pull は uncommitted changes 衝突 risk があるため scope 拡大しない)。
+    for SECRETS_REPO in "${SECRETS_REPOS[@]}"; do
+        REPO_DIR="$CLAUDE_DIR/$SECRETS_REPO"
+        [ -d "$REPO_DIR/.git" ] || continue
+        git -C "$REPO_DIR" pull --ff-only --quiet 2>/dev/null || true
+    done
     for SECRETS_REPO in "${SECRETS_REPOS[@]}"; do
         SECRETS_SRC_DIR="$CLAUDE_DIR/$SECRETS_REPO/secrets"
         [ -d "$SECRETS_SRC_DIR" ] || continue
@@ -875,8 +886,17 @@ if command -v git-crypt &> /dev/null; then
                 SECRETS_HEADER_PRINTED=1
             fi
             if [ -e "$DEST" ] && [ ! -L "$DEST" ]; then
-                echo "  WARNING: $DEST is a regular file (manual migration required), skipping"
-                continue
+                # 通常ファイル — canonical (SRC) と中身が一致すれば安全に置換、
+                # 違えば保護のため警告のみ。
+                if cmp -s "$DEST" "$SRC"; then
+                    rm -f "$DEST"
+                    ln -sfn "$SRC" "$DEST"
+                    echo "  Migrated: $DEST → symlink (regular-file content matched canonical, replaced)"
+                    continue
+                else
+                    echo "  WARNING: $DEST is a regular file with content differing from $SRC (manual migration required), skipping"
+                    continue
+                fi
             fi
             ln -sfn "$SRC" "$DEST"
             echo "  Linked: $DEST -> $SRC"
