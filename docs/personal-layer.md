@@ -8,16 +8,36 @@ Claude Code conventions live in **four layers**, numbered by **audience size** (
 
 | # | Layer | Example | Audience | Depends on |
 |---|---|---|---|---|
-| 1 | Common conventions | this `claude-config` repo | public / shared | — |
+| 1 | Common conventions | this `claude-config` repo | public / shared (any Claude Code user) | — |
 | 2 | Shared project layer | a private repo you share with collaborators (e.g. an admin or research repo) | the project's collaborator set | layer 1 only |
-| 3 | **Personal layer** | `<base>/<your>-prefs/` (a private repo or local dir of your own) | only you | layers 1, 2 |
-| 4 | Volatile memory | `~/.claude/.../memory/MEMORY.md` | local | any |
+| 3 | **Personal layer** | `<base>/<your>-prefs/` (a private repo or local dir of your own) | only you, **across all your machines** (cross-machine) | layers 1, 2 |
+| 4 | Volatile memory | `~/.claude/.../memory/MEMORY.md` | only you, **on this specific machine** (machine-local — captures facts that wouldn't be true on another of your machines) | any |
 
-The numbering follows audience containment: `public ⊃ collaborator set ⊃ owner ⊃ machine-local`, so a smaller layer number always means a wider audience. This makes the dependency rule directional and intuitive — a layer can only depend on layers with **smaller or equal** numbers.
+The numbering follows audience containment: `public ⊃ collaborator set ⊃ owner-cross-machine ⊃ this-machine-only`, so a smaller layer number always means a wider audience. This makes the dependency rule directional and intuitive — a layer can only depend on layers with **smaller or equal** numbers.
 
 > **History note**: as of **2026-05-01** the numbering was changed to align with audience size (layers 2 and 3 were swapped — old `2 = personal / 3 = shared` became new `2 = shared / 3 = personal`). Commit messages and docs from before that date may use the old numbering; if you see "layer 2 = personal layer" in older commit logs, that's the old scheme. See `claude-config/DESIGN.md §「4 層モデルの renumber: layer 2 ↔ 3 swap (2026-05-01)」` for the rationale and full impact map.
 
 **Core rule**: each layer may only depend on layers whose audience contains its own. So a shared-project layer (layer 2) can reference claude-config (layer 1, public) but **must not** reference your personal layer (layer 3, only you), because your collaborators cannot see your personal layer.
+
+### Why does layer 4 isolate machine-local facts?
+
+Each step downward narrows the audience by **one meaningful boundary**:
+
+- 1 → 2: drops "the public" → narrows to people who collaborate on a specific project
+- 2 → 3: drops "your collaborators" → narrows to **you alone**, but still **any of your machines** (you might run Claude Code on a laptop, a desktop, or both)
+- 3 → 4: drops "your other machines" → narrows to **this single machine**, the one running Claude right now
+
+The 3 → 4 step matters because **the same person can have facts that differ across their machines**: hostname-specific symptoms, OS-version drift, hardware quirks (e.g. one machine is Apple Silicon, another is Intel; one has a flaky USB hub; etc.). Layer 4 is the audience-minimized place to record those — writing them at layer 3 would falsely propagate them to machines they don't apply to. **Layer 4 exists to absorb the difference between your machines as the smallest meaningful audience unit.**
+
+This shows up in practice as a three-way decision when you have a machine-specific fact:
+
+- A fact like your name, email, or signing identity → **layer 3** (true on every machine of yours)
+- A fact like "on this hostname, this app hangs once a week" → **layer 4** (only true on that one machine, no relevance to your other machines)
+- A fact that **describes the difference between your machines** ("home machine = ARM, work machine = Intel, with different package-manager behaviour") → **layer 3** (the *contrast itself* is a cross-machine fact about your fleet, even though it references machine-specific values)
+
+The third case is the subtle one. If a fact is *about* the differences between your machines (a comparison, a branching table, a "fleet snapshot"), it's already cross-machine in nature: the audience for "my fleet has these two machines with these specs" is your whole fleet, not one machine. Branching tables in your personal layer that say "on machine A do X, on machine B do Y" belong at layer 3 because the branching structure itself is the cross-machine fact.
+
+A useful heuristic: **if the fact would feel incomplete without mentioning the other machine (because it's a comparison or a branch), it's layer 3. If the fact stands alone as an observation about one machine and the other machine is irrelevant to it, it's layer 4.** When in doubt, prefer layer 3 with a branching table — pure layer-4-only facts are rarer than they feel.
 
 ## When should you create a personal layer?
 
