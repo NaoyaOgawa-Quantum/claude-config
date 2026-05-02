@@ -152,6 +152,33 @@ reading mirror には **真正本ポインタ** を併記する:
 
 同じ identifier が 機能 literal + shared mirror + personal mirror の 3 段に重複する場合 (例: Discord channel ID = workflow yaml + shared CLAUDE.md + personal layer の reference doc) は mirror を 1 段に絞ることを優先検討する。ただし「auto-load される doc に書いておけば Claude が即参照できる」便宜と weight する — 残す場合は各 mirror に真正本ポインタを忘れず付ける。
 
+## Collaborator の招待（GitHub）
+
+GitHub UI 経由でも可だが、`gh` CLI で 1 行で完結する:
+
+```bash
+# write 権限（一般的な共同編集者）
+gh api -X PUT repos/<owner>/<repo>/collaborators/<username> -f permission=push
+
+# read 権限のみ
+gh api -X PUT repos/<owner>/<repo>/collaborators/<username> -f permission=pull
+
+# admin (鍵管理者など)
+gh api -X PUT repos/<owner>/<repo>/collaborators/<username> -f permission=admin
+```
+
+実行後、対象ユーザーには GitHub から invite メールが届き、accept すると collaborator になる。状態確認:
+
+```bash
+# 受諾済みの collaborator 一覧
+gh api repos/<owner>/<repo>/collaborators
+
+# 未受諾の pending invitations
+gh api repos/<owner>/<repo>/invitations
+```
+
+`permission` の選択指針: 卒論・共同論文等の write 必要なケースは `push`。`maintain` は branch 保護や release 管理を任せる場合のみ。`admin` は鍵管理者か co-owner だけ。
+
 ## 共有 git-crypt 鍵パターン
 
 共有プロジェクトを git-crypt で暗号化したい場合、**個人鍵とは別の鍵**を作って共同編集者と共有する。**鍵配布は openssl 暗号化 backup をクラウドストレージ (Dropbox 等) に置き、`.claude/git-crypt-backup` + `setup.sh` Step 5b-pre による全自動復元を canonical にする** (詳細: [`docs/git-crypt-guide.ja.md`](../docs/git-crypt-guide.ja.md) §共有リポでの自動復元)。

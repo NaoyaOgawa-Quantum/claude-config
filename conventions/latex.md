@@ -8,8 +8,10 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 
 ## コンパイラ
 - 英語のみ → `lualatex`
-- 日本語含む → `ptex2pdf`（内部で platex + dvipdfmx）
-- BibTeX フルビルド: `platex → bibtex → platex → platex → dvipdfmx`
+- 日本語含む → `ptex2pdf`（内部で platex + dvipdfmx）または `lualatex`（jlreq クラス等）
+- BibTeX フルビルド:
+  - platex 系: `platex → bibtex → platex → platex → dvipdfmx`
+  - lualatex + 日本語著者: **`lualatex → upbibtex → lualatex → lualatex`**（後述「日本語著者の BibTeX 処理」 参照、`bibtex` は不可）
 - リポの CLAUDE.md に手順があればそちらを優先
 
 ## Bibliography スタイル
@@ -18,6 +20,67 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 - `setup.sh` が texmf-local にインストール（odakin: 自動、他ユーザー: オプション表示）
 - texmf-local 未設定の場合は正本からリポにコピーして使う
 - `\bibliographystyle{JHEP}` を指定
+
+## biblatex は使わない（JHEP.bst と非互換）
+
+JHEP.bst は **legacy BibTeX 用の `.bst`** であり、`biblatex` とは互換性が無い。次のようなコードを見つけたら legacy BibTeX に切り替える:
+
+```latex
+% ❌ biblatex (JHEP.bst が効かない)
+\usepackage[backend=bibtex]{biblatex}
+\addbibresource{refs.bib}
+...
+\printbibliography
+
+% ✅ legacy BibTeX (JHEP.bst 想定の正式記法)
+\bibliographystyle{JHEP}
+\bibliography{refs}
+```
+
+biblatex で同等の出力スタイルを使いたければ `biblatex-jheppub` 等の別パッケージが要るが、odakin の運用では legacy BibTeX + JHEP.bst が canonical。
+
+## 日本語著者の BibTeX 処理
+
+`bibtex`（legacy, ASCII 想定）は日本語著者を name parse できず、姓の最初の 1 文字が文字化け（U+FFFD）または "First Last" 誤判定で姓だけ消える。対策は 2 段:
+
+**(1) コマンド**: `bibtex` でなく **`upbibtex`**（TeX Live 同梱、UTF-8 直接処理）を使う
+
+```bash
+# ❌ bibtex main          → 「川.~紳一」のような出力に化ける
+# ✅ upbibtex main        → 日本語そのまま処理
+```
+
+**(2) refs.bib の表記**: 著者を `{...}` ブレースで囲み、bibtex の First/Last name parser を回避する
+
+```bibtex
+% ❌ bibtex は「川上」を First、「紳一」を Last と誤判定
+author = {川上 紳一 and 吉田 英太郎}
+
+% ✅ ブレースで姓名一括 → 単一 entity 扱い、化けない
+author = {{川上 紳一} and {吉田 英太郎}}
+```
+
+JHEP.bst のような `F.~Last` 形式の bst では、ブレース内が全部 Last 扱いになって「川上 紳一」 のまま出力される。
+
+## refs.bib 整備フロー（実物検証によるハルシネーション防止）
+
+文献情報（著者・タイトル・巻号ページ）を refs.bib に追加する前に、次の優先順で**実物検証**する:
+
+1. **PDF 実物が手元にある** → 直読して書誌情報を確定
+2. **PDF 実物がない** → 同論文を引用している後発論文の参考文献欄で交差検証
+3. **どちらも無い** → entry を作らない（推測で作らない）
+
+**やってはいけないこと**:
+
+- WebSearch の summary だけを根拠に entry を作る（summary は hallucinate する。`conventions/web-tools.md §「WebSearch の summary は hallucinate する」` 参照）
+- 既存 refs.bib の entry を**検証せずに**信用する（共同編集者や過去の自分が誤同定している可能性。実例: 同名著者の別論文と取り違え、改訂版のタイトルを初版と混同 等）
+- 似たキーワード・近い年代の論文を「これだろう」 と推測して埋める
+
+**典型的な落とし穴**:
+
+- Mandelbrot 1977 と 1982 で本のタイトルが違う（1977: *Fractals: Form, Chance, and Dimension* / 1982: *The Fractal Geometry of Nature*。同著者・近接年・関連内容で取り違いやすい）
+- 同姓著者の別人（例: 「川上 紳一」 と「川上 智一」）
+- 巻通しページと号内ページの混在（学会誌で 2 種の page number が併記される場合）
 
 ## JHEP.bst 記法
 JHEP.bst はフィールドから自動リンクを生成するので `\href` 手書き不要（二重リンクの原因）。
