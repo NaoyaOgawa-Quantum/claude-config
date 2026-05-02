@@ -87,6 +87,40 @@ grep -rE '<owner-personal-calendar-id>|<owner-personal-email>' --exclude-dir=.gi
 > 個人運用では `hooks/public-leak-guard.sh` (PreToolUse) と
 > `scripts/public-precommit-runner.sh` (pre-commit) で自動化済み。
 > 設計詳細は `DESIGN.md` §公開リポ leak 防止。
+>
+> **カバレッジ ギャップ**: 上の hook chain は **public** リポを対象とする (`.claude/public-repo.marker` の有無で判定)。**private shared** リポ (= collaborator あり、public marker なし) では fire しないため、layer-2 違反 (= owner literal) は session-end / push-time の手動 audit に依存する。private shared リポで新規 file に絶対パスを焼き付ける commit を書いた直後は、`grep -rn "/Users/<owner>"` を 4 軸 sweep の整合性軸に組み込むのが安全。
+
+## macOS LaunchAgent / launchd plist の literal-path trap
+
+macOS の **LaunchAgent / LaunchDaemon plist は `~` も `$HOME` も自然展開しない** (= `ProgramArguments` / `WatchPaths` 等の path は literal でなければ launchd に loaded されない)。共有リポに plist をそのまま commit すると、所有者の絶対パス (`/Users/<owner>/…`) が file に焼き付き、上記 §「公開前の Audit」 の grep に hit する layer-2 違反になる。
+
+### 解法: template + setup.sh
+
+- `<label>.plist.template` … `__HOME__` placeholder で commit (= 絶対パスは入らない)
+- `setup.sh` … template から plist を生成・配置・登録 (冪等):
+  ```sh
+  TEMPLATE="$SCRIPT_DIR/<label>.plist.template"
+  DEST="$HOME/Library/LaunchAgents/<label>.plist"
+  launchctl bootout "gui/$(id -u)/<label>" 2>/dev/null || true
+  sed "s|__HOME__|${HOME}|g" "$TEMPLATE" > "$DEST"
+  launchctl bootstrap "gui/$(id -u)" "$DEST"
+  launchctl kickstart -k "gui/$(id -u)/<label>"
+  ```
+- `uninstall.sh` … 対称操作 (`launchctl bootout` + `rm $DEST`)
+
+label 名にも owner literal を入れない (例: `local.<owner>.foo` ではなく `local.foo`)。LaunchAgent は per-user domain (`gui/$(id -u)/`) でロードされるので、user 識別は domain 側が担う。
+
+### 同種 trap が起きる他の場面
+
+- launchd LaunchDaemon plist (system domain だが同じく path 展開なし)
+- Hammerspoon Lua 設定など、OS 固有の「読み手側で path 展開しない」 設定ファイル全般
+
+### 他 OS は ネイティブで展開する (= template 不要)
+
+- Linux systemd の `.service`: `%h` で `$HOME` 展開、`User=` 指定で per-user 切り替え
+- Windows Task Scheduler XML / PowerShell スクリプト: `$env:USERPROFILE` / `$HOME` を runtime 展開
+
+template 化 (sed substitution) が必要なのは macOS plist のみ (経験上)。
 
 ## 「standalone で成立」 の操作的定義
 

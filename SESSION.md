@@ -2,6 +2,8 @@
 
 ## 現在の状態
 
+**2026-05-02**: `conventions/shared-repo.md` に §「macOS LaunchAgent / launchd plist の literal-path trap」 を新設 + §「公開前の Audit」 にカバレッジ ギャップ注記を追加。某 private shared 共著論文リポに PDF auto-publish (mobile reading 用 LaunchAgent) を入れた直後、plist の `ProgramArguments` / `WatchPaths` が `~`/`$HOME` を展開しない macOS の特性で `/Users/<owner>/...` literal が焼き付き layer-2 違反 (= shared-repo §「公開前の Audit」 の grep が 0 件で無くなる) を crit。template (`__HOME__` placeholder) + `setup.sh` (sed 置換 + launchctl bootstrap、冪等) の解法を recipe 化。同種 trap (LaunchDaemon plist / Hammerspoon Lua)、systemd `%h` / Windows env var の native 展開対比も併記。あわせて「`public-leak-guard.sh` chain は public marker 付きリポしか fire しない、private shared リポの layer-2 audit は session-end の手動 grep に依存」 をカバレッジ ギャップとして注記 (今回の事故の発見経路は手動 audit で commit 1 つ後の検出 → 即 fix の小コストで済んだが、構造的には次回も同じ経路で発見される)。
+
 **2026-05-01**: 個別リポでの「git fetch first」 + 「MCP 中断時の復旧」の規約整備 (4 commit):
 - `cde652e` (CONVENTIONS §3): リポ作業開始手順に `git fetch` を一級項目として追加。`git status` の "up to date" は fetch 前なら stale ref に基づく嘘である理由を明記。同日 twcu-phys-lab で fetch 省略 → non-fast-forward reject 事件が起点。
 - `b8b9a46` (個別連動 push-workflow.md): 同日朝の twcu-phys-lab 事件を起点に「任意 → 必須」格上げ。各 personal-layer の push-workflow.md と相互参照。
