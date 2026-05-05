@@ -85,3 +85,29 @@ Claude Code は作業ディレクトリから親方向に `CLAUDE.md` を全て 
 - **サブプロジェクト `CLAUDE.md`** — コマンド・特有の注意・アーキ超要約（5〜8 項目 × 1 行 + `docs/architecture.md` への pointer）。80〜100 行目安。
 
 重い narrative・パラメータ表・設計根拠は `docs/`（auto-load されない）に置いて pointer で参照する。原則と事例は [`convention-design-principles.md`](convention-design-principles.md) §10.10–10.11。
+
+## 9. プロジェクト docs の role 分離: 「同じ知見を 5 箇所に書かない」
+
+CONVENTIONS.md §3 の「SESSION.md ~80 行」 target を守るには、 各 docs artifact に **role を明確に割り当てて重複を avoid する** のが鍵。 §7 「正本を1つに決め」 が「reference data の正本」 軸なら、 本 §9 は「**作業 narrative の role**」 軸 — 同じ fix を説明するときに、 detail を repo の docs 全部に書くと SESSION.md が肥大する。
+
+各 artifact の role と temporal scope を分離:
+
+| artifact | role | temporal scope | consumer |
+|---|---|---|---|
+| **commit message** | 「このコミットの why + 実装決定の根拠」 | 永続 (= git log) | 後で blame / log で読む人 |
+| **plan (`plans/YYYY-MM-DD-*.md`)** | 「大きな refactor の stage 別 design + Q&A + audit log」 | 永続 (= 該当 refactor の history) | 同 refactor を deep dive する人 |
+| **DESIGN.md** | 「設計思想 + 対称表 + 永続 invariant + 採用案 vs 棄却案」 | 永続 (= リポ life cycle) | code レビューで思想を確認する人 |
+| **docstring** | 「関数の正本 (= 公式 + ガード理由 + 値選定根拠)」 | code に coupled | code 上で関数を理解する人 |
+| **SESSION.md** | 「事実 + commit ref + verify status + 詳細 link」 のみ | 揮発 (= autocompact で消失、 ~80 行 target) | 次セッションで作業を resume する人 |
+
+**SESSION.md には書かない**: 物理 detail / 設計対称表 / 数学公式 / 値選定根拠 / 詳細 stage 別経緯 — これらは上の 4 artifact のいずれかに置いて SESSION から link する。 SESSION の役割は「**この変更があった、 status はこう、 詳細はここ**」 を 1 行で示すこと。
+
+**棚卸しの規律 (= CONVENTIONS.md §3「長ければ棚卸し」 の operationalize)**:
+
+- push 前 SESSION.md 確認で、 自分が直前に追加した entry の長さを measure する
+- 18 行とか書いてしまった場合、 「detail がどこかに重複しているはず」 と疑う (= DESIGN.md / commit message と inevitably 重複)
+- 「事実 1 行 + status 1 行 + 詳細 link 1 行」 の **3 行 template** に圧縮可能か audit
+- 既存 entry が deploy 済 + verified なら **1 line summary に圧縮 + 詳細は git log + plan path 委譲**
+- ~~strikethrough done~~ entry は CONVENTIONS §3「完了 [x] を除去」 に従い削除
+
+**実例 (2026-05-05 LorentzArena Rule B exit margin、 棚卸し怠慢)**: SESSION.md が既に 188 行 (~80 行 target の 2.4x 超) の状態で、 私 (Claude) は 18 行の detail entry を追加して 204 行に押し上げた。 user 「コードを深く 4 軸チェック」 で post-deploy 棚卸しを initiate された結果、 5/2-5/5 の deploy 済 + verified entries (= 5 session 分) が詳細のまま残存していると判明、 全面棚卸しで 204 → 104 行 (= 49% 削減) に圧縮。 entry detail は DESIGN.md / docstring / commit message に既存していたため SESSION からは link のみで sufficient だった (= 重複の典型)。 詳細: [LorentzArena commit `ddcd0d6`](https://github.com/sogebu/LorentzArena/commit/ddcd0d6)

@@ -85,3 +85,29 @@ Keep each layer to its own role:
 - **Sub-project `CLAUDE.md`** — commands, quirks, an architecture super-summary of 5–8 one-line items with pointers to `docs/architecture.md`. Target ~80–100 lines.
 
 Heavy narrative, parameter tables, and design rationale live in `docs/` (not auto-loaded) and are referenced by pointer. Principles and worked examples in [`convention-design-principles.md`](convention-design-principles.md) §10.10–10.11.
+
+## 9. Project doc role separation: "don't write the same insight five times"
+
+To honor CONVENTIONS.md §3's "SESSION.md ~80 lines" target, you need to **assign each docs artifact a clear role and avoid duplication**. If §7 ("single source of truth") is about *reference data*, this §9 is about *work narrative* — when explaining a single fix, putting the detail in every doc artifact bloats SESSION.md.
+
+Separate roles and temporal scopes:
+
+| artifact | role | temporal scope | consumer |
+|---|---|---|---|
+| **commit message** | "why for this commit + implementation rationale" | permanent (= git log) | future readers running blame / log |
+| **plan (`plans/YYYY-MM-DD-*.md`)** | "stage-by-stage design + Q&A + audit log for a large refactor" | permanent (= history of that refactor) | someone deep-diving the same refactor |
+| **DESIGN.md** | "design philosophy + symmetry tables + permanent invariants + chosen vs rejected alternatives" | permanent (= repo lifecycle) | code reviewer checking design intent |
+| **docstring** | "single source of truth for a function (= formula + guard rationale + value selection)" | coupled to code | someone reading the function on the spot |
+| **SESSION.md** | "fact + commit ref + verify status + detail link" only | volatile (= lost at autocompact, ~80 line target) | the next session resuming work |
+
+**Don't put in SESSION.md**: physics detail / design symmetry tables / mathematical formulas / value-selection rationale / detailed stage-by-stage history — these belong in one of the four artifacts above, with SESSION linking out. SESSION's role is to say "**this changed, status is X, detail is over there**" in a single line.
+
+**Discipline for cleanup (= operationalizing CONVENTIONS.md §3 "trim if long")**:
+
+- Pre-push, measure how long the entry you just added to SESSION.md is
+- If you wrote 18 lines, suspect duplication ("the detail must already be somewhere") — DESIGN.md / commit message inevitably overlaps
+- Audit whether you can compress to a **3-line template**: "fact 1 line + status 1 line + detail link 1 line"
+- Existing entries that are deployed + verified should be **compressed to a 1-line summary, with details delegated to git log + plan path**
+- Per CONVENTIONS §3 "remove `[x]` items": delete ~~strikethrough done~~ entries
+
+**Worked example (2026-05-05 LorentzArena Rule B exit margin, cleanup neglected)**: SESSION.md was already at 188 lines (2.4x over the ~80 line target). I (Claude) added an 18-line detail entry, pushing it to 204 lines. After the user prompted "audit the code with all four axes", a post-deploy cleanup revealed that entries from 5 sessions (5/2–5/5) — all deployed + verified — were still sitting in SESSION at full detail. A full pass compressed it to 104 lines (49% reduction). The detail already lived in DESIGN.md / docstring / commit messages, so SESSION only needed link-outs (= textbook duplication case). See [LorentzArena commit `ddcd0d6`](https://github.com/sogebu/LorentzArena/commit/ddcd0d6).
