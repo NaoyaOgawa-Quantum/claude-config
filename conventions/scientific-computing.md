@@ -80,7 +80,7 @@ for (let i = 0; i < N; i++) {
 ポイント:
 - u-dependent な力を **per-substep で再計算** (= constant force のみなら 1-step で OK)
 - substep size は安定境界 `2/k` の 20-40x 余裕 (= 高 γ / coupling effect で effective k が増える領域も吸収)
-- 通常 dτ で N=1 (overhead ≈ 0)、 異常 dτ で N=線形 (= 12h dτ で N=43200 ≈ 2ms execution)
+- 通常 dτ で N=1 (overhead ≈ 0)、 異常 dτ で N=線形 (= 1h dτ で N=36000 ≈ 2ms、 24h dτ で N=864000 ≈ 50ms execution)
 - N に **cap を設けず素直に integrate**: cap は scientific correctness を犠牲にする (= residue を Rule B 等の別経路に押し付ける形になる)、 線形コストは安価で実害なし
 
 **discipline 側**: physics simulation で「caller がいつでも well-bounded な dτ を渡す」 と仮定しない。 lag spike / browser suspend / debugger break で dτ が秒〜時間オーダーになる経路は実環境で必ず発生する。 integrator は **caller-agnostic に任意 dτ で stable** であるべき。
