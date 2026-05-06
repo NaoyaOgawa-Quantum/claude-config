@@ -32,6 +32,7 @@ claude-config/
 │   ├── dropbox-refs.md     # 共同 PDF を Dropbox に置いてリポから symlink で参照する規約
 │   ├── scientific-computing.md # 数値解析 gotchas (scale-dependent default 等、科学計算リポ共通)
 │   ├── multi-machine-state.md # 複数マシンで同じ Claude Code セットアップを使うときの規律 (audit scope 明示・実機検証・idempotent setup.sh)
+│   ├── debugging-discipline.md # Fix 提案の 3 verification (V1 numeric trace + V2 code coverage + V3 algorithm enumeration)、 audit verdict re-evaluation、 multi-commit drift sweep、 sibling violation sweep
 │   └── discord-bot.md      # Discord Bot 運用 (権限ポリシー・private channel 加入・per-channel error non-fatal な fetcher・Token 取扱・組織 NW での API ブロック)
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
