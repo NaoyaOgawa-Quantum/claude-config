@@ -38,7 +38,69 @@
 
 ---
 
-## 次に追加される予定 (placeholder、現状は上の 1 項目のみ)
+## 2. Explicit integrator は dτ 安定境界を超えると silently 発散、 substep で吸収する
+
+### 問題
+
+Semi-implicit Euler / RK 等の **explicit** integrator は ODE の linearization 固有値で安定境界を持つ。 friction-like 項 `du/dτ = -k u` の Euler は
+
+```
+u_new = u_old + (-k u_old) Δ = u_old (1 - k Δ)
+```
+
+の係数 `(1 - kΔ)` が `|· | < 1` のときのみ stable。 `Δ > 2/k` で sign flip + amplitude amplification、 1 step で `u_new = -O(kΔ) × u_old` の桁外れ値、 続く積分で全 state が runaway。 型エラー無し、 `NaN` 無し、 silently 数値発散して realistic な物理範囲を外れた値に飛ぶ。
+
+caller 側で大 dτ が発生する経路は実環境で必ず存在する:
+- ブラウザ tab の background suspend からの wake (= 数時間〜数日 dτ)
+- main thread lag spike (= GC pause、 debugger break、 OS schedule pre-emption、 数秒 dτ)
+- 物理 sim のテストで意図的に大 dτ を渡す (= 終状態だけ確認したい場合)
+
+### 実例 (LorentzArena Bug 14、 2026-05-06)
+
+スマホ Brave で 12.5h background suspend → wake 直後の gameLoop が `dτ = 45000 sec` 1 tick で fire。 friction `k = 0.5` で `1 - kΔ = -22499`、 friction terminal velocity `γ_max = 1.886` で bounded のはずの `pos.t` が 1 tick で **20.37M sec (= 235 日相当)** に runaway。 詳細: [LorentzArena Bug 14 plan](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) §2.1。
+
+### 防止策
+
+**code 側**: integrator 内部 (or 直前の caller layer) で **substep**:
+
+```typescript
+// Stable bound: |1 - kΔ| < 1 ⟺ Δ < 2/k. Use 20-40x safety factor for
+// coupling effects (Lorentz boost amplification, multi-DOF cross terms, etc.).
+const MAX_STABLE_SUB_DTAU = (2 / k) / 40;
+const N = Math.max(1, Math.ceil(dTau / MAX_STABLE_SUB_DTAU));
+const subDTau = dTau / N;
+let state = initial;
+for (let i = 0; i < N; i++) {
+  // u-dependent な力 (friction / drag / spring 等) を per-substep 再計算
+  const force = computeForce(state.u);
+  state = integrator(state, force, subDTau);
+}
+```
+
+ポイント:
+- u-dependent な力を **per-substep で再計算** (= constant force のみなら 1-step で OK)
+- substep size は安定境界 `2/k` の 20-40x 余裕 (= 高 γ / coupling effect で effective k が増える領域も吸収)
+- 通常 dτ で N=1 (overhead ≈ 0)、 異常 dτ で N=線形 (= 12h dτ で N=43200 ≈ 2ms execution)
+- N に **cap を設けず素直に integrate**: cap は scientific correctness を犠牲にする (= residue を Rule B 等の別経路に押し付ける形になる)、 線形コストは安価で実害なし
+
+**discipline 側**: physics simulation で「caller がいつでも well-bounded な dτ を渡す」 と仮定しない。 lag spike / browser suspend / debugger break で dτ が秒〜時間オーダーになる経路は実環境で必ず発生する。 integrator は **caller-agnostic に任意 dτ で stable** であるべき。
+
+### Anti-pattern (= 絆創膏 path)
+
+- **「dτ を caller 側で cap」**: 安定境界の上限 truncate は L2 timing 層の絆創膏。 cap を超えた経路で爆発、 cap 値の tuning が増える、 lag spike で legitimate な大 dτ を truncate して挙動が change する。 cap は「数値解析の正攻法」 ではなく「症状を覆い隠す」
+- **「visibilitychange listener で reset」**: L3 architecture 層の絆創膏。 listener が漏れた経路 / fire しない browser で爆発、 listener が乱立して責務が分散
+- **「`performance.now()` に切替で dτ 自体を小さくする」**: clock semantic の側面変更で逃げる。 browser-specific な suspend-freeze 挙動 (= mobile はする / desktop はしない) に依存、 spec 不保証、 別経路で爆発する
+- **「3 手法 (cap + listener + clock 切替) を全部やる、 defense-in-depth」**: 全部 L1-L3 の症状経路 patches、 真の安定性 (= integrator 自身が任意 dτ で正解を出す) は治っていない。 次の経路で再発する
+
+### 関連
+
+- LorentzArena Bug 14 完全治療 plan: [`plans/2026-05-06-bug14-global-active-time.md`](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) §2.1 + §6.1-6.4 (= 却下した代替案)
+- 数値解析教科書: Numerical Recipes §16.6 「Stiff Sets and Multistep Methods」、 implicit method への切替 / step size adaptation 等の古典的扱い
+- 関連メタ規律: `odakin-prefs/work-discipline.md §RCA は L4 (semantic) + L5 (mathematical) まで掘ってから fix 提案`
+
+---
+
+## 次に追加される予定 (placeholder)
 
 - 浮動小数点精度起因の silent failure パターン
 - 単位系変換ミス (cgs ↔ SI ↔ 自然単位系)
