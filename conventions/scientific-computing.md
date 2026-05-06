@@ -38,11 +38,11 @@
 
 ---
 
-## 2. Explicit integrator は dτ 安定境界を超えると silently 発散、 substep で吸収する
+## 2. Explicit integrator は dτ 安定境界を超えると silently 発散、 implicit Euler / 解析解で根治
 
 ### 問題
 
-Semi-implicit Euler / RK 等の **explicit** integrator は ODE の linearization 固有値で安定境界を持つ。 friction-like 項 `du/dτ = -k u` の Euler は
+**explicit** integrator は ODE の linearization 固有値で安定境界を持つ。 friction-like 項 `du/dτ = -k u` の explicit Euler は
 
 ```
 u_new = u_old + (-k u_old) Δ = u_old (1 - k Δ)
@@ -55,48 +55,83 @@ caller 側で大 dτ が発生する経路は実環境で必ず存在する:
 - main thread lag spike (= GC pause、 debugger break、 OS schedule pre-emption、 数秒 dτ)
 - 物理 sim のテストで意図的に大 dτ を渡す (= 終状態だけ確認したい場合)
 
+**重要**: 物理的には連続時間の friction `du/dτ = -ku` は **常に安定** (= 解 `u(τ) = u₀ exp(-kτ)` で 0 に指数減衰)、 発散は **explicit Euler という数値計算法の選択による artifact** であり friction という現象の性質ではない。 つまり 「dτ > 2/k で発散」 は 「explicit Euler の限界」 であり、 別の integrator (= implicit Euler / 解析解) を選べば任意 dτ で安定。
+
 ### 実例 (LorentzArena Bug 14、 2026-05-06)
 
 スマホ Brave で 12.5h background suspend → wake 直後の gameLoop が `dτ = 45000 sec` 1 tick で fire。 friction `k = 0.5` で `1 - kΔ = -22499`、 friction terminal velocity `γ_max = 1.886` で bounded のはずの `pos.t` が 1 tick で **20.37M sec (= 235 日相当)** に runaway。 詳細: [LorentzArena Bug 14 plan](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) §2.1。
 
-### 防止策
+### 防止策の階層 (= 上から順に preferred、 fundamental → workaround)
 
-**code 側**: integrator 内部 (or 直前の caller layer) で **substep**:
+**(A) Implicit Euler** (= 推奨、 root level fix):
 
 ```typescript
-// Stable bound: |1 - kΔ| < 1 ⟺ Δ < 2/k. Use 20-40x safety factor for
-// coupling effects (Lorentz boost amplification, multi-DOF cross terms, etc.).
+// 連続時間 du/dτ = a - k × u を semi-implicit Euler で解く:
+// newU = u + (a - k × newU) × Δ
+// → newU (1 + kΔ) = u + a × Δ
+// → newU = (u + a × Δ) / (1 + kΔ)
+const newU = (u + a * dTau) / (1 + k * dTau);
+```
+
+- closed-form 1 step、 O(1) 計算
+- **任意 dτ で unconditionally 安定** (= 分母 ≥ 1、 オーバーフロー無し)
+- `Δ → ∞` で `newU → 0` (= friction 無し thrust の場合) または `newU → a/k` (= terminal balance、 物理正解と一致)
+- 線形 ODE は通常 closed-form で解ける、 非線形でも Newton iteration で対応可
+
+LorentzArena では `evolvePhaseSpace` の `frictionCoefficient` 引数経由で friction を semi-implicit に積分 (= [`physics/mechanics.ts`](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/src/physics/mechanics.ts)、 thrust は explicit / friction だけ implicit、 Lorentz boost effect は γ で吸収)。
+
+**(B) Analytic** (= 系が単純なら最高精度):
+
+friction-only `du/dτ = -ku` の厳密解 `u(τ) = u₀ × exp(-kτ)`。 thrust が定数なら `u(τ) = u_inf + (u₀ - u_inf) × exp(-kτ)` (= `u_inf = a/k` terminal balance)。 任意 dτ で exact、 浮動小数点誤差のみ。
+
+但し pos / x 等の積分が closed-form でない (= elliptic 等) 場合は 数値積分が必要、 そのとき implicit Euler の方が pragmatic に。
+
+**(C) Substep with explicit Euler** (= workaround、 implicit / analytic が難しい場合の fallback):
+
+```typescript
+// Stable bound: |1 - kΔ| < 1 ⟺ Δ < 2/k. Use 20-40x safety factor.
 const MAX_STABLE_SUB_DTAU = (2 / k) / 40;
 const N = Math.max(1, Math.ceil(dTau / MAX_STABLE_SUB_DTAU));
 const subDTau = dTau / N;
 let state = initial;
 for (let i = 0; i < N; i++) {
-  // u-dependent な力 (friction / drag / spring 等) を per-substep 再計算
-  const force = computeForce(state.u);
-  state = integrator(state, force, subDTau);
+  const force = computeForce(state.u);  // u-dependent force per substep
+  state = explicitIntegrator(state, force, subDTau);
 }
 ```
 
-ポイント:
-- u-dependent な力を **per-substep で再計算** (= constant force のみなら 1-step で OK)
-- substep size は安定境界 `2/k` の 20-40x 余裕 (= 高 γ / coupling effect で effective k が増える領域も吸収)
-- 通常 dτ で N=1 (overhead ≈ 0)、 異常 dτ で N=線形 (= 1h dτ で N=36000 ≈ 2ms、 24h dτ で N=864000 ≈ 50ms execution)
-- N に **cap を設けず素直に integrate**: cap は scientific correctness を犠牲にする (= residue を Rule B 等の別経路に押し付ける形になる)、 線形コストは安価で実害なし
+- explicit Euler を温存して dτ を分割する **数値 workaround**
+- per-substep で u-dependent な力を再計算 (= constant force のみなら 1-step で OK)
+- 通常 dτ で N=1 (no overhead)、 異常 dτ で N=線形 (= 1h dτ で N=36000 ≈ 2ms、 24h で N=864000 ≈ 50ms)
+- N に **cap を設けず素直に integrate** (= cap は scientific correctness を犠牲、 線形コストは安価)
 
-**discipline 側**: physics simulation で「caller がいつでも well-bounded な dτ を渡す」 と仮定しない。 lag spike / browser suspend / debugger break で dτ が秒〜時間オーダーになる経路は実環境で必ず発生する。 integrator は **caller-agnostic に任意 dτ で stable** であるべき。
+**(C) を選ぶ trigger**: implicit Euler の数式 derivation が複雑 (= 強い非線形性 / 多自由度 coupling)、 または既存 integrator の signature 変更コストが高い。 (A) / (B) が closed-form で書ける線形系なら (C) は採らない。
+
+**選択基準まとめ**:
+
+| 系の性質 | 推奨 |
+|---|---|
+| 線形 ODE (= friction、 spring、 damped oscillator 等) | **(A) implicit Euler** (= closed-form solve、 unconditionally stable) |
+| 厳密解が elementary functions で書ける | **(B) analytic** (= exact、 数値誤差 floating-point のみ) |
+| 強い非線形 / 多自由度 coupling で implicit が intractable | **(C) substep + explicit** |
+
+LorentzArena Bug 14 では当初 (C) substep を採用したが、 user 「原理的におかしくない?」 push back を契機に (A) implicit Euler に refactor (= friction が線形項なので closed-form solve 可能、 substep は workaround だった)。 詳細経緯: [LorentzArena 5/6 plan §6.5](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) + [odakin-prefs/work-discipline.md §「Fix 提案の 3 verification」](`odakin-prefs/work-discipline.md`) V1 reflection。
+
+**discipline 側**: physics simulation で「caller がいつでも well-bounded な dτ を渡す」 と仮定しない。 lag spike / browser suspend / debugger break で dτ が秒〜時間オーダーになる経路は実環境で必ず発生する。 integrator は **caller-agnostic に任意 dτ で stable** であるべき、 そのための first-line tool は implicit Euler、 substep は fallback。
 
 ### Anti-pattern (= 絆創膏 path)
 
 - **「dτ を caller 側で cap」**: 安定境界の上限 truncate は L2 timing 層の絆創膏。 cap を超えた経路で爆発、 cap 値の tuning が増える、 lag spike で legitimate な大 dτ を truncate して挙動が change する。 cap は「数値解析の正攻法」 ではなく「症状を覆い隠す」
 - **「visibilitychange listener で reset」**: L3 architecture 層の絆創膏。 listener が漏れた経路 / fire しない browser で爆発、 listener が乱立して責務が分散
 - **「`performance.now()` に切替で dτ 自体を小さくする」**: clock semantic の側面変更で逃げる。 browser-specific な suspend-freeze 挙動 (= mobile はする / desktop はしない) に依存、 spec 不保証、 別経路で爆発する
+- **「explicit Euler を温存したまま substep で吸収」**: (C) は valid な fallback だが、 線形系では (A) implicit Euler の方が cleaner で `MAX_STABLE_SUB_DTAU` 等の safety margin constant が不要。 まず (A) を考える、 (C) は (A)/(B) が intractable な場合のみ。
 - **「3 手法 (cap + listener + clock 切替) を全部やる、 defense-in-depth」**: 全部 L1-L3 の症状経路 patches、 真の安定性 (= integrator 自身が任意 dτ で正解を出す) は治っていない。 次の経路で再発する
 
 ### 関連
 
-- LorentzArena Bug 14 完全治療 plan: [`plans/2026-05-06-bug14-global-active-time.md`](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) §2.1 + §6.1-6.4 (= 却下した代替案)
-- 数値解析教科書: Numerical Recipes §16.6 「Stiff Sets and Multistep Methods」、 implicit method への切替 / step size adaptation 等の古典的扱い
-- 関連メタ規律: `odakin-prefs/work-discipline.md §RCA は L4 (semantic) + L5 (mathematical) まで掘ってから fix 提案`
+- LorentzArena Bug 14 完全治療 plan: [`plans/2026-05-06-bug14-global-active-time.md`](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-bug14-global-active-time.md) §2.1 + §6.1-6.5 (= 却下した代替案 + implicit Euler refactor 経緯)
+- 数値解析教科書: Numerical Recipes §16.6 「Stiff Sets and Multistep Methods」、 implicit method / BDF / step size adaptation 等の古典的扱い
+- 関連メタ規律: `odakin-prefs/work-discipline.md §「Fix 提案の 3 verification」` (= V1 numeric trace で代替 algorithm を網羅したか check)
 
 ---
 
