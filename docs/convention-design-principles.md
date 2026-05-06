@@ -674,6 +674,77 @@ slim 化した CLAUDE.md には「アーキテクチャ超要約」section を 1
 
 ---
 
+## 11. In-plan exploration trail — single-session walkback の保存
+
+§6 で establish した DESIGN.md / EXPLORING.md 分離は **cross-session 探索** (= EXPLORING にエントリを残し、 後で結晶したら DESIGN に promote) を扱う。 これとは別軸で、 **同 session 内で plan が iteration を経て複数案を撤回しながら最終決定に着地する** ケースの content保全 pattern を 2026-05-06 LorentzArena NPC 非対称 plan で抽出。
+
+### 11.1 問題: walkback の trail が plan close 時に消える
+
+長 session で plan を立てて iterate するとき、 以下の dynamics が起こる:
+
+1. 初期提案 (= A 案) を起こす
+2. user feedback で問題発覚、 修正案 (= B 案) を提案
+3. B 案を実装する形で plan を rewrite (= A 案の文章を上書き)
+4. 更に iterate して B も撤回、 C 案で最終確定
+5. plan を close
+
+このとき plan には C 案だけが残り、 **A → B → C の walkback trail が消える**。 しかし trail こそが「なぜ C なのか」 の理解に必要 — 後の reader が「A や B はなぜダメだったのか?」 を再質問する元手になる情報が失われている。
+
+### 11.2 §6 EXPLORING.md との違い
+
+§6 は **「未決定の探索」 を DESIGN.md と分離**するため EXPLORING.md を作る pattern。 探索が結晶したら DESIGN.md に promote、 古い候補は消す。
+
+本節 §11 は **「決定済 plan 内の walkback 保存」** で、 plan は decision form で close するが decision に至るまでの撤回経緯を残したい。 EXPLORING.md には行かない (= もう探索じゃない、 plan は close する) し、 plan 本体に trail を埋め込む。
+
+### 11.3 解決: plan §1.6 etc. に「探索過程」 セクションを置く
+
+plan の §1 (= 思想・前提) の subsection (例: §1.6 「探索過程」) に、 session 内 iteration の trail を時系列で記録:
+
+```markdown
+### §1.6 探索過程 (= YYYY-MM-DD session 内の back-and-forth)
+
+「なぜ <最終案> に着地したか」 を後の reader が再現できるよう、 探索の back-and-forth を記録。
+
+**探索 0 (= 出発点)**: <初期提案、 動機>。 → <この insight は終始一貫して採用された / 撤回された >
+
+**探索 1 (= <発見の名前>)**: <修正案、 framing>
+
+**(<撤回案>) の撤回**: <撤回理由、 false premise なら明示>
+
+**探索 2**: ...
+
+**探索 N (= 最終形)**: <着地>。 要素分解:
+- A 軸 = ...
+- B 軸 = ...
+
+**思想 trail の core**:
+> <最終案を導出する N つの insight の統合 framing>
+```
+
+### 11.4 適用判断: いつ §1.6 を書くか
+
+trail 保存に値するのは「**撤回された案が plan close 時点でも反省的価値を持つ**」 場合のみ:
+
+- ✓ **書くべき**: false premise で撤回された案 (= 後の reader が同じ premise で同じ案を再提案する risk)、 user-side の structural insight で撤回された案 (= why の部分が valuable)、 「(α)/(β)/(γ)」 のような複数候補から 1 つに絞った経緯
+- ✗ **書かない**: 単純な typo / 計算ミス修正、 user の好みの変更だけ、 探索過程と関係ない実装 bug
+
+**rule of thumb**: plan close 時に「`§11 やらないこと` に rejected proposal を追加するか?」 と問う。 追加するなら §1.6 にも探索の trail を残すと整合的 (= rejected proposal の rationale が trail に紐づく)。
+
+### 11.5 §11 「やらないこと」 との関係
+
+plan の §11 「やらないこと」 (= rejected alternatives + 却下根拠 + 将来再開 trigger) は **decision-form の rejection 記録**。 §1.6 探索過程は **process-form の trail**。 両者は重複しない:
+
+- §11.X: 「✗ <案>: 主張案 = ...、 却下根拠 = ...、 将来再開 trigger = ...」 (decision)
+- §1.6: 「探索 N で <案> を提案、 <発見> で撤回」 (process)
+
+§11 だけだと「却下根拠は分かるが、 そもそもなぜ提案されたのか?」 が見えない。 §1.6 だけだと「将来また同じ案が出たらどう判断するか?」 の re-decision 材料がない。 両方あって初めて「**なぜ提案されたか + なぜ却下されたか + 将来再開条件**」 が一貫した narrative として読める。
+
+### 11.6 適用事例
+
+- **2026-05-06 LorentzArena NPC 非対称 causality plan** ([`plans/2026-05-06-npc-asymmetric-causality.md`](https://github.com/sogebu/LorentzArena/blob/main/2%2B1/plans/2026-05-06-npc-asymmetric-causality.md) §1.6): user の Bug 14 propagation race 議論からの分岐で、 (I) NPC 非対称 → (II) dead = 死亡時時空点 → (II'') dead-skip 完成 → (II''') mean formula + self 包含 という 4 段の back-and-forth を経て (I) + (II''') + (III) で確定。 (II)/(II'') 撤回理由 (= false premise 発見、 user の structural insight) を §1.6 に記録、 §11.12 「やらないこと」 に対応する decision-form rejection と紐づけ。 後の reader が plan を読むだけで「なぜ §1 が dead を virtualPos で寄与させる framing なのか」 を再構築できる
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更 | 動機 |
@@ -690,3 +761,4 @@ slim 化した CLAUDE.md には「アーキテクチャ超要約」section を 1
 | 2026-04-18 | §7.7 に byte-density row + §7.8 に 2 回目適用 + §10.7 新設 | LorentzArena 2+1 の 2 回目 retroactive reorg (DESIGN.md 1627→1303 行) で、SESSION.md が 80 行 threshold 内 (94 行) なのに 23.8 KB と重く autocompact を早める事象を観測。line count は proxy に過ぎず token 消費は byte に従うという lesson を §10.7 auto-context byte budget として規約化 (50 KB / 100 KB / 200 bytes/line の観測指標 + 処置 + SESSION.md 23.8→6.6 KB 事例)。§7.7 diagnostic table に「行数 threshold 内だが byte 密度高い」row、§7.8 適用事例に 2 回目適用段落を追記 |
 | 2026-04-18 | §1 に bundle rule (pragmatic relaxation) 追加 | claude-config DESIGN.md 自身への §7 初適用 (規則を定義したリポに規則を適用する self-consistency 回復) で、`~/Claude/CLAUDE.md` 解体時の bundle 判断 (「1 rule = 1 file 厳格適用は 1 行ファイルを生む、関連密接かつ合計 10 行未満は bundle 可」) を §1 の corollary として昇格。配置先は影響範囲の最大公約数に従う原則は保持したまま粒度の下限を緩和 |
 | 2026-04-18 | §10.8 新設「削除・委譲判断の trap」+ §7.8 に 3 回目適用 | claude-config への §7 自己適用 session で抽出した 6 件の insight を §10.8 に集約: tier-direction asymmetry (横ずらし委譲は ROI ゼロ) / T0-T1 chain pre-check / grep-substitute value (auto-load 表は pre-computed grep cache) / 削除提案 self-correction 事例 (LorentzArena ゲームパラメータ表 anti-value 判定) / DESIGN.md 分割閾値 / self-application discipline (規則定義リポへの同時 apply pass)。§7.8 に 3 回目適用段落で cross-domain validation (物理/描画 + 規約/メタ) を記録 |
+| 2026-05-06 | §11 新設「In-plan exploration trail」 | LorentzArena NPC 非対称 plan で (II)/(II'') の walkback を経て (II''') に着地。 §6 EXPLORING.md は cross-session 探索用、 本 §11 は same-session 内 plan の back-and-forth trail を §1.6 「探索過程」 として plan 本体に保存する pattern。 §11 「やらないこと」 (decision-form) と §1.6 探索過程 (process-form) は重複せず補完、 両者揃って初めて rejected alternative の「なぜ提案 / なぜ却下 / 将来再開条件」 が一貫した narrative として読める |
