@@ -21,6 +21,40 @@
 - `git status` を実行し、未コミット/未 push があればリマインドする
 - クリーンなら「変更なし。お疲れさまでした。」
 
+### Branching strategy
+
+共有リポでは **default branch (`main`) が共著者にとっての真実**。共著者は `git pull` で最新を取得できることを暗黙の前提とする (= 別 branch を checkout する前提を共著者に課さない)。
+
+#### 原則
+
+- **main 上で進める**: 通常の編集作業は `main` 直接 commit + push。WIP でも compile pass (LaTeX なら中間ファイル `.aux` `.bbl` 等を ignore し、最新 PDF を track して「現在の見え方」を pull で再現できる状態) を維持する
+- **feature branch は短命前提**: 同日中に main へ merge できる粒度のリファクタ・実験のみ。24 時間以上を見込む変更は branch しない (= main 上で commit を分けて進める)
+- **大改造で branch せざるを得ない場合**: 以下 3 点を**全部**やる
+  1. 共著者全員に branch 名 + checkout 手順を **out-of-band** で通知 (Discord / Slack / メール)
+  2. その branch の SESSION.md / README.md の冒頭に「⚠️ 共著者は `git checkout <branch>` してから pull」 マーカー
+  3. `main` の README / SESSION.md に「現在 `<branch>` で大改造中、main は古いまま」 と明記 (= main を見た共著者に状況が伝わる)
+
+#### Watchdog (session 開始時)
+
+セッション開始時の git fetch + ahead/behind 確認に加えて、**default branch との divergence** も確認する:
+
+```bash
+DEFAULT=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's,refs/remotes/origin/,,')
+[ -z "$DEFAULT" ] && DEFAULT=main
+AHEAD_FROM_DEFAULT=$(git rev-list --count "$DEFAULT..HEAD" 2>/dev/null)
+echo "default=$DEFAULT, ahead from default=$AHEAD_FROM_DEFAULT"
+```
+
+非 default branch で `AHEAD_FROM_DEFAULT >= 5` または最古 commit から **24 時間以上経過** していたら、**merge を最優先タスクに格上げ**する。Phase 進行・レビュー gate を branch 維持の justification に流用しない (レビューは main 上で進めればよい — 「merge 前に review 完了」 は branch 必須化の根拠にならない)。
+
+#### artifact 配信経路の依存
+
+PDF / 成果物を Dropbox 等で**別経路配信**している共有リポでは、**共著者側の sync が未セットアップだと git pull が唯一の経路**になる。この依存関係を CLAUDE.md / SESSION.md で明示し、未セットアップの共著者がいる間は `main` が最新であることを死守する責任が生じる (= branching policy の原則「main = collaborator's truth」 と直結)。共著者の sync 状況は CLAUDE.md / SESSION.md に明記しておくのが安全 (例: 「Windows side 未セットアップ」 等)。
+
+#### Pre-merge revert anchor
+
+長期 branch を main へ merge する前に、merge 直前の main 位置に tag (`main-pre-<branch>-merge` 等) を打って push する。FF merge は revert が `git reset --hard <tag>` で可能だが、tag 不在だと「pre-merge の main がどこだったか」 を後から特定するコストが高くなる。
+
 ## .gitignore
 
 共同編集者が `~/.gitignore_global` を設定しているとは限らない。共有リポでは `.gitignore` に全パターンを明記する:
