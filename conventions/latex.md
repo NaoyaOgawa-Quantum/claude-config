@@ -6,6 +6,24 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 - **equation/align 環境内は原則変更しない。** 変更は事前にユーザー確認。物理的内容の追加はコメントとして提案（ハルシネーション混入防止）
 - 英語校正・文法修正など確実に正しい本文修正は可
 
+## プリアンブル定義のマクロを優先する
+
+リポのプリアンブルで定義されている semantic macro が対象概念に存在する場合、生の primitive 記法を使わずそのマクロを使う。
+
+**典型的な反パターン**:
+- operator を `\op{T}` で書くべきリポで `\hat{T}` や `\textcolor{red}{T}` のような生記法を直書きする
+- state を `\st\rho` で書くべきリポで `\hat\rho` を直書きする
+- 便宜的なカラーマクロ (`\red{}`, `\blue{}` 等) を「カラー単独で意味を持たせる」 形で乱用する (semantic macro があるならそちらを使う)
+
+**理由**:
+1. **一斉追従**: macro を refine（e.g. journal 投稿時に色除去 + ハットスタイル変更、フォント差し替え）すると全箇所が一斉追従するが、生記法は drift する
+2. **Greppability**: `\op{T}` は概念として grep 可能 (= 全 operator 占用箇所が引ける)、生記法は不可
+3. **意図の明示**: `\op{T}` は読み手に「operator T」 を伝えるが、`\hat{T}` は単なる hat 記号で意味不明
+
+**例外**: プリアンブル定義が無い概念、author drafting marker（一時的な highlight、semantic 意味なし）は生記法でよい。プリアンブル定義の有無は `grep -nE '\\\\(newcommand|nc|def|NewDocumentCommand|DeclareMathOperator)\*?\{?\\\\<name>'` で確認する（`\NewDocumentCommand`/`\nc` 形式も見落とさないため）。
+
+リポ固有の semantic macro 一覧と運用例外は各リポの `CLAUDE.md §LaTeX rules` 参照（Layer 2）。
+
 ## コンパイラ
 - 英語のみ → `lualatex`
 - 日本語含む → `ptex2pdf`（内部で platex + dvipdfmx）または `lualatex`（jlreq クラス等）
