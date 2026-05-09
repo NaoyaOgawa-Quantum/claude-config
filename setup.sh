@@ -176,6 +176,10 @@ HOOK_ENTRIES='[
   {
     "matcher": "Bash",
     "hooks": [{"type": "command", "command": "~/.claude/hooks/memory-guard-bash.sh"}]
+  },
+  {
+    "matcher": "Edit|Write|MultiEdit|Bash",
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/google-url-guard.sh"}]
   }
 ]'
 
@@ -272,7 +276,7 @@ install_hooks() {
                 "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         else
             # PreToolUse が存在する場合、各 hook が含まれているか個別確認
-            for HOOK_CMD in "memory-guard.sh" "public-leak-guard.sh" "memory-guard-bash.sh"; do
+            for HOOK_CMD in "memory-guard.sh" "public-leak-guard.sh" "memory-guard-bash.sh" "google-url-guard.sh"; do
                 if ! jq -e --arg cmd "$HOOK_CMD" \
                     '.hooks.PreToolUse[] | select(.hooks[]?.command | contains($cmd))' \
                     "$SETTINGS" > /dev/null 2>&1; then
