@@ -6,31 +6,72 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 - **equation/align 環境内は原則変更しない。** 変更は事前にユーザー確認。物理的内容の追加はコメントとして提案（ハルシネーション混入防止）
 - 英語校正・文法修正など確実に正しい本文修正は可
 
-## プリアンブル定義のマクロを優先する
+## プリアンブル定義のマクロを優先する (絶対則)
 
-リポのプリアンブルで定義されている semantic macro が対象概念に存在する場合、生の primitive 記法を使わずそのマクロを使う。
+**リポのプリアンブルで定義されているマクロ (semantic / typing shortcut / 色付き / 数式 alias / その他、種類問わず) が対象概念に存在する場合、生の primitive 記法を使うことを禁止する。**
 
-**典型的な反パターン**:
-- operator を `\op{T}` で書くべきリポで `\hat{T}` や `\textcolor{red}{T}` のような生記法を直書きする
-- state を `\st\rho` で書くべきリポで `\hat\rho` を直書きする
-- 便宜的なカラーマクロ (`\red{}`, `\blue{}` 等) を「カラー単独で意味を持たせる」 形で乱用する (semantic macro があるならそちらを使う)
+⚠️ **「`\op` だけの話」 ではない**。プリアンブルで定義されているありとあらゆるマクロが対象。色付き semantic macro (`\op` `\st` `\rf` `\pd` 等) だけでなく、typing shortcut (`\h` = `\hat`、`\wh` = `\widehat`、`\tx` = `\text`、`\md` = `\middle|`、`\sqbr{}` = `\left[...\right]` 等) や数学演算子 (`\Tr`、`\fnl`、`\commutator{}{}` 等) も同等に強制対象。
 
-**理由**:
-1. **一斉追従**: macro を refine（e.g. journal 投稿時に色除去 + ハットスタイル変更、フォント差し替え）すると全箇所が一斉追従するが、生記法は drift する
-2. **Greppability**: `\op{T}` は概念として grep 可能 (= 全 operator 占用箇所が引ける)、生記法は不可
-3. **意図の明示**: `\op{T}` は読み手に「operator T」 を伝えるが、`\hat{T}` は単なる hat 記号で意味不明
+例外は以下 **2 つに限定** (狭く解釈する):
+1. プリアンブル定義が**無い**概念 (= grep で見つからない)
+2. author drafting marker (= `\cl{}` `\green{}` 等の一時的 highlight、後で消す前提のスクラッチ、semantic 意味なし)
 
-**例外**: プリアンブル定義が無い概念、author drafting marker（一時的な highlight、semantic 意味なし）は生記法でよい。プリアンブル定義の有無は `grep -nE '\\\\(newcommand|nc|def|NewDocumentCommand|DeclareMathOperator)\*?\{?\\\\<name>'` で確認する（`\NewDocumentCommand`/`\nc` 形式も見落とさないため）。
+これ以外、「raw でも動くから raw で書く」 「見た目同じだから raw で OK」 「タイプが少し短いから raw で済ます」 は全部 NG。
 
-リポ固有の semantic macro 一覧と運用例外は各リポの `CLAUDE.md §LaTeX rules` 参照（Layer 2）。
+### 対象範囲の例 (= 全部対象、これでも非網羅)
+
+| カテゴリ | マクロ例 | 対応する生記法 (= 禁止) |
+|---|---|---|
+| 色付き semantic | `\op{T}` (operator + red) | `\red{T}`、`\hat{T}`、`\textcolor{red}{T}` |
+| 色付き semantic | `\st\rho` (state + magenta + mathsfit) | `\magenta{\rho}`、`\hat\rho` 単体 |
+| 色付き semantic | `\rf{f}` (real func + blue) | `\blue{f}` |
+| 色付き semantic | `\pd{X}`、`\pdf{X}{x}` (prob dist + cyan) | `\cyan{X}`、`\cyan{X\fn{...}}` |
+| 関数呼出 | `\fn{x}`、`\fnl{X}` (auto-spacing + paren/bracket) | `\paren{x}`、`(x)`、`\sqbr{X}` (function call 文脈で) |
+| 数学演算子 | `\Tr`、`\Tr\fnl{X}` | `\tx{Tr}`、`\Tr\sqbr{X}`、`\Tr[X]` |
+| 数学演算子 | `\commutator{A}{B}` | `[A,B]` (commutator 文脈で) |
+| typing shortcut | `\h` (= `\hat`) / `\wh` (= `\widehat`) | `\hat{}` / `\widehat{}` |
+| typing shortcut | `\tx` (= `\text`) / `\mc` (= `\mathcal`) / `\ms` (= `\mathscr`) | `\text{}` / `\mathcal{}` / `\mathscr{}` |
+| typing shortcut | `\md` (= `\middle|`) | `\middle\|` |
+| 物理 alias | `\rh` (= `\hat\rho`)、`\Ah` (= `\hat A`)、`\TD` (= `T_\tx{D}`) 等 | バラ書き (`\hat\rho`、`\hat A`、`T_\tx{D}`) |
+
+### 確認用 grep (= 「定義がある macro 名なのか?」 をチェック)
+
+```bash
+# ある token (e.g. \red, \op, \fn, \Tr) の定義をプリアンブルで探す
+grep -nE '\\(newcommand|renewcommand|providecommand|nc|def|NewDocumentCommand|DeclareDocumentCommand|DeclareMathOperator)\*?\{?\\<token>' main.tex
+```
+
+`\NewDocumentCommand` / `\nc` (= `\newcommand` の独自 shortcut) / `\providecommand` 形式は `\newcommand` 1 種類だけ grep してると見落とすので、上の widening grep を必ず使う。
+
+### 理由 (rule の hard 化を支える 4 条)
+
+1. **一斉追従**: macro 定義を refine (e.g. journal 投稿時に色除去 + ハットスタイル変更、フォント差し替え) すると全箇所が一斉追従、生記法は drift する。プリアンブルがあるのに使わないと「定義したが効かない」 dead 領域になる
+2. **Greppability**: `\op{T}` は概念として grep 可能 (= 全 operator 占用箇所が `grep '\\op{'` で引ける)、生 `\hat{T}` は raw notation で grep しても operator かどうか判別不能
+3. **意図の明示**: `\op{T}` は読み手に「operator T」 を伝えるが、`\hat{T}` は単なる hat 記号で物理 / 数学的意味が伝わらない
+4. **共著者・後継者の dx**: 1 人が手で raw を選ぶたびに、共著者の grep が外れる、後継者の refine が壊れる、レビュアーが「なぜここだけ違うの?」 と問う。**プリアンブル定義 = 既に「これを使え」 と全員に向けて宣言されている。raw 書きはその宣言を裏切る行為。**
+
+### リポ固有 fallback
+
+リポ固有の active semantic macro 一覧と例外運用は各リポの `CLAUDE.md §LaTeX rules` 参照 (Layer 2)。Layer 1 の本則は「プリアンブルにあれば必ず使う」、Layer 2 は「このリポで何が active か」 のディレクトリ。
 
 ## コンパイラ
-- 英語のみ → `lualatex`
-- 日本語含む → `ptex2pdf`（内部で platex + dvipdfmx）または `lualatex`（jlreq クラス等）
-- BibTeX フルビルド:
-  - platex 系: `platex → bibtex → platex → platex → dvipdfmx`
+
+odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2 段ワークフローは**英語論文では使わない**。
+
+- **英語のみ** → **`pdflatex`** が標準 (= odakin の主力)。`lualatex` も可 (jlreq 不要なら pdflatex で十分)
+- **日本語含む** → `ptex2pdf` (内部で platex + dvipdfmx) または `lualatex` (jlreq クラス等)
+- **BibTeX フルビルド**:
+  - **pdflatex (英語)**: `pdflatex → bibtex → pdflatex → pdflatex`
+  - lualatex (英語または日本語著者なし): `lualatex → bibtex → lualatex → lualatex`
   - lualatex + 日本語著者: **`lualatex → upbibtex → lualatex → lualatex`**（後述「日本語著者の BibTeX 処理」 参照、`bibtex` は不可）
-- リポの CLAUDE.md に手順があればそちらを優先
+  - platex 系 (日本語、tex+dvi 経由): `platex → bibtex → platex → platex → dvipdfmx`
+- リポの CLAUDE.md / README に手順があればそちらを優先
+
+⚠️ **graphics 駆動 driver の罠**: `\usepackage{graphicx}` の default driver は engine 依存:
+- pdflatex / lualatex → pdftex / luatex driver (= .pdf を直接読める、.xbb 不要)
+- platex (tex+dvi) → dvips driver (= .pdf 不可、.xbb もデフォルトでは読まない)
+
+英語論文を pdflatex で書いていれば graphics は素直に動く。platex 系で .pdf 図を使うなら `\usepackage[dvipdfmx]{graphicx}` または `\documentclass[...,dvipdfmx]{...}` が必要。
 
 ## Bibliography スタイル
 - **JHEP.bst を使う**（個人的好み）。`note` フィールドも表示するバージョンを使用
