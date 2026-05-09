@@ -58,11 +58,11 @@ grep -nE '\\(newcommand|renewcommand|providecommand|nc|def|NewDocumentCommand|De
 
 odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2 段ワークフローは**英語論文では使わない**。
 
-- **英語のみ** → **`pdflatex`** が標準 (= odakin の主力)。`lualatex` も可 (jlreq 不要なら pdflatex で十分)
+- **英語のみ** → **`lualatex`** が odakin の標準 (= TeXShop が `LuaTeX-1.21.0` で生成、PDF Producer 欄で確認済)。`pdflatex` も可 (どちらも pdf 直接出力で互換)
 - **日本語含む** → `ptex2pdf` (内部で platex + dvipdfmx) または `lualatex` (jlreq クラス等)
 - **BibTeX フルビルド**:
-  - **pdflatex (英語)**: `pdflatex → bibtex → pdflatex → pdflatex`
-  - lualatex (英語または日本語著者なし): `lualatex → bibtex → lualatex → lualatex`
+  - **lualatex (英語、odakin 標準)**: `lualatex → bibtex → lualatex → lualatex`
+  - pdflatex (英語、互換代替): `pdflatex → bibtex → pdflatex → pdflatex`
   - lualatex + 日本語著者: **`lualatex → upbibtex → lualatex → lualatex`**（後述「日本語著者の BibTeX 処理」 参照、`bibtex` は不可）
   - platex 系 (日本語、tex+dvi 経由): `platex → bibtex → platex → platex → dvipdfmx`
 - リポの CLAUDE.md / README に手順があればそちらを優先
