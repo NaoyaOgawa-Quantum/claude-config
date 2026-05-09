@@ -162,6 +162,39 @@ MCP サーバーが取得した OAuth トークンのスコープによって使
 
 各ユーザーの具体的な実装（認証情報のパス、スクリプト等）は MCP 設定リポの DESIGN.md に記録すること。
 
+## Google API で create された resource の UI 制約 (third-party tool 制限)
+
+Google API 経由で create された Calendar event / Classroom coursework / Drive file 等の resource は、 Google 側で「third-party tool 由来」 として永続フラグされる場合があり、 **UI 上の一部 toggle / 操作が disable される**ことがある。 これは API ルートで完全に同等な resource を作れないことを意味し、 「UI で create された state を完全再現したい」 use case では UI 経由でしか達成できない。
+
+### 観測された具体例
+
+- **Classroom courseWork**: API 経由で create されたものは `associatedWithDeveloper: true` が永続的に付与され、 UI で「サードパーティ製ツールからの提出は締め切ることができません」 message が表示されて 「期限後に提出を締め切る」 toggle がグレーアウト。 これは creation state (DRAFT / PUBLISHED) を問わず適用、 つまり「DRAFT で API create → UI で toggle flip + publish」 ワークフローでも回避不能 (= API ルート完全 close)。 「生徒はクラスメイトに返信できます」 toggle も同制限の対象と推定 (要 UI 検証、 Google が公開 schema に expose していない UI 専用 toggle 全般が同制限を受ける可能性)
+- **Calendar event**: API 経由で create された event は creator の application name が UI に表示される。 一部 advanced settings (recurring rule の細部、 visibility 等) で制限を受ける場合あり (Calendar API は比較的緩い)
+- **Drive file**: API 経由で upload された file は「<App name> から作成」 が表示される。 ファイル type 変換 / format 制限が一部働く
+
+### 検出と回避
+
+実装時に判別する手段:
+1. **Discovery doc** (`https://<service>.googleapis.com/$discovery/rest?version=v1`) を取得して resource schema 全 field を確認 → UI 上 toggle に対応する field が無ければ **API では set 不可**
+2. **Experimental に予想 field 名を投稿** → reject されれば確認 (rare に "silently ignored" もあるので read で echo back されるか確認も)
+3. **API で create した resource を UI で開いて toggle / 操作の有効性を確認** → グレーアウト されれば third-party tool 制限あり
+
+回避策:
+- UI 完全制御が必要な resource は **UI で create する**経路を残す (= 利用者個別の運用ルールは MCP 設定リポ側の docs / SESSION.md に記録)
+- API ルートは**制約を受けても困らない use case** で活用 (e.g., 期限後 late submission を accept する運用、 配点付き ASSIGNMENT、 内部試行 / DRAFT prototype、 batch 投稿)
+
+### 経緯 (本 section 追加の契機)
+
+2026-05-09 Classroom MCP の `classroom_create_coursework` ツール (= `courses.courseWork.create`
+を wrap、 SHORT_ANSWER_QUESTION 対応) を実運用に投入する dogfood 段階で、 **API ルートで
+「期限後に提出を締め切る」 toggle を ON にできない**ことが判明。 第一段では Discovery
+doc + 8 field name experimental 投稿で API field 不存在を確認、 第二段では DRAFT で
+create + UI で開く検証で associatedWithDeveloper 永続フラグによる UI grayout も確認
+→ API ルート完全 close。 詳細: `gmail-mcp-config/SESSION.md §「2026-05-09
+classroom_create_coursework ツール追加 + dogfood 失敗」`、 メタ教訓は
+`odakin-prefs/work-discipline.md §広い指示を受けたら... §失敗例 (Classroom
+短答課題の自動 publish) §追加発見`。
+
 ## Google Calendar MCP
 - 操作前にカレンダー一覧で対象カレンダーが正しいことを確認
 - 共有カレンダー命名: `{共同研究者名}{自分の名字}共同研究`
