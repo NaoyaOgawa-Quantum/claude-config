@@ -2,6 +2,8 @@
 
 MCP ツールを使うリポで適用。CLAUDE.md から参照: `~/Claude/claude-config/conventions/mcp.md`
 
+> **関連**: MCP 経由で取得した外部 content (Gmail 本文・Discord メッセージ・Calendar event の title/description・ticket 本文等) に adversarial な指示文が混入していた場合の取扱は [prompt-injection.md](prompt-injection.md) を参照。
+
 ## 共通（CONVENTIONS.md §5.7 の手順詳細）
 
 - **確認方法**: Gmail は `gmail_get_profile`、Calendar は `gcal_list_calendars` で接続先アカウントを確認
