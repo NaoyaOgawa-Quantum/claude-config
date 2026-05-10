@@ -735,7 +735,7 @@ GIT_CRYPT_KEY="$HOME/.secrets/git-crypt.key"
 DROPBOX_ROOT_SCRIPT="$SCRIPT_DIR/scripts/dropbox-root.sh"
 
 # 5b-pre: Recover missing shared keys from Dropbox encrypted backups
-# 各リポの .claude/git-crypt-backup にファイル名 (例: twcu-phys-web.key.enc) が
+# 各リポの .claude/git-crypt-backup にファイル名 (例: <repo>.key.enc) が
 # 書かれていれば、~/.secrets/<repo>.key が無い場合に Dropbox 内を find で検索し、
 # 見つかったら openssl で復号を試みる（パスフレーズ入力のみ対話）。
 # 共有フォルダの受け手側パスが異なっていても find で発見できる。
@@ -853,14 +853,27 @@ if command -v git-crypt &> /dev/null && { [ -f "$GIT_CRYPT_KEY" ] || ls "$HOME"/
 fi
 
 # --- 5d. Symlink secrets from <repo>/secrets/ to ~/.secrets/ ---
-# secrets-config/secrets/ (odakin solo) と twcu-phys-lab/secrets/ (org 共有) の
-# git-crypt encrypted secret 値を、~/.secrets/<basename> に symlink で配置する。
+# 個人層の secrets-repos.txt にリストされた各リポ (例: secrets-config 等の
+# allow-list 内 repo + 個人層に登録された private repo) の secrets/ 配下にある
+# git-crypt encrypted secret 値を、 ~/.secrets/<basename> に symlink で配置する。
 # 各リポは git-crypt で unlock 済 (Step 5b 完了) を前提とする。
 # 通常ファイル (= ad-hoc 配置の secret) は中身が canonical と一致するときのみ
 # 安全に symlink に置き換える (= out-of-band で運んだ token を git-crypt 経路に
 # 自動移行)。中身が違うときは保護のため警告のみ (手動移行を促す)。
+#
+# SECRETS_REPOS は個人層 (= Step 5a で検出済の $LAYER) の secrets-repos.txt から
+# 動的読み取り。 個人層なし or ファイル無しなら空 array で secrets handling を
+# skip (foreign user 対応)。 設計詳細: DESIGN.md §「SECRETS_REPOS の個人層外出し」
 SECRETS_DEST_DIR="$HOME/.secrets"
-SECRETS_REPOS=(secrets-config twcu-phys-lab)
+SECRETS_REPOS=()
+if [ -n "$LAYER" ] && [ -f "$LAYER/secrets-repos.txt" ]; then
+    while IFS= read -r repo; do
+        SECRETS_REPOS+=("$repo")
+    done < <(awk '
+        { sub(/#.*/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); }
+        NF > 0 { print }
+    ' "$LAYER/secrets-repos.txt")
+fi
 SECRETS_HEADER_PRINTED=0
 if command -v git-crypt &> /dev/null; then
     install -d -m 700 "$SECRETS_DEST_DIR"
