@@ -1,0 +1,91 @@
+# Expensive intermediate artifacts は `/tmp` に置かない
+
+> 適用対象: OCR / ML training / 数値シミュレーション / 重い CI ビルド等で「再生成に **5 分以上** かかる」 中間成果物を扱うリポ。
+>
+> 関連 hook: `claude-config/hooks/expensive-tmp-guard.sh` (PreToolUse Bash で `Audiveris ... -output /tmp/...` 等のパターンを機械的に検出)
+
+---
+
+## 問題
+
+CLI tool (`Audiveris -output <path>`、`oemer -o <path>`、ML 学習 script の `--checkpoint-dir <path>`、数値シム の `-OUTPUT_DIR=<path>` 等) に出力先を渡すとき、 reflex で `/tmp/<dir>/` を書きがち。 これは:
+
+- (a) **scratch (= 数秒〜分単位で再生成可)** にとっては合理的
+- (b) **expensive intermediate artifact (= 再生成に 5 分以上、かつ input state — DPI / version / override constants — が再現に必要)** にとっては運用ミス
+
+(b) を `/tmp` に置くと:
+- macOS reboot で消える (= macOS は `/tmp` を起動時に sweep)
+- 数日経過で `tmpcleaner` 系の OS ジョブが消す可能性
+- 容量逼迫時に他プロセスから割を食う
+- 「数時間後の自分」 が path を忘れて再生成する羽目になる
+- **session 圧縮 / autocompact 後の Claude が文書中の `/tmp/...` 参照を「意味のある永続 path」 と誤解** (= リポ内文書から /tmp 配下を pointer として参照する自体が design smell)
+
+---
+
+## 実例 (music-notes 2026-05-10)
+
+Brahms HD#1 orchestral score の Audiveris OCR 実験で、 1200/2400/4800/9600 DPI の 4 通り × 2 page = 8 retry を `/tmp/audiveris-{2400,4800}dpi-{p1,p12}-{retry,override}/` に出力。 各 .omr の生成に **10〜90 分** (= 4800 DPI BEAMS step 単独で 17 分、 全 step で 90 分超)、 maxPixelCount / sheetStepTimeOut の `-constant` override が必要。 8 hours 後に user 指摘「永続化されとらんやん」 — 当該文書 (`SESSION.md` / `plans/`) が `/tmp/audiveris-2400dpi-p12-retry/p-12.omr` を Task 11 GUI 編集の入力素材として参照しており、 reboot 後は再生成 ~15 min 必要な状態だった。
+
+復旧: `scores/brahms-hd1-ocr-experiments/{2400dpi-p1-control,2400dpi-p12-retry,4800dpi-p1-regression,4800dpi-p12-success}/` 4 サブディレクトリへ計 6.3 MB を `cp` 永続化、 全文書の `/tmp/...` 参照を新 path へ書き換え。
+
+詳細 RCA: `odakin-prefs/work-discipline.md §高コスト中間 artifact を /tmp に置きっぱなしにしない` (private layer) + `music-notes/scores/brahms-hd1-ocr-experiments/README.md`
+
+---
+
+## 防止策の階層
+
+### ゲート質問 (= 着手前に必ず通す)
+
+CLI tool に出力先 path を渡す前に問う:
+
+> **「この出力、 reboot 後に再生成すると **5 分以上** かかるか? かつ input state (= 入力 file の DPI / version / override constants 等) が再現困難か?」**
+
+- **No** (= 数秒〜数分で再生成、 input state も自明) → `/tmp/<dir>/` で OK
+- **Yes** → リポ内に永続 placement、 + experiment context を記述する README.md 必須
+
+### 配置先の決め方
+
+リポ内の既存ディレクトリ規約に従う。 一般則:
+
+| リポタイプ | 永続化先の例 |
+|---|---|
+| 楽譜・楽曲解析 (= music-notes 等) | `scores/<work>-<engine>-experiments/` |
+| ML training | `data/checkpoints/<run-id>/` または `experiments/<run-id>/` |
+| 数値シミュレーション | `data/runs/<config-hash>/` または `outputs/<run-id>/` |
+| OCR 一般 (= 文献 PDF, 画像 archive) | `data/ocr-<engine>/<source>/` |
+
+実際の path は repo の `DESIGN.md` / `CLAUDE.md` に明記。 規約が無いリポなら **規約を作るタイミング** (= DESIGN.md に subdirectory pattern を documented してから配置)。
+
+### Per-experiment README.md (必須)
+
+永続化したサブディレクトリには README.md を置き、 以下を記述:
+
+- **なぜ persist しているか** (= 再生成コスト + input state 再現困難性)
+- **ディレクトリ構成** (= experiment 別役割表)
+- **関連 plan / SESSION での参照箇所**
+- **何が verify 済か** (= データから引き出した結論)
+- **再生成手順** (= 万が一壊れた / 紛失した時の rebuild commands)
+
+書き方の reference 例: `music-notes/scores/brahms-hd1-ocr-experiments/README.md`
+
+### `.gitignore` の global ignore に注意
+
+`*.log` 等 global gitignore で除外される拡張子を experiment dir で track したい場合は、 リポローカル `.gitignore` で `!<dir>/**/*.log` exception を追加。 OCR / ML 系 log は debug trace (NPE / warning / metric) を含むため reference 価値あり、 安易に ignore しない。
+
+---
+
+## Anti-pattern
+
+- **「実験中だから /tmp で十分」**: 実験成功直後の判断は valid だが、 user feedback が入った瞬間に「再現入力素材」 に昇格する。 移行のタイミングを逃すと永久に /tmp。 対策: feedback turn で permanence を再評価する習慣
+- **「reboot しなければ大丈夫」**: macOS は不定期に sleep / wake / kernel panic / forced restart で reboot する。 「数日触ってないから永続的だろう」 と判断するのは経験則違反
+- **文書から `/tmp/...` を pointer として参照**: SESSION.md / plans/ 等で `/tmp/audiveris-2400dpi-p12-retry/p-12.omr` のように書くと、 別セッションの Claude が「この path は意味がある」 と誤解する。 リポ内 path のみ pointer として valid
+- **「後でまとめて移す」**: 8 hours 後の user 指摘で初めて気付くパターン。 移行コストは 5 分でも、 引き伸ばすほど「どれが価値ある artifact か」 の判断が劣化する
+
+---
+
+## 関連
+
+- 失敗パターン (private layer): `odakin-prefs/work-discipline.md §高コスト中間 artifact を /tmp に置きっぱなしにしない`
+- inline rule: `~/Claude/CLAUDE.md` 失敗パターン §12
+- 機械的検出: `claude-config/hooks/expensive-tmp-guard.sh`
+- 類縁規約: `claude-config/conventions/scientific-computing.md` (= 数値計算の silent bug)、 `claude-config/conventions/dropbox-refs.md` (= 共有 PDF の参照規約)

@@ -41,12 +41,14 @@ claude-config/
 │   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 │   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
 │   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)
-│   └── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認)
+│   ├── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認)
+│   └── expensive-intermediate-artifacts.md # `-output /tmp/...` reflex 防止 (= OCR / ML / 数値計算で 5 分以上要する artifact をリポ内永続化、 hooks/expensive-tmp-guard.sh で機械的検出)
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（§8 feedback deny + escape hatch）
 │   ├── public-leak-guard.sh        # 公開リポ leak 防止 — PreToolUse(Edit|Write|MultiEdit) Tier A 構造制約 regex
 │   ├── google-url-guard.sh         # Google URL 安定性ガード — PreToolUse(Edit|Write|MultiEdit|Bash): /u/N/ 禁止 + `?authuser=<email>` 必須
+│   ├── expensive-tmp-guard.sh      # PreToolUse(Bash): Audiveris / oemer / ML training 系の -output /tmp/ パターンを検出して `permissionDecision: ask`
 │   ├── git-state-nudge.sh          # PostToolUse(Bash): 直近 commit の未 push 検出 + first-sighting で fetch+stale 検出
 │   └── fix-snapshot-path-patch.sh   # PATH スナップショット自動パッチ（REQUIRED_PATHS 方式、launchd WatchPaths から呼ばれる）
 ├── hammerspoon/
