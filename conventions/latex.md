@@ -6,6 +6,23 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 - **equation/align 環境内は原則変更しない。** 変更は事前にユーザー確認。物理的内容の追加はコメントとして提案（ハルシネーション混入防止）
 - 英語校正・文法修正など確実に正しい本文修正は可
 
+## 地の文に math 文字を裸で書かない (math mode 保護)
+
+**ルール:** 地の文 (= `$...$` `\(...\)` `equation` 環境の外) では、 `^` `_` `\dagger` `\hat` 等の **math mode 専用記号を含む式片**を裸で書かない。 全部 `$...$` で囲うか、 日本語に置き換える。
+
+**Why:** TeX は地の文で `^` `_` を見ると math mode 解釈を試み、 `Missing $ inserted` エラーで build が止まる (= 「Emergency stop」 まで行く)。 地の文に「a^†」 「α_n」 「c_{n+1}」 等を裸で書くのは典型的 bug 源。 章 draft 編集時に頻発、 編集者は気付きにくい (= rendered PDF を見ないと build 失敗が visible にならない)。
+
+**How to apply (= edit 時 self-check):**
+- 地の文に演算子記号 / 添字 / Greek + subscript を書く前に、 数式環境内かを確認
+- 安全な置き換え:
+  - `a^†` (地の文) → `$\hat{a}^\dagger$` または「a に dagger」 等の言い換え
+  - `α_n` (地の文) → `$\alpha_n$` または「規格化定数」 等の言い換え
+  - `|n+1⟩` (地の文) → `$\ket{n+1}$` または「次の段」 等の言い換え
+- **edit 後 must build**: tex 編集後は必ず `make` / `ptex2pdf` で build を確認、 「Missing $ inserted」 エラーが出たら該当行を grep で見つけて修正
+- 検出 grep (大まかに): `grep -nE '[^\$\\\\\{]a\^|[^\$\\\\\{]α_|[^\$\\\\\{]c_n' file.tex` 等
+
+**事例 (2026-05-10 quantum-mechanics-textbook 第 1 部最終章 draft restructure)**: 7 commit に渡る章書き直しの過程で、 Claude が地の文に「a^† と a の代数構造」 「α_n の積」 「a^†|n⟩ ∝ |n+1⟩」 等を裸で書いて 3 箇所で build を破壊。 1 commit 内で 3 回 build retry が必要だった。 edit 直後の build verify で発覚 → 該当箇所を `$\hat{a}^\dagger$` 等で囲って修正。
+
 ## プリアンブル定義のマクロを優先する (絶対則)
 
 **リポのプリアンブルで定義されているマクロ (semantic / typing shortcut / 色付き / 数式 alias / その他、種類問わず) が対象概念に存在する場合、生の primitive 記法を使うことを禁止する。**
