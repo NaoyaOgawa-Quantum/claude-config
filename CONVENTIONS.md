@@ -154,7 +154,7 @@ git の状態管理は 1 本の `PostToolUse` hook で機械的に支援する: 
 
 ### sweep / review / audit の goal alignment
 
-4 軸 sweep / 3 軸 sweep / 任意の review / audit / verification / check 系の作業を呼ばれた時、 **goal は error 発見であって report 生産ではない**。 sweep 開始時に chat 本文で goal declaration を書く: 「**今から error 発見試行に入る、 sweep report 生産ではない**」。 sweep 中の各 step で「これは error を expose する操作か、 cell を埋める操作か」 を 1 度問い、 cell 埋めなら expose 操作に置換する。
+4 軸 sweep / 3 軸 sweep / 任意の review / audit / verification / check / 確認 / チェック 系の作業を呼ばれた時、 **goal は error 発見であって report 生産ではない**。 sweep 開始時に chat 本文で goal declaration を書く: 「**今から error 発見試行に入る、 sweep report 生産ではない**」。 sweep 中の各 step で「これは error を expose する操作か、 cell を埋める操作か」 を 1 度問い、 cell 埋めなら expose 操作に置換する。
 
 | 安価な操作 (= cell 埋め、 default reflex) | 高価な操作 (= error expose、 goal-aligned) |
 |---|---|
