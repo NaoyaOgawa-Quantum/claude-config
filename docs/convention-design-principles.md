@@ -745,6 +745,116 @@ plan の §11 「やらないこと」 (= rejected alternatives + 却下根拠 +
 
 ---
 
+## 12. 監視 list の scope marker — 「監視」 と「禁止」 の categorical 分離
+
+### 12.1 観察された pathology
+
+DESIGN.md / 設計 docs で「**drift 監視のため定期 re-grep 推奨**」 のような **list 形 audit checklist** を運用していると、 list が implicit な scope を持って blind spot を生むことがある。
+
+具体例: list の entry が全て「docs (= CONVENTIONS.md / conventions/*.md)」 に偏っていて、 「scripts / hooks / setup.sh 等の executable surface」 が暗黙のうちに対象外扱いされる経路。 list の前文には「定期 re-grep」 とあるだけで、 (a) 何の category を対象に grep するか、 (b) 何が categorically 対象外か、 が明示されていない。 結果: 同 class の violation が executable surface に蓄積、 「list で監視しているから大丈夫」 という錯覚で audit が skip される。
+
+### 12.2 「監視」 と「禁止」 の categorical 分離
+
+ある violation class に対して、 surface ごとに対処レベルが異なる場合がある:
+
+- **監視** (= soft、 list-based、 doc 内手作業 grep): **意図的に許容している記述** に適用、 drift 検出は人手 / scheduled-task で行う
+- **禁止** (= hard、 mechanism-enforced): hook / pre-commit / regex / CI で機械的に block、 violation は merge されない
+
+両者は categorical に分離されるべきで、 同 list に混在させると論理が壊れる。 例えば「docs 内の odakin 名言及」 は 「監視」 (= 意図的に置いている、 削除トリガー で発火)、 「executable code 内の odakin 名言及」 は 「禁止」 (= layer-1 audience contract 違反、 即修復対象)。
+
+### 12.3 解法: explicit scope marker を必須化
+
+監視 / audit list を書くときは、 list の前文または冒頭 row に **explicit scope marker** を含める:
+
+| 要素 | 例 |
+|---|---|
+| **対象 surface の enumeration** | 「本 list は CONVENTIONS.md と conventions/*.md (= **docs**) 内の意図的記述のみ対象」 |
+| **categorically 除外される surface の enumeration** | 「scripts/, hooks/, setup.sh 等の **executable code** は本 list ではなく即修復対象」 |
+| **除外理由** | 「executable は foreign user の machine で実行されるため、 audience contract 違反は監視ではなく禁止」 |
+| **境界条件で迷ったら何をするか** | 「迷ったら本 list ではなく hook / pre-commit に投げて mechanism 化」 |
+
+scope marker は **list の機能の一部**。 marker 無しの list は「実は何を監視しているか暗黙」 で、 数か月後の reader が誤って scope 外も含むと解釈する経路を持つ。
+
+### 12.4 由来
+
+2026-05-10 claude-config self-audit で `DESIGN.md §「自己言及的 odakin 記述」` list (= 4 entries の docs 監視 list) が hooks / scripts / setup.sh の同 class violation を見逃したケース。 list 自身は「drift 監視のため定期 re-grep 推奨」 と書いてあったが、 暗黙 scope = docs のみだったため、 同 session の `hooks/memory-guard*.sh` の `odakin-prefs/` literal は list に登録されておらず、 final cross-cutting sweep で初めて発見された。 修復として list 前文に explicit scope marker を追加 (= claude-config commit `e3179c5`)、 「executable code 内の literal は本表ではなく即修復対象 (= 監視ではなく禁止)」 を categorical に明示。
+
+### 12.5 適用範囲
+
+- audit / drift / monitoring / re-grep / track と書かれた list 全般
+- list が複数 surface (= docs + code + config 等) にまたがる候補 violation の subset を扱う場合
+- 「意図的記述」 と 「bug」 を同 class violation で区別する必要があるとき (= surface 別に対処レベルが異なる typical case)
+
+### 12.6 周辺規律
+
+- §3 「規約追加の判断基準」 の延長: list の scope を明示しないのは「規約があるが読まれない」 の典型 pathology
+- [`conventions/debugging-discipline.md §4`](../conventions/debugging-discipline.md) (sibling audit) の前提: scope が明示されていない list は sibling 漏れの源、 sweep が補完
+- §10 File-role architecture: 監視 list (= soft、 cold reference) と禁止 (= hook、 always-on enforcement) は categorical に異なる surface に置かれる
+
+---
+
+## 13. Cross-repo refactor の migration ordering — データ側を先に commit
+
+### 13.1 観察された footgun
+
+複数 repo (= 同一 owner の cross-repo、 cross-layer、 collaborator-shared 含む) を跨いで refactor する場合、 commit / push の順序によって時間窓 (= time window) で意図しない state が出現する。
+
+具体例: claude-config の `setup.sh` が個人層 (= layer 3、 別 repo) の `secrets-repos.txt` を read するように refactor する場合:
+
+- **逆順 (= claude-config 先 → 個人層 後)**: claude-config push 時点で新 setup.sh は `<personal-layer>/secrets-repos.txt` を read しようとする → file 不在 → graceful skip でないと regression。 個人層 push 後に file が出現 → 次 setup.sh 起動から正常動作
+- **正順 (= 個人層 先 → claude-config 後)**: 個人層 push 時点で file 存在、 claude-config 旧 setup.sh は file を read しないので影響無し。 claude-config push 後 setup.sh が新 logic で file を read → 正常動作
+
+両順序とも graceful skip 設計なら functional regression は無いが、 正順は「想定外動作期間」 を最小化する。
+
+### 13.2 原則: データ側を先に commit、 コード側を後に commit
+
+cross-repo refactor で 「repo A のコードが repo B のデータを read する」 形になる場合、 **B を先 / A を後** で push する:
+
+| 役割 | 例 | 先後 |
+|---|---|---|
+| **データ側 (= 受動側)** | 個人層 / config registry / lookup table / 共通 fixture | **先** push |
+| **コード側 (= 能動側)** | bootstrap script / runtime reader / consumer | **後** push |
+
+### 13.3 graceful skip 設計の併用
+
+正順だけで footgun は減るが、 完全に防ぐには **コード側を graceful skip 設計** にする (= データが無くても crash せず空 array / no-op で続行)。 これにより:
+
+- 逆順でも functional regression なし
+- 一時的にデータが消えた / 移動した場合も resilient
+- foreign user (= データを持たない user) で動作
+
+graceful skip + 正順 push の組み合わせで、 (a) 想定外動作期間最小化、 (b) edge case の resilience 両方を確保。 graceful skip 単独では「想定外動作期間に skip が走って setup が無音失敗」 という silent regression 経路が残るため、 慣例としての正順 push は依然必要。
+
+### 13.4 collaborator-shared 場合
+
+repo A と repo B が別 maintainer の場合、 atomic な順序確保はできない (= 両 maintainer の協調が要る)。 戦略:
+
+1. **データ側 maintainer に先行 push を依頼**、 完了確認後にコード側 maintainer が push
+2. **graceful skip を必須化**: atomic でない時間窓は graceful skip で吸収、 monitoring (= run-time error log / alert) で異常検出
+3. **window 最小化**: 両 push の間隔をできるだけ詰める (= 同 day / 同 hour)
+
+multi-maintainer の場合、 順序保証よりも graceful skip の方が defensive。 順序は best effort、 設計は worst case 想定。
+
+### 13.5 由来
+
+2026-05-10 claude-config self-audit で `setup.sh:863` の `SECRETS_REPOS` runtime hardcode (= 所属機関名を含む repo 名を含み CLAUDE.md L105 違反) を個人層 `secrets-repos.txt` 外出しに refactor した際、 `odakin-prefs` commit `b62bb7d` (= データ側) を先行 commit、 `claude-config` commit `13eba10` (= コード側) を後 commit で進めた事例。 graceful skip も併用 (= LAYER 空 / file 不在で `SECRETS_REPOS=()`) しているため、 仮に逆順でも functional regression は発生しないが、 慣例として正順を採用することで「想定外動作期間 = 0」 を達成。
+
+### 13.6 適用範囲
+
+- 同一 owner の cross-repo refactor (= 4 層 cross-layer 含む)
+- collaborator-shared repo 間の refactor (= layer 2 内の repo 間 + layer 1↔2 等)
+- monorepo 内でも build artifact / generated file を生む build 段の順序
+
+データを read する code が新規導入される場合の汎用 pattern。 read される data が既に存在する code を変更するだけなら本原則は適用外。
+
+### 13.7 周辺規律
+
+- §2 「ルールの重複を避ける」 の延長: data 側を canonical とし code 側は読み取り経路 (= ポインタ) として 1 ファイル定義
+- [`conventions/shared-repo.md §「公開前の Audit」`](../conventions/shared-repo.md): collaborator-shared repo の commit 規律
+- 関連 anti-pattern: 1 commit に複数 repo の変更を atomic に詰めようとする (= sub-tree merge / 提出物分散) は coordination overhead と review 困難を招く、 順序 + graceful skip の方が単純
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更 | 動機 |
@@ -757,6 +867,7 @@ plan の §11 「やらないこと」 (= rejected alternatives + 却下根拠 +
 | 2026-04-17 | §5 改訂 + §8・§9 追加 | git pull 忘れの annoyance 失敗への反射応答で memory に feedback を書こうとした違反を契機に、規約システム全体の subtraction pass。§5 (メモリ) をマシン固有事実のみに narrow 化し memory-guard hook を `ask` → `deny` 化。§8 で rule vs mechanism 非対称性・precedent-as-training-data・friction asymmetry を言語化。§9 で triage (catastrophic/material/annoyance)・asymmetric reflection bias・subtraction trigger・preference-approximation gap・Claude 側 diminishing-returns detection を整理。適用事例は odakin-prefs 2026-04-17 の commit 群 (git log) |
 | 2026-04-17 | §8.5-8.7 + §9.5-9.7 追加 (coverage sweep) | 同日 session で session log に記録されていたが claude-config 側に無かった洞察を補完: §8.5 不安応答としての memory write、§8.6 agent 学習の錯覚 (correction は session 越えて persist しない、system 改変のみ残る)、§9.5 規約構造と Claude 応答の closed loop、§9.6 subtraction 形態 (削除 > migrate > 規約追加) + migrate-as-defer 警告 |
 | 2026-04-17 | §9.8 追加 + §10 新設 (final sweep) | 同日 session の未捕捉 insight 2 件を durable 化: §9.8 単一観察から構造対策に飛ばない (Haiku false positive の lesson を一般化、scope 確認先行)、§10 File-role architecture (auto-load tier 0-3 分類、narrative 抽出 pattern、incidents archive lifecycle)。odakin-prefs での実証値も収録 (569 → 555 lines auto-load、T3 に 600+ lines 隔離) |
+| 2026-05-10 | §12 追加 (監視 list の scope marker) + §13 追加 (Cross-repo refactor の migration ordering) | claude-config self-audit (= memory-guard hook の `odakin-prefs/` literal 1 件発見 → 全 hooks + 全 scripts + setup.sh sweep で sibling 20+ 件発見) で得た 2 件の universal 知見を durable 化。 §12 は DESIGN.md drift 監視 list が executable surface の同 class violation を見逃した経験から (= 暗黙 scope の blind spot)。 §13 は setup.sh の SECRETS_REPOS 個人層外出し refactor で odakin-prefs 先 / claude-config 後で push した順序確立から。 詳細 commit chain: claude-config `60a58c0` 〜 `13eba10` + odakin-prefs `b62bb7d` |
 | 2026-04-18 | §10.9-10.12 追加 (Level-2 migration insights、§10.7-10.8 の後) | 他 session が先に追加した §10.7 byte budget + §10.8 削除・委譲の trap の後に追記 (section 番号 collision を避けて renumber)。LorentzArena 2+1/CLAUDE.md の radical delegation (364 → 97 lines) から抽出: §10.9 code を canonical とする doc dedup (ただし §10.8 warning を先に適用 — description column が code に無ければ dedup は anti-value)、§10.10 CLAUDE.md chain の nested auto-load (Claude Code 特有、sub-project で chain が積み上がる)、§10.11 「超要約」pattern (slim CLAUDE.md に 5-8 項目×1行の 2 層化)、§10.12 migration level 階段 (Level 0-3)。LorentzArena chain 505 → 238 lines の実証値。**本追記中の §10.9 LorentzArena パラメータ削除は §10.8 の anti-value 判定と衝突、次 session で constants.ts JSDoc 確認 + 必要なら docs/architecture.md に restore の要あり** |
 | 2026-04-18 | §7.7 に byte-density row + §7.8 に 2 回目適用 + §10.7 新設 | LorentzArena 2+1 の 2 回目 retroactive reorg (DESIGN.md 1627→1303 行) で、SESSION.md が 80 行 threshold 内 (94 行) なのに 23.8 KB と重く autocompact を早める事象を観測。line count は proxy に過ぎず token 消費は byte に従うという lesson を §10.7 auto-context byte budget として規約化 (50 KB / 100 KB / 200 bytes/line の観測指標 + 処置 + SESSION.md 23.8→6.6 KB 事例)。§7.7 diagnostic table に「行数 threshold 内だが byte 密度高い」row、§7.8 適用事例に 2 回目適用段落を追記 |
 | 2026-04-18 | §1 に bundle rule (pragmatic relaxation) 追加 | claude-config DESIGN.md 自身への §7 初適用 (規則を定義したリポに規則を適用する self-consistency 回復) で、`~/Claude/CLAUDE.md` 解体時の bundle 判断 (「1 rule = 1 file 厳格適用は 1 行ファイルを生む、関連密接かつ合計 10 行未満は bundle 可」) を §1 の corollary として昇格。配置先は影響範囲の最大公約数に従う原則は保持したまま粒度の下限を緩和 |
