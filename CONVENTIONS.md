@@ -152,6 +152,25 @@ git の状態管理は 1 本の `PostToolUse` hook で機械的に支援する: 
 
 **`git fetch` を最初に置く理由:** `git status` の `Your branch is up to date with 'origin/main'` 表示は **fetch 前なら local の origin/main ref が stale** であり、リモートが先行していても "up to date" と出る。共有リポ (共同編集者あり / 自分の別マシンも push しうる) では fetch なしの状態確認は誤読を生む。`git-state-nudge.sh` hook の first-sighting fetch は 4h window で抑制される (= 直近 4h 以内に同 repo を触ったマシン/セッションがあると fetch しない) ため hook 単独では穴がある。手動 fetch + behind 確認を作業開始時の必須項目にすることで、「いきなり commit して non-fast-forward reject」「stale ref 上の意思決定」を防ぐ。
 
+### sweep / review / audit の goal alignment
+
+4 軸 sweep / 3 軸 sweep / 任意の review / audit / verification / check 系の作業を呼ばれた時、 **goal は error 発見であって report 生産ではない**。 sweep 開始時に chat 本文で goal declaration を書く: 「**今から error 発見試行に入る、 sweep report 生産ではない**」。 sweep 中の各 step で「これは error を expose する操作か、 cell を埋める操作か」 を 1 度問い、 cell 埋めなら expose 操作に置換する。
+
+| 安価な操作 (= cell 埋め、 default reflex) | 高価な操作 (= error expose、 goal-aligned) |
+|---|---|
+| 「完了 ✓」 / 「✓ pass」 assertion | sweep した範囲 / 未 sweep 範囲 / confidence 境界 の明示 |
+| `path/anchor exist` の procedural check | 各 link 先 prose の semantic re-read |
+| 直近 commit cluster の narrow scope | session arc / topic-wide の broad scope |
+| ⚠️ marker 貼付で本文 rewrite を後回し | marker と rewrite を bundle (= 同 turn で実行)、 rewrite cost 払えないなら marker 貼らず user に explicit flag |
+| 自分の earlier writing への authorial anchor | 「他人の writing として cold-read」 の cognitive shift |
+| 「上書きした感覚」 で旧 prose を放置 | 解釈変更後の earlier strata の逆時系列再読 |
+
+**終了時の言語 contract**: 「✓ pass」 / 「完了」 を書かない。 代わりに必ず「sweep した範囲 / NOT sweep した範囲 / confidence 境界」 を明示し、 user に次 action の判断を渡す。 closure を assertion で discharge できない言語にすることで、 後の error 発見を「sweep 済の前提が誤」 という extraordinary claim ではなく「sweep 境界外の natural finding」 として扱える。
+
+**Why**: 「sweep report を produce する」 default goal の下では cell が埋まれば achievement 判定で、 cell の semantic 妥当性は副次。 「✓ pass」 発話で conversation state が「sweep 済」 に確定し、 後の error 発見が inertia で抑圧される。 6 つの bypass pattern (= 上記 table の左列) はすべて **単一 trait「安価な操作で高価な操作を bypass する」** の異なる現れ。 規律で 6 つを覚える代わりに、 **1 つの問い** (= cell 埋めか error expose か) を sweep 中に保持する。 既存 §3 push 前チェック表 (= 整合性 / 無矛盾性 / 効率性 / 安全性) は **何を** check するかの axis、 本 § は **どの goal で** check するかの mode。
+
+**実例 (= 2026-05-10 反証)**: 「深く 4 軸 sweep」 を 3 回実施したと称しながら、 同セッション内で書いた SESSION.md の内部矛盾 (= 同 section 内で table と prose が逆を主張) + 複数 file の旧解釈 stale 残存を全部見逃した。 next session の fresh-eyes audit で初めて発覚 (= 別 session の Claude が cold-read で即座に矛盾検出)。 個人 RCA + 反例詳細は personal layer の reflex-trap 文書に記載 (= suppl reference、 必須参照ではない)。
+
 ---
 
 ## 4. Git 規約
