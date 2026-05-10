@@ -18,6 +18,7 @@ claude-config/
 ├── README.md               # プロジェクト説明（English）
 ├── README.ja.md            # プロジェクト説明（日本語）
 ├── setup.sh                # セットアップスクリプト
+├── JHEP.bst                # 物理論文用 BibTeX style (setup.sh が texmf-local に install)
 ├── conventions/
 │   ├── shared-repo.md      # 共有リポ固有規約
 │   ├── latex.md            # LaTeX 固有規約（物理リポで参照）
@@ -34,11 +35,18 @@ claude-config/
 │   ├── multi-machine-state.md # 複数マシンで同じ Claude Code セットアップを使うときの規律 (audit scope 明示・実機検証・idempotent setup.sh)
 │   ├── debugging-discipline.md # Fix 提案の 3 verification (V1 numeric trace + V2 code coverage + V3 algorithm enumeration)、 audit verdict re-evaluation、 multi-commit drift sweep、 sibling violation sweep
 │   ├── discord-bot.md      # Discord Bot 運用 (権限ポリシー・private channel 加入・per-channel error non-fatal な fetcher・Token 取扱・組織 NW での API ブロック)
-│   └── prompt-injection.md # Tool result 内の prompt injection を flag する規律 (適用範囲・同ターン flag・literal 原文併示・確度二段・注入指示は従わない)
+│   ├── prompt-injection.md # Tool result 内の prompt injection を flag する規律 (適用範囲・同ターン flag・literal 原文併示・確度二段・注入指示は従わない)
+│   ├── android-chromium-remote-debug.md # Android Brave/Chrome の remote debugging (WiFi ADB + CDP、 reload 前の live state capture procedure)
+│   ├── google-url.md       # Google サービス URL 書式 (`/u/N/` 禁止 + `?authuser=<email>` 必須、 hooks/google-url-guard.sh で機械的強制)
+│   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
+│   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
+│   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)
+│   └── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認)
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（§8 feedback deny + escape hatch）
 │   ├── public-leak-guard.sh        # 公開リポ leak 防止 — PreToolUse(Edit|Write|MultiEdit) Tier A 構造制約 regex
+│   ├── google-url-guard.sh         # Google URL 安定性ガード — PreToolUse(Edit|Write|MultiEdit|Bash): /u/N/ 禁止 + `?authuser=<email>` 必須
 │   ├── git-state-nudge.sh          # PostToolUse(Bash): 直近 commit の未 push 検出 + first-sighting で fetch+stale 検出
 │   └── fix-snapshot-path-patch.sh   # PATH スナップショット自動パッチ（REQUIRED_PATHS 方式、launchd WatchPaths から呼ばれる）
 ├── hammerspoon/
@@ -51,6 +59,21 @@ claude-config/
 │   ├── audit-public-repos.sh           # 全 public repo の leak 定期監査（週次 scheduled-task 対象）
 │   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
 │   └── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
+├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
+│   ├── root-CLAUDE.md.default          # 個人層なしのデフォルト ~/Claude/CLAUDE.md (setup.sh が配置)
+│   ├── personal-layer/                 # 個人層 (layer 3) bootstrap skeleton
+│   │   ├── README.md
+│   │   ├── CLAUDE.md.template
+│   │   ├── repos.md.template
+│   │   ├── user-profile.md.template
+│   │   ├── shared-project-keys.md.template
+│   │   └── dropbox-collabs.yaml.template
+│   └── shared-project/                 # 共有プロジェクト (layer 2) bootstrap skeleton
+│       ├── README.md
+│       ├── CLAUDE.md.template
+│       ├── README.md.template
+│       ├── SETUP.md.template           # 共同編集者 onboarding walkthrough
+│       └── AUDIT.md.template
 ├── docs/
 │   ├── usage-tips.md                 # 運用Tips（English）
 │   ├── usage-tips.ja.md              # 運用Tips（日本語）
@@ -58,7 +81,8 @@ claude-config/
 │   ├── git-crypt-guide.ja.md         # git-crypt 暗号化ガイド（日本語）
 │   ├── sensitive-repo-patterns.md    # 機密情報を含むリポの設計パターン（English overview）
 │   ├── sensitive-repo-patterns.ja.md # 機密情報を含むリポの設計パターン（日本語、本編）
-│   └── convention-design-principles.md # 規約設計の原則（メタレベル）
+│   ├── convention-design-principles.md # 規約設計の原則（メタレベル）
+│   └── personal-layer.md             # 4 層モデルの正本 (audience size 順 numbering、 layer 1-4 の責務と依存規則)
 ├── gitignore_global        # グローバル gitignore（~/.gitignore_global に symlink）
 ├── gfm-rules.md            # GFM CJK bold 対策リファレンス
 ├── LICENSE                  # MIT
