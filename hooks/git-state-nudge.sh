@@ -12,11 +12,11 @@
 #
 #   (1) "Orphan tree on origin" — HEAD has NO common ancestor with @{u}.
 #       This is the unambiguous signature of a re-init force-push from
-#       elsewhere (the failure mode that fooled Claude on 2026-04-07 —
-#       see "divergence の解釈規律" and "過去の失敗事例" sections in
-#       odakin-prefs/push-workflow.md). The nudge tells Claude that
-#       AHEAD commits are likely ORPHANED, not unpushed, and points to
-#       the 4-query checklist there.
+#       elsewhere (a failure mode that previously fooled Claude on
+#       2026-04-07 into interpreting AHEAD commits as "missing push"
+#       instead of orphans on a force-rewritten remote). The nudge tells
+#       Claude that AHEAD commits are likely ORPHANED, not unpushed,
+#       and to investigate before pushing.
 #       NOTE: an earlier version also detected `forced-update` in the
 #       origin/<branch> reflog, but that was too eager — the reflog entry
 #       persists for ~90 days even after `git reset --hard` resolves the
@@ -274,13 +274,13 @@ check_repo_state() {
   fi
 
   # ---- Emit ----
-  # Case (1): orphan-tree (highest priority). Concise — full
-  # 4-query checklist lives in odakin-prefs/push-workflow.md.
+  # Case (1): orphan-tree (highest priority). Concise — emit just enough
+  # for Claude to recognize the situation and investigate.
   if [ "$ORPHAN_NUDGE" -eq 1 ]; then
     printf '[git-nudge] %s%s\n' "$LABEL_PREFIX" "$REPO_ROOT"
     printf '  - ORPHAN TREE: HEAD has NO common ancestor with %s\n' "$UPSTREAM"
-    printf '  - Per push-workflow.md "divergence の解釈規律": run the 4 queries\n'
-    printf '    BEFORE concluding "push 忘れ". Your %s AHEAD commit(s) may be ORPHANED.\n' "$AHEAD"
+    printf '  - This signals a remote re-init / force-push, not "push 忘れ".\n'
+    printf '    INVESTIGATE before pushing — your %s AHEAD commit(s) may be ORPHANED.\n' "$AHEAD"
     echo "${HEAD_SHA}-orphan" > "$NUDGED_FILE" 2>/dev/null || true
     return 0
   fi
@@ -292,9 +292,9 @@ check_repo_state() {
   #
   # Opt-in auto-push (2026-04-14): set CLAUDE_GIT_AUTO_PUSH=1 in the
   # environment and the hook itself will run `git push` after any commit
-  # that's AHEAD>0 / BEHIND=0. Users following odakin-prefs/push-workflow.md
-  # (strict "commit → push atomicity") typically want this; default
-  # claude-config users can stay with nudge-only.
+  # that's AHEAD>0 / BEHIND=0. Users with strict "commit → push atomicity"
+  # discipline typically want this; default claude-config users can stay
+  # with nudge-only.
   # BEHIND > 0 always falls back to nudge (rebase first).
   if [ "$RECENT_COMMIT_NUDGE" -eq 1 ]; then
     printf '[git-nudge] %s%s\n' "$LABEL_PREFIX" "$REPO_ROOT"
