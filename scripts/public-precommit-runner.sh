@@ -14,7 +14,8 @@
 #        - /Users/<name> 絶対 path
 #        - IPv4 (RFC1918 / loopback / link-local / broadcast allowlist)
 #        - token prefix (ghp_ / github_pat_ / sk- + 30 文字以上)
-#   4. `$HOME/Claude/odakin-prefs/sensitive-terms.txt` が存在すれば
+#   4. 個人層の `sensitive-terms.txt` (= lib/find-personal-layer.sh で動的解決、
+#      foreign user では個人層なし → 空文字列でこのチェックは skip) が存在すれば
 #      ephemeral に load して追加行に対して `grep -F -f` で literal check
 #      (本 script は sensitive-terms.txt の中身を memory 上に持たない。
 #       grep プロセスに file path を渡すだけで直接 read しない)
@@ -30,13 +31,21 @@
 # 設計思想:
 #   本 script は `sensitive-repo-patterns.ja.md §3-3` の批判 (b)
 #   「blacklist 自体が leak 源」を、**hook 本体 (claude-config, public)
-#   と literal data (odakin-prefs/sensitive-terms.txt, gitignore)
-#   の構造分離** で回避する。本 script source には literal が一切
-#   埋め込まれない。詳細は claude-config/DESIGN.md §公開リポ leak 防止。
+#   と literal data (個人層 (layer 3) の sensitive-terms.txt + gitignore で
+#   隔離) の構造分離** で回避する。本 script source には literal も特定の
+#   個人層名も埋め込まれない (= 個人層は lib/find-personal-layer.sh で動的解決)。
+#   詳細は claude-config/DESIGN.md §公開リポ leak 防止。
 
 set -uo pipefail
 
-SENSITIVE_TERMS="$HOME/Claude/odakin-prefs/sensitive-terms.txt"
+# 個人層の sensitive-terms.txt を動的解決。
+# foreign user (個人層なし) では空文字列 → 後段の [ -f "$SENSITIVE_TERMS" ] で skip。
+. "$(dirname "$0")/lib/find-personal-layer.sh"
+PERSONAL_LAYER="$(find_personal_layer)"
+SENSITIVE_TERMS=""
+if [ -n "$PERSONAL_LAYER" ]; then
+  SENSITIVE_TERMS="$PERSONAL_LAYER/sensitive-terms.txt"
+fi
 
 # ----------------------------------------------------------------------
 # Stage 済みファイルを列挙。削除済み (D)・merge commit は skip。
@@ -198,12 +207,12 @@ staged hits:$HITS
   - tier-a/abs_path    → \$HOME/ or ~/ 相対 path へ
   - tier-a/ipv4        → 0.0.0.0 / 127.0.0.1 / RFC1918 へ
   - tier-a/token_prefix → 即 revoke + secret manager へ移動
-  - tier-b/literal     → odakin-prefs/sensitive-terms.txt の term を
+  - tier-b/literal     → 個人層の sensitive-terms.txt にある term を
                           本文から除去 or 一般化
 
 意図的に commit したい場合は \`git commit --no-verify\` で bypass 可能
-(escape hatch)。bypass 事例は odakin-prefs/leak-incidents.md に記録
-することを推奨。
+(escape hatch)。bypass 事例は個人層の leak-incidents.md (あれば) に
+記録することを推奨。
 EOF
 
 exit 1

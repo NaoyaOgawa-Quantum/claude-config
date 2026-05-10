@@ -58,7 +58,9 @@ claude-config/
 │   ├── install-public-precommit.sh     # 各 public repo に pre-commit stub を冪等配置
 │   ├── audit-public-repos.sh           # 全 public repo の leak 定期監査（週次 scheduled-task 対象）
 │   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
-│   └── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
+│   ├── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
+│   └── lib/                            # sourceable helper (個人層検出の共通化)
+│       └── find-personal-layer.sh      # `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
 ├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
 │   ├── root-CLAUDE.md.default          # 個人層なしのデフォルト ~/Claude/CLAUDE.md (setup.sh が配置)
 │   ├── personal-layer/                 # 個人層 (layer 3) bootstrap skeleton

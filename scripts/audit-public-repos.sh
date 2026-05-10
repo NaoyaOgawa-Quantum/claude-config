@@ -8,29 +8,39 @@
 #        a. `.claude/public-repo.marker` の有無 (missing は warn)
 #        b. Tier A 構造制約 regex (public-leak-guard.sh と同じ 5 種)
 #           を `git grep -nE` で適用
-#        c. `$HOME/Claude/odakin-prefs/sensitive-terms.txt` が存在すれば
-#           ephemeral に `git grep -nFf` で literal check
+#        c. 個人層の `sensitive-terms.txt` (= lib/find-personal-layer.sh で動的解決、
+#           foreign user では個人層なし → 空文字列でこのチェックは skip) が存在
+#           すれば ephemeral に `git grep -nFf` で literal check
 #   4. 結果を `/tmp/public-leak-audit-<YYYYMMDD-HHMMSS>.md` に出力
 #   5. missing marker と発見 hit を summary として stdout にも出す
 #
 # 運用:
 #   - 初回: 手動実行して既存 leak を洗い出す
 #   - 以降: scheduled-task の週次実行で定期 sweep
-#   - 発見 leak は `odakin-prefs/leak-incidents.md` に追記する判断
+#   - 発見 leak は個人層の `leak-incidents.md` (あれば) に追記する判断
 #     (修正 / 受容 / 素材移動) を user が実施
 #
 # 設計:
-#   - 本 script は script source に literal を埋め込まない。
-#     sensitive-terms.txt は grep -Ff でファイル参照するのみ。
-#   - `gh repo list` で列挙される public repo には odakin 所有分のみ
-#     含まれる。他 org (例: sogebu/LorentzArena) は owner=odakin では
-#     出てこないので、local checkout に marker を持つ repo を追加で
-#     scan する方式で補完する。
+#   - 本 script は script source に literal も特定の個人層名も埋め込まない。
+#     sensitive-terms.txt は grep -Ff でファイル参照するのみ、 個人層 path は
+#     lib/find-personal-layer.sh で動的解決。
+#   - `gh repo list` で列挙される public repo には認証 gh user 所有分のみ
+#     含まれる。 他 org の public repo (= 共同研究 org 等) は owner=current
+#     user では出てこないので、 local checkout に marker を持つ repo を
+#     追加で scan する方式で補完する。
 
 set -uo pipefail
 
 HOME_CLAUDE="$HOME/Claude"
-SENSITIVE_TERMS="$HOME/Claude/odakin-prefs/sensitive-terms.txt"
+
+# 個人層の sensitive-terms.txt を動的解決。
+# foreign user (個人層なし) では空文字列 → 後段の [ -f "$SENSITIVE_TERMS" ] で skip。
+. "$(dirname "$0")/lib/find-personal-layer.sh"
+PERSONAL_LAYER="$(find_personal_layer)"
+SENSITIVE_TERMS=""
+if [ -n "$PERSONAL_LAYER" ]; then
+  SENSITIVE_TERMS="$PERSONAL_LAYER/sensitive-terms.txt"
+fi
 # mktemp で unpredictable filename + owner-only permission
 REPORT="$(mktemp /tmp/public-leak-audit-XXXXXX.md)"
 chmod 600 "$REPORT"
@@ -49,7 +59,7 @@ DISCORD_ID_RE='<@&?[0-9]{17,20}>'
 TARGETS_FILE="$(mktemp)"
 trap 'rm -f "$TARGETS_FILE"' EXIT
 
-# 1) odakin 所有 public repo のうち local に clone 済みのもの
+# 1) 認証 gh user 所有の public repo のうち local に clone 済みのもの
 if command -v gh >/dev/null 2>&1; then
   gh repo list --visibility public --limit 200 --json name --jq '.[].name' 2>/dev/null \
     | while IFS= read -r name; do
@@ -232,7 +242,7 @@ done < "$TARGETS_FILE"
   if [ "$TOTAL_HITS" -gt 0 ]; then
     printf 'Next step: review each `### [tier-...]` section above.\n'
     printf 'For each hit decide: **修正** / **受容** / **素材移動** and\n'
-    printf 'append an entry to `odakin-prefs/leak-incidents.md`.\n'
+    printf 'append an entry to your personal layer leak-incidents.md (if maintained).\n'
   else
     printf 'No hits. All public repos clean ✓\n'
   fi

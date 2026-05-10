@@ -60,7 +60,7 @@ fi
 
 if [ -z "$BASE_DIR" ]; then
     # Default: parent of the yaml's parent.
-    # e.g. ~/Claude/odakin-prefs/dropbox-collabs.yaml → ~/Claude
+    # e.g. ~/Claude/<personal-layer>/dropbox-collabs.yaml → ~/Claude
     BASE_DIR="$(cd "$(dirname "$(dirname "$YAML")")" && pwd -P)"
 fi
 
