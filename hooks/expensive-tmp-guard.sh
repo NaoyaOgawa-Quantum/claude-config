@@ -21,11 +21,11 @@
 #   reboot 後に再生成コストが大きく、 user / 後の Claude session に永続化を
 #   後追い修復させる failure mode に陥る。
 #
-#   2026-05-10 music-notes で発生: Brahms HD#1 orchestral score の Audiveris
-#   OCR 実験 8 retry を `/tmp/audiveris-{2400,4800}dpi-{p1,p12}-{retry,override}/`
-#   に出力 (= 各 .omr 生成 10〜90 分、 maxPixelCount / sheetStepTimeOut の
-#   `-constant` override が必要)、 8 hours 後 user 指摘「永続化されとらんやん」
-#   で発覚。 6.3 MB を `scores/brahms-hd1-ocr-experiments/` へ後追い永続化。
+#   2026-05-10 楽譜分析 OCR pipeline で発生: Audiveris OCR 実験 8 retry を
+#   /tmp/audiveris-{2400,4800}dpi-{p1,p12}-{retry,override}/ に出力 (= 各 .omr
+#   生成 10〜90 分、 maxPixelCount / sheetStepTimeOut の -constant override
+#   が必要)、 8 hours 後 user 指摘「永続化されとらんやん」 で発覚。 6.3 MB
+#   をリポ内 scores/<work>-ocr-experiments/ へ後追い永続化。
 #
 #   convention (expensive-intermediate-artifacts.md) と CLAUDE.md inline
 #   ルール §12 が両方あっても Claude が読まないことがあるため、 機械的に

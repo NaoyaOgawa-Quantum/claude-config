@@ -22,13 +22,13 @@ CLI tool (`Audiveris -output <path>`、`oemer -o <path>`、ML 学習 script の 
 
 ---
 
-## 実例 (music-notes 2026-05-10)
+## 実例 (2026-05-10、 楽譜分析 OCR pipeline)
 
-Brahms HD#1 orchestral score の Audiveris OCR 実験で、 1200/2400/4800/9600 DPI の 4 通り × 2 page = 8 retry を `/tmp/audiveris-{2400,4800}dpi-{p1,p12}-{retry,override}/` に出力。 各 .omr の生成に **10〜90 分** (= 4800 DPI BEAMS step 単独で 17 分、 全 step で 90 分超)、 maxPixelCount / sheetStepTimeOut の `-constant` override が必要。 8 hours 後に user 指摘「永続化されとらんやん」 — 当該文書 (`SESSION.md` / `plans/`) が `/tmp/audiveris-2400dpi-p12-retry/p-12.omr` を Task 11 GUI 編集の入力素材として参照しており、 reboot 後は再生成 ~15 min 必要な状態だった。
+Audiveris OCR を 1200/2400/4800/9600 DPI で実験中、 4 通り × 2 page = 8 retry を `/tmp/audiveris-{2400,4800}dpi-{p1,p12}-{retry,override}/` に出力。 各 `.omr` の生成に **10〜90 分** (= 4800 DPI BEAMS step 単独で 17 分、 全 step で 90 分超)、 `maxPixelCount` / `sheetStepTimeOut` の `-constant` override が必要。 8 hours 後に user 指摘「永続化されとらんやん」 — 当該リポの `SESSION.md` / `plans/` が `/tmp/audiveris-2400dpi-p12-retry/p-12.omr` を後段 GUI 編集の入力素材として参照しており、 reboot 後は再生成 ~15 min 必要な状態だった。
 
-復旧: `scores/brahms-hd1-ocr-experiments/{2400dpi-p1-control,2400dpi-p12-retry,4800dpi-p1-regression,4800dpi-p12-success}/` 4 サブディレクトリへ計 6.3 MB を `cp` 永続化、 全文書の `/tmp/...` 参照を新 path へ書き換え。
+復旧: リポ内 `scores/<work>-ocr-experiments/{2400dpi-p1-control,2400dpi-p12-retry,4800dpi-p1-regression,4800dpi-p12-success}/` 4 サブディレクトリへ計 6.3 MB を `cp` 永続化、 全文書の `/tmp/...` 参照を新 path へ書き換え、 `*.log` の global gitignore に repo-local exception を追加 (= debug log は GUI 編集の reference 価値ありで track 必須)。
 
-詳細 RCA: `odakin-prefs/work-discipline.md §高コスト中間 artifact を /tmp に置きっぱなしにしない` (private layer) + `music-notes/scores/brahms-hd1-ocr-experiments/README.md`
+詳細 RCA は personal layer の reflex-trap 文書 + 当該リポの experiment dir README に記載 (= 「関連」 セクションの pointer 参照)。
 
 ---
 
@@ -49,7 +49,7 @@ CLI tool に出力先 path を渡す前に問う:
 
 | リポタイプ | 永続化先の例 |
 |---|---|
-| 楽譜・楽曲解析 (= music-notes 等) | `scores/<work>-<engine>-experiments/` |
+| 楽譜・楽曲解析 | `scores/<work>-<engine>-experiments/` |
 | ML training | `data/checkpoints/<run-id>/` または `experiments/<run-id>/` |
 | 数値シミュレーション | `data/runs/<config-hash>/` または `outputs/<run-id>/` |
 | OCR 一般 (= 文献 PDF, 画像 archive) | `data/ocr-<engine>/<source>/` |
@@ -61,12 +61,10 @@ CLI tool に出力先 path を渡す前に問う:
 永続化したサブディレクトリには README.md を置き、 以下を記述:
 
 - **なぜ persist しているか** (= 再生成コスト + input state 再現困難性)
-- **ディレクトリ構成** (= experiment 別役割表)
-- **関連 plan / SESSION での参照箇所**
-- **何が verify 済か** (= データから引き出した結論)
-- **再生成手順** (= 万が一壊れた / 紛失した時の rebuild commands)
-
-書き方の reference 例: `music-notes/scores/brahms-hd1-ocr-experiments/README.md`
+- **ディレクトリ構成** (= experiment 別役割表 — 各サブディレクトリの内容と意味づけ)
+- **関連 plan / SESSION での参照箇所** (= どの doc が当該 artifact を pointer として参照しているか)
+- **何が verify 済か** (= データから引き出した結論、 後の reader が同 artifact を再解釈する負担を減らす)
+- **再生成手順** (= 万が一壊れた / 紛失した時の rebuild commands、 input state — DPI / `-constant` override 等 — を含めて再現可能に)
 
 ### `.gitignore` の global ignore に注意
 
@@ -85,7 +83,6 @@ CLI tool に出力先 path を渡す前に問う:
 
 ## 関連
 
-- 失敗パターン (private layer): `odakin-prefs/work-discipline.md §高コスト中間 artifact を /tmp に置きっぱなしにしない`
-- inline rule: `~/Claude/CLAUDE.md` 失敗パターン §12
-- 機械的検出: `claude-config/hooks/expensive-tmp-guard.sh`
+- 機械的検出: `claude-config/hooks/expensive-tmp-guard.sh` (= PreToolUse Bash で `Audiveris ... -output /tmp/...` 等のパターンを `permissionDecision: ask` で警告)
 - 類縁規約: `claude-config/conventions/scientific-computing.md` (= 数値計算の silent bug)、 `claude-config/conventions/dropbox-refs.md` (= 共有 PDF の参照規約)
+- odakin の personal layer (= `odakin-prefs/work-discipline.md`) には本規約の application 例 / 反例 / odakin-specific reflex-trap 規律が記録されている。 本 file が universal な核 (= 規約として完結)、 personal layer は odakin の歴史的事例 + 個人 reflex 規律 (suppl reference、 必須参照ではない)
