@@ -44,16 +44,17 @@ cat >&2 << 'EOF'
 memory-guard: メモリファイルへの書き込みを deny しました。
 
 Memory directory はマシンローカル (git 非同期)。cross-machine で効かせたい情報は
-git 同期先 (`odakin-prefs/`, `claude-config/`, 各リポの CLAUDE.md / SESSION.md / DESIGN.md) に書く。
+git 同期先 (claude-config/, あなたの個人層 (あれば), 該当プロジェクトの CLAUDE.md / SESSION.md / DESIGN.md) に書く。
 
-詳細: `odakin-prefs/work-discipline.md` の「Memory に書く前に『cross-machine で見えるか?』を必ず問う」セクション。
+詳細: claude-config/docs/convention-design-principles.md §8 (memory policy)、
+      claude-config/docs/personal-layer.md (4 層モデル)。
 
 このマシン固有の事実 (macOS 設定・ハード構成等) を意図的に記録する escape hatch:
   content に `<!-- machine-local: <理由> -->` marker を含めると pass する。
 EOF
 
 if command -v jq &> /dev/null; then
-    jq -n '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Memory directory はマシンローカル。cross-machine で効かせたい情報は git 同期先 (odakin-prefs/, claude-config/, 各リポの CLAUDE.md/SESSION.md/DESIGN.md) に書く。意図的なマシンローカル書き込みは content に `<!-- machine-local: <理由> -->` marker を含める。"}}'
+    jq -n '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Memory directory はマシンローカル。cross-machine で効かせたい情報は git 同期先 (claude-config/, 個人層, 該当プロジェクトの dynamic docs) に書く。意図的なマシンローカル書き込みは content に `<!-- machine-local: <理由> -->` marker を含める。"}}'
 else
     echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Memory はマシンローカル。git 同期先に書くか、content に <!-- machine-local: --> marker を含める。"}}'
 fi
