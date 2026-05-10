@@ -1,6 +1,6 @@
 # Scientific computing conventions
 
-数値解析を伴うコードで silently 壊れる典型パターンと防止策を集約する。対象リポ例: bayes-kai, forward-scattering, einstein-cartan, LorentzArena (物理シム), physics-research 配下など。
+数値解析を伴うコードで silently 壊れる典型パターンと防止策を集約する。対象: 物理シミュレーション、 Bayesian fit pipeline、 場理論計算、 数値積分・ODE integrator など、 任意の科学計算系リポ (= public 例: [sogebu/LorentzArena](https://github.com/sogebu/LorentzArena))。
 
 ---
 
@@ -12,9 +12,9 @@
 
 **誤検出リスク**: 歪んだ返値が先行研究の値に**偶然**近いと、「よし一致した」と誤解釈する可能性がある。これが一番危険。
 
-### 実例 (bayes-kai 2026-04-20)
+### 実例 (2026-04-20、 Hierarchical Bayes mean estimation pipeline)
 
-`HierarchicalBayesMean` の `TauSqMax` default が固定値 `1000` (中性子寿命 s² 用)。W mass (GeV²) で使うと 10 万倍オーバー、τ² grid 50 点がほぼ全域で integrand ≈ 0、HB(α=0) が 80.371 と報告され PDG official 80.369 と「一致」したように見えた。実際の正しい値は 80.386。詳細 = `bayes-kai/DESIGN.md §10`。
+ある Bayesian fit pipeline の `HierarchicalBayesMean` 関数で、 `TauSqMax` (= τ² の積分上端) の default が固定値 `1000` (= 中性子寿命系の s² 単位を想定)。同じコードを W boson mass の解析 (GeV² 単位) に port した際、 10 万倍オーバーで τ² grid 50 点がほぼ全域で integrand ≈ 0 になり、 HB(α=0) が 80.371 と報告され PDG official 80.369 と「一致」したように見えた。実際の正しい値は 80.386。 詳細 RCA は該当リポの `DESIGN.md` に記載。
 
 ### 防止策
 
