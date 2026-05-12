@@ -156,6 +156,107 @@ Plan creation / supersede commit にも 3 verification を application:
 
 ---
 
+## 6. Introspection facility (= dry-run / --force / --print-only / -n / --noop 等) を grep / code review より優先
+
+**ルール**: 容疑者として name 上がった script / tool / CLI が **dry-run-like introspection facility** を持つなら、 grep / code review / docstring 読み を skip して**先に実行** (= `--dry-run`、 `--force --dry-run`、 `-n`、 `--noop`、 `--print-only`、 `--what-if`、 framework によって `--plan` 等)。 実行ログが「**この script は何を touch するか**」 の ground truth、 code review は「**何を touch するつもりか**」 の intention でしかない。
+
+### Why
+
+code review は **静的、 author の意図と実装の一致を仮定**。 author の意図と実装が乖離する場合 (= bug、 stale docstring、 implicit branch、 dynamic dispatch、 hidden side-effect via library) を grep + 関数 read だけで全部捕まえるのは困難。
+
+introspection facility は **動的、 actual runtime behavior の simulation**。 「もし実行したら」 を実行せずに観測する verification path。 code review が「**probably this**」 を返すのに対し、 introspection は「**actually this**」 を返す。
+
+特に 「相関は強いが因果は code 上見えない」 ケースで決定的: code review 「無罪っぽい」 + correlation 「有罪っぽい」 で hung jury 状態のとき、 dry-run で actual touch list を見れば瞬時に解決。
+
+### Sample
+
+```bash
+# Script に dry-run 系 flag があるか確認 (--help / docstring grep)
+script.py --help | grep -iE 'dry|noop|print[- ]?only|what[- ]?if|plan'
+
+# あれば先に実行、 actual touch list を観測
+script.py --dry-run                    # 通常モード
+script.py --dry-run --force            # skip 系 (HORIZON / unconfirmed / past 等) を bypass
+script.py --dry-run --period A:B       # 範囲を絞って局所検証
+
+# 出力の "WOULD shift / WOULD delete / would touch" 行を観測、 期待外の対象が含まれるか
+```
+
+terraform `plan`、 ansible `--check`、 git `--dry-run`、 rsync `-n`、 make `-n`、 kubectl `--dry-run=client`、 dpkg `--dry-run`、 brew 系 `--dry-run` 等、 多くの CLI が標準装備。 自作 script で「何を touch するか不安」 と user が言う pattern は dry-run flag 標準装備の signal。
+
+### How to apply
+
+1. 容疑者 script / tool / CLI が judgement の中心になった時点で、 まず `--help` か docstring の引数列挙で introspection flag の存在確認
+2. あれば即実行、 ground truth として code review より優先採用
+3. なければ code review に fallback、 ただし「dry-run flag が無い script は author が dry-run の必要性を見落とした signal」 = 第二容疑度 up
+4. introspection flag を追加 / patch する PR が cheap なら、 verify と同時に PR 化
+
+### 反例 (= 検証で済まない場面)
+
+introspection が **存在しない / 信頼できない** ケース: 
+- C library / system call 系 (= dry-run なし、 strace / dtruss 等で trace)
+- API call の冪等性が不明 (= dry-run flag が server side まで届かない、 sandbox 環境推奨)
+- side-effect が non-deterministic / 環境依存 (= dry-run で trigger しない bug もある)
+
+これらは V1 (= scenario trace) + V2 (= code coverage) の伝統的 path に戻る。 但し introspection を **試す前に grep に戻る** のは効率損失。
+
+### 関連事故 / 検証例
+
+- **2026-05-12 calendar event 2 限消失**: `~/Claude/lectures/SESSION.md` 5/12 entry。 shift-worship-period.py が 2 限相関で容疑かかったが、 `--dry-run --force` で touch 対象が 4 件のみ (= religious_week の特定日付の event 4 件) と判明、 4-5 月 events は range 外 → 冤罪確定。 code review 30 分 vs dry-run 30 秒、 後者が決定的。 真犯人候補は Apple Calendar sync。
+
+---
+
+## 7. Claude 自身を容疑者から外す手法: `~/.claude/projects/*/*.jsonl` の tool_use grep
+
+**ルール**: 「過去の Claude session が悪さしたのでは?」 という容疑が浮上したら、 `~/.claude/projects/<project-hash>/*.jsonl` を grep して **過去の actual tool_use 履歴**を確認。 user の記憶 / 想像でなく、 実際の tool 呼び出し ledger が ground truth。
+
+### Why
+
+Claude Code は full session transcript を `~/.claude/projects/<project-hash>/<session-uuid>.jsonl` に local 保存している (1 行 1 record の JSONL)。 各 tool 呼び出しは `type: tool_use` record として残る。 「過去にこの tool を呼んだか」 は ledger を grep すれば deterministic に判定可能。
+
+user / Claude の memory は信頼性低い (= autocompact、 session 跨ぎ、 関連無しと判断して捨てる、 等)。 .jsonl 全件 grep は cheap (= 数百ファイル × 数 MB を 1 秒)。 「Claude が悪さした?」 という容疑は **頻繁** で、 cheap test path として常備すべき。
+
+### Sample
+
+```bash
+# 過去 session 全件で 特定 MCP tool の呼び出しを検索
+grep -l '"name":"mcp__calendar-cis__delete_event"' ~/.claude/projects/<project-hash>/*.jsonl
+
+# 全 calendar mutation を検索 (read-only を除外)
+grep -h '"type":"tool_use"' ~/.claude/projects/<project-hash>/*.jsonl \
+  | grep -E '"name":"[^"]*calendar[^"]*"' \
+  | grep -vE '"name":"[^"]*list_(calendars|events)"'
+
+# 特定 calendar (= classroom 系) を touch した tool_use を抽出
+grep -h '"input":{[^}]*"calendarId":"c_classroom' ~/.claude/projects/<project-hash>/*.jsonl \
+  | grep -E '"name":"[^"]*(delete|update|patch|insert|create)'
+
+# 件数だけ確認
+grep -h '"type":"tool_use"' ~/.claude/projects/<project-hash>/*.jsonl \
+  | grep -E '"name":"<suspect-tool>"' | wc -l
+```
+
+project-hash は `~/.claude/projects/` 直下の `-` 区切り path 表現 (= 例: `-Users-<user>-<project-path>`)。 `ls ~/.claude/projects/` で列挙。
+
+### How to apply
+
+1. 「Claude が消した / 書いた / 上書きしたかも?」 容疑が user / 自己から提示されたら、 即 `~/.claude/projects/<project-hash>/*.jsonl` を grep
+2. **mutation tool だけ** に絞る (= `delete`/`update`/`patch`/`insert`/`create` 系)、 read-only の `list_*`/`get_*`/`read_*` は除外
+3. 0 件なら Claude を容疑者から外す (= 確信度: 高、 .jsonl ledger 全件で履歴無しなら呼んでない)
+4. 1 件以上なら record の `tool_use_id` + 周辺 message を読んで context 復元 (= どの session / どの user prompt が trigger したか)
+
+### 適用範囲
+
+- Claude Code (= `~/.claude/projects/`) を使う user 全員に applicable
+- Claude API 直接利用 / 他クライアント (= claude.ai web、 Claude for Mac の Chat) は別 storage、 同手法 NA
+- session 履歴の retention は default で残る、 削除規律あれば前確認
+
+### 関連事故 / 検証例
+
+- **2026-05-12 calendar event 2 限消失**: `~/Claude/lectures/SESSION.md` 5/12 entry。 過去 Claude session が `mcp__calendar-cis__delete_event` を呼んだのでは? という容疑 3 つ目を 1 grep で潰した (= 全 session で 0 件、 read-only の `list_calendars`/`list_events` のみ)。 user の体感容疑は「shift-worship-period.py / Apple sync / Claude 自身」 の 3 つだったので、 各 1 件ずつ独立に潰す必要があった。 .jsonl grep は 3 個目を即時に潰す cheap test。
+
+---
+
 ## 関連
 
 - [`CONVENTIONS.md §3`](../CONVENTIONS.md) — 4 軸 sweep の base 規約
