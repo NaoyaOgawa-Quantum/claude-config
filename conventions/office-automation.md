@@ -57,13 +57,15 @@ for sname in wb.sheetnames:
 
 ## 0.5. ファイル命名規約 (form 別 registry)
 
-行政・学術 form ごとに「ファイル名フォーマット」 が指定されている場合が多い。 fill 先のファイル名は **form 仕様通り** に作る (= submit 時の自動検証に必要)。 観測したパターン:
+行政・学術 form ごとに「ファイル名フォーマット」 が指定されている場合が多い。 fill 先のファイル名は **form 仕様通り** に作る (= submit 時の自動検証に必要)。 観測したパターン (placeholder のみ、 literal は private repo 側に置く):
 
 | Form | 命名規則 |
 |---|---|
-| JST SPReAD 様式1 | `様式1_研究計画調書_<e-Rad機関コード半角数字>_<姓ローマ字><名ローマ字>.xlsx` (例: `様式1_研究計画調書_32652_OdaKinya.xlsx`) |
+| JST SPReAD 様式1 | `様式1＿研究計画調書＿<機関コード半角数字>＿<姓ローマ字><名ローマ字>.xlsx` (区切りは **全角アンダースコア `＿`**、 「様式1」 の `1` は半角、 ローマ字氏名は姓名の順で連続書き) |
 | 科研費 学振 DC1/DC2 | (個別の e-Rad 仕様、 form 毎に DC1.pdf / DC2.pdf 形式が指示される) |
-| TWCU 学内推薦書 | `suisen_<年度>_<姓 lowercase>_<財団>.xlsx` (例: `suisen_2026_taniguchi_kashiyama.xlsx`) |
+| 学内・財団推薦書 (汎用) | `<書類種別>_<年度>_<対象者識別>_<目的>.<拡張子>` (区切りは form 仕様に従う、 半角_全角＿混在に注意) |
+
+**最重要 gotcha — 区切り文字の半角/全角**: 公的様式の多くは雛形ファイル名で `＿` (全角アンダースコア、 U+FF3F) を使う。 user が補完入力する際に `_` (半角、 U+005F) で書くと spec 違反になる場合がある。 雛形ファイル名そのままを copy して提出側パーツだけ追記する方が安全。 「様式1」 の数字部分は 雛形によって半角/全角バラバラ (雛形 instruction では「様式１」 = 全角だが、 配布 file 名は「様式1」 = 半角、 など)。 **雛形 file 名を grep して、 文字種を厳密に確認する** のが第一歩。
 
 新 form を扱う時は雛形の「記入にあたっての留意事項」 タブを最初に grep して、 ファイル名仕様を抽出する。 規則違反は submit 時に reject されることがあるため厳守。
 
@@ -224,19 +226,27 @@ ws['B7'] = 'my-input-value'
 - どうしても見えるようにしたいなら、 該当列を一時的に広げる: `ws.column_dimensions['F'].width = 6`
 - ただし form 雛形の列幅変更は他の cell 表示を崩すリスクがあるため、 表示優先より値優先を取る
 
-### 1-9. 値の型 (`int` vs `str`) は counter formula 互換性に影響
+### 1-9. 値の型 (`int` vs `str`) は form の仕様で決まる
 
-**症状**: form の counter cell `=LEN(B22)` が、 `ws['B22'] = 123456` のように int を write すると **想定外の値** を返す (LEN は数値を文字列化して桁数を返す動作だが、 form 設計者は string 入力を想定している場合が多い)。
+**判定基準** (form の cell 仕様から):
 
-**正しい解法**: 数値だが「桁数を数えたい」 値 (例: 研究者番号 8 桁、 機関コード) は **int でなく str** で write する:
+1. **`=LEN(<cell>)` のような counter formula が当該 cell に紐付いている** → str で write (LEN は string 長を期待、 int 渡しても内部 stringify されるが想定外動作のリスク)
+2. **`data validation type=whole` (= 整数要求) が当該 cell に付いている** → int で write (= 検証 pass)
+3. **両方ある** → form 設計矛盾。 data validation 優先 (= int)、 counter は通らないが多くの form でエラー扱いされない
+4. **どちらもない** → 数値は int、 文字列は str、 default 通り
+
+`ws.data_validations.dataValidation` で type を、 隣接 cell の formula で counter を、 §0 dump で同時に確認する。
 
 ```python
-ws['B6'] = '60442943'   # 研究者番号 = string (LEN counter 互換)
-ws['B11'] = '32652'     # 機関コード = string
-ws['B10'] = '19720909'  # 生年月日 yyyymmdd = string
-```
+# 例: 研究者番号 cell が type=whole validation 付き、 counter なし → int
+ws['B6'] = 12345678          # int で write
 
-ただし form の data validation が `type=whole` (= 整数) を要求する場合は int で write し、 counter 整合性は別途確認する (=どちらを優先するかは form の設計依存)。
+# 例: 課題名 cell が =LEN(B22) counter 付き → str (本来 string なので素直)
+ws['B22'] = '研究課題名のテキスト'
+
+# 例: 生年月日 cell が yyyymmdd 半角数字指定 + type=whole → int
+ws['B10'] = 19990101          # int (= 8 桁 yyyymmdd)
+```
 
 ### 1-10. Print area / page setup を設定して PDF を 1 ページ化
 
