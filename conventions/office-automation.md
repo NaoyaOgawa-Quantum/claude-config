@@ -6,6 +6,69 @@ origin: 2026-05 SPReAD (AI for Science 萌芽的挑戦研究創出事業) 応募
 
 ---
 
+## 0. 開始前に form を **必ず dump する** (= 推測で書かない)
+
+雛形 xlsx を受け取ったら、 fill コードを書く前に必ず構造を全部出力する。 form ごとに layout・merged 範囲・data validation・列幅・font が異なる。 推測で write 先 cell を決めると merged の途中・validation 不整合・列幅と合わない font size を踏む。
+
+下記 `dump_form.py` を雛形毎に 1 回実行 → 出力を見て fill 対象 cell を確定する:
+
+```python
+#!/usr/bin/env python3
+"""Inspect xlsx template structure: cells, merged, validation, column widths."""
+import sys
+from openpyxl import load_workbook
+
+PATH = sys.argv[1] if len(sys.argv) > 1 else 'template.xlsx'
+wb = load_workbook(PATH, data_only=False)
+
+for sname in wb.sheetnames:
+    ws = wb[sname]
+    print(f"\n========== Sheet: {sname} ({ws.max_row}r × {ws.max_column}c) ==========")
+    # Column widths
+    print("\n-- Column widths --")
+    for col_letter in 'ABCDEFGHIJKLMN':
+        cd = ws.column_dimensions.get(col_letter)
+        if cd and cd.width:
+            print(f"  {col_letter}: {cd.width:.1f}")
+    # Merged ranges
+    if ws.merged_cells.ranges:
+        print("\n-- Merged ranges --")
+        for r in ws.merged_cells.ranges:
+            print(f"  {r}")
+    # Data validations (standard format; extension format is NOT readable by openpyxl)
+    if ws.data_validations.dataValidation:
+        print("\n-- Data validations --")
+        for dv in ws.data_validations.dataValidation:
+            print(f"  sqref={dv.sqref}, type={dv.type}, formula1={dv.formula1}, operator={dv.operator}")
+    # All non-empty cells (label or value)
+    print("\n-- Non-empty cells --")
+    for row in ws.iter_rows():
+        for c in row:
+            if c.value is not None:
+                v = str(c.value).replace('\n', '⏎')[:80]
+                print(f"  {c.coordinate} (font={c.font.size}pt {c.font.name or '?'}, wrap={c.alignment.wrap_text}): {v}")
+```
+
+実行: `python3 dump_form.py /path/to/様式1.xlsx | tee form-structure.txt`
+
+出力を `form-structure.txt` に保存しておくと、 fill code 書きながら同時に参照できる + 後で再 fill する時 (= 雛形更新時) の diff も取れる。
+
+> **注**: openpyxl は **extension 形式の data validation** (Excel 2007+ で追加された list dropdown 等) を読めない (= `UserWarning: Data Validation extension is not supported and will be removed` で警告 + skip)。 dropdown 選択肢を知るには 雛形 xlsx を Excel/Numbers で開いて目視するか、 「リスト」 タブ (= form 内部の選択肢シート) を openpyxl で別途読む。
+
+## 0.5. ファイル命名規約 (form 別 registry)
+
+行政・学術 form ごとに「ファイル名フォーマット」 が指定されている場合が多い。 fill 先のファイル名は **form 仕様通り** に作る (= submit 時の自動検証に必要)。 観測したパターン:
+
+| Form | 命名規則 |
+|---|---|
+| JST SPReAD 様式1 | `様式1_研究計画調書_<e-Rad機関コード半角数字>_<姓ローマ字><名ローマ字>.xlsx` (例: `様式1_研究計画調書_32652_OdaKinya.xlsx`) |
+| 科研費 学振 DC1/DC2 | (個別の e-Rad 仕様、 form 毎に DC1.pdf / DC2.pdf 形式が指示される) |
+| TWCU 学内推薦書 | `suisen_<年度>_<姓 lowercase>_<財団>.xlsx` (例: `suisen_2026_taniguchi_kashiyama.xlsx`) |
+
+新 form を扱う時は雛形の「記入にあたっての留意事項」 タブを最初に grep して、 ファイル名仕様を抽出する。 規則違反は submit 時に reject されることがあるため厳守。
+
+---
+
 ## 1. openpyxl xlsx fill の落とし穴
 
 ### 1-1. `XLImage.width` / `.height` setter は silent fail する
@@ -119,6 +182,77 @@ def fit_cell(ws, addr, content, line_height_pt=12.5, pad_pt=4, safety=0.95):
 ### 1-5. Excel data validation の auto-resize は外部信号で発動しない
 
 `ws.data_validations.dataValidation` で読める validation rule (例: `type=whole, formula1=9999999`) は openpyxl で write しても Excel 側の dropdown / 入力制限が発動するかは Excel version 依存。 リスト dropdown (extension 形式) は openpyxl が読めず警告を出す。 **値の正当性は openpyxl 側で別途検証する**。
+
+### 1-6. xlsx は Excel に open されている間は openpyxl から save できない
+
+**症状**: `wb.save(path)` が `PermissionError: [Errno 13]` で fail する、 または silently 別 tempfile に書いて消える。
+
+**原因**: Excel が xlsx を編集モードで lock している。
+
+**正しい解法**: 再 fill する前に必ず Excel を quit:
+
+```bash
+osascript -e 'tell application "Microsoft Excel" to quit' 2>/dev/null
+sleep 1
+python3 fill_xlsx.py
+open -a "Microsoft Excel" /path/to/output.xlsx
+```
+
+`fill_xlsx.py` を反復実行する work-loop ではこの 3 行を冒頭に置く。
+
+### 1-7. Merged cells への write は top-left のみ有効
+
+**症状**: 例えば `B7:I7` が merged なのに `ws['D7'] = 'value'` と書いても表示されない (= D7 は merged の途中で、 top-left は B7)。
+
+**正しい解法**: dump で merged 範囲を確認、 必ず **左上 cell** に write:
+
+```python
+# B7:I7 merged → 必ず B7 (= top-left) に書く、 D7 や F7 ではない
+ws['B7'] = 'my-input-value'
+```
+
+`ws.merged_cells.ranges` で全 merged 範囲を列挙できる (上記 §0 `dump_form.py` 参照)。
+
+### 1-8. Boolean checkbox cell は narrow column で `###` 表示
+
+**症状**: `ws['F20'] = True` と書いた cell が Excel で `###` と表示される。 値そのものは TRUE で正しい。
+
+**原因**: Excel は bool を `TRUE` / `FALSE` の文字列幅で render する。 列幅が narrow (= 4 chars 程度未満) だと `###` overflow indicator になる。 多くの form template は label と組み合わせる narrow column 想定で bool を置くので、 `###` が正常表示。
+
+**対処**:
+- 機能上は問題なし (値は TRUE)、 表示だけ気にしない
+- どうしても見えるようにしたいなら、 該当列を一時的に広げる: `ws.column_dimensions['F'].width = 6`
+- ただし form 雛形の列幅変更は他の cell 表示を崩すリスクがあるため、 表示優先より値優先を取る
+
+### 1-9. 値の型 (`int` vs `str`) は counter formula 互換性に影響
+
+**症状**: form の counter cell `=LEN(B22)` が、 `ws['B22'] = 123456` のように int を write すると **想定外の値** を返す (LEN は数値を文字列化して桁数を返す動作だが、 form 設計者は string 入力を想定している場合が多い)。
+
+**正しい解法**: 数値だが「桁数を数えたい」 値 (例: 研究者番号 8 桁、 機関コード) は **int でなく str** で write する:
+
+```python
+ws['B6'] = '60442943'   # 研究者番号 = string (LEN counter 互換)
+ws['B11'] = '32652'     # 機関コード = string
+ws['B10'] = '19720909'  # 生年月日 yyyymmdd = string
+```
+
+ただし form の data validation が `type=whole` (= 整数) を要求する場合は int で write し、 counter 整合性は別途確認する (=どちらを優先するかは form の設計依存)。
+
+### 1-10. Print area / page setup を設定して PDF を 1 ページ化
+
+xlsx → PDF 変換 (§2-1) で 1 sheet が複数ページに分割される問題は、 form 雛形が print area を設定していないことが原因。 openpyxl で fit-to-width を強制:
+
+```python
+from openpyxl.worksheet.page import PrintOptions, PageMargins
+
+ws.page_setup.fitToWidth = 1
+ws.page_setup.fitToHeight = 0  # = unlimited (縦は何ページでも可、 幅だけ 1 ページ)
+ws.sheet_properties.pageSetUpPr.fitToPage = True
+ws.page_margins = PageMargins(left=0.5, right=0.5, top=0.5, bottom=0.5)
+ws.print_options.horizontalCentered = True
+```
+
+研究費 form の場合: 実提出は xlsx そのものなので print area 設定は省略可。 確認用 PDF を綺麗に出したい時のみ追加。
 
 ---
 
