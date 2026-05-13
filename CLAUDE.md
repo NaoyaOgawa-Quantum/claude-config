@@ -127,7 +127,7 @@ setup.sh が自動で行うこと:
 3. 変更後は commit + push（全リモートに）
 
 ## 安全規則（公開リポ）
-**このリポは public。** 以下を絶対にコミットしない:
+**このリポは public。** 以下を絶対に **file 本文 / commit message / PR description / tag annotation / commit author email** のいずれにも書かない (= git history surface 全体が対象、 file 本文だけが対象ではない):
 - 実名（GitHub ユーザー名 `odakin` は可）
 - メールアドレス
 - 非公開リポ名（→ 個人層の `repos.md` に記載）。例外: ツール・運用設定リポ名（`gmail-mcp-config`, `research-collab`, `email-office`, `odakin-prefs`, `secrets-config`）は可
@@ -136,6 +136,8 @@ setup.sh が自動で行うこと:
 - 他ユーザーのユーザー名
 
 変更前に「公開リポに載せて問題ないか」を必ず確認すること。
+
+**commit message 拡張の根拠 (2026-05-13)**: file 本文では意識的に抽象化 (例: 「upstream リポ」) しても commit message で同 session の private repo 名を直書きする事故が複数 commit にわたって発生 (incident 集計は odakin-prefs/leak-incidents.md にあり)。 commit message は `git log` で grep 可能な public surface なので file 本文と同じ規律を適用する。 既存 `public-precommit-runner.sh` は file 本文の Tier A 検出のみで commit-msg は対象外、 将来 `commit-msg` hook で再利用候補。
 
 ## 運用ルール
 - CONVENTIONS.md の正本はこのリポ内のファイル
