@@ -97,6 +97,24 @@ img = XLImage(str(resized))  # ← resized 版を embed
 ws.add_image(img)
 ```
 
+### 1-1b. 画像挿入は `wb[シート名]` で参照、 `wb.sheetnames[N]` の数値 index は罠
+
+**症状**: 「5 枚目のシート」 という指示を `wb.sheetnames[4]` で取ると、 form template が先頭に参考シート (= 「はじめにご確認ください」 / 「府省共通経費取扱区分表」 等) を持っている場合、 実際は「研究計画調書\_3 枚目」 を指してしまう。 結果として SS が間違ったシートに貼られる。
+
+**正しい解法**: シート名を**直接指定**する。
+
+```python
+wb = load_workbook(xlsx_path)
+# Bad: ws = wb[wb.sheetnames[4]]   # 5 枚目目的だが index で取ると参考シートを跨ぐと壊れる
+# Good:
+ws = wb['研究計画調書_5枚目']        # form template の実際のシート名で参照
+img = XLImage(ss_path)
+img.anchor = 'A1'
+ws.add_image(img)
+```
+
+事前に `print(wb.sheetnames)` で全シート名を dump して目的のシートを目視で特定する習慣を持つ (= §4-1 「最初に dump」 原則と同源)。
+
 ### 1-2. 画像 anchor は `OneCellAnchor` + `ext` で完全制御
 
 **症状**: `img.anchor = 'A13'` (string) は openpyxl 内部で `OneCellAnchor` に変換されるが、 ext (= 表示サイズ) は画像 metadata に依存して不安定。 また cell の top-left ぴったりに anchor すると上の cell の罫線と接触して**罫線を切る**ように見える。
@@ -323,6 +341,96 @@ subprocess.run([
 
 研究費応募 (e-Rad) や事務書類提出時、 PDF は **reference snapshot** で、 実提出は xlsx (or docx) 本体。 PDF と xlsx が drift しないよう、 PDF は `fill_xlsx.py` 実行後に再生成する pipeline にする。
 
+### 2-4. docx → PDF: Pages.app AppleScript が macOS では最も robust
+
+**選択肢**:
+1. **Pages.app** (macOS 標準、 install 済): 一番安定。 ⭐ 推奨
+2. **Microsoft Word** AppleScript: 動くが変数 scope 罠あり (`set theDoc to open ...` の戻り値が「変数定義されていない」 エラーになる)
+3. **LibreOffice** `soffice --convert-to pdf`: 別途 install 必要、 mac では推奨しない
+4. **pandoc** + xelatex: フォント設定地獄
+
+**Pages.app 解法**:
+
+```bash
+osascript << 'OSAEOF'
+tell application "Pages"
+    activate
+    set theDoc to open POSIX file "/path/to/form.docx"
+    delay 2
+    export theDoc to POSIX file "/path/to/form.pdf" as PDF
+    close theDoc saving no
+end tell
+OSAEOF
+```
+
+- `delay 2` は docx の Pages 内 layout 完了待ち (= 表組みや長文の場合)
+- `close ... saving no` で Pages に「変更を保存しますか?」 ダイアログを出させない
+- 出力 PDF は Pages の組版で render される (= Word docx と layout は厳密一致しない、 form チェック☑等は正常表示される)
+
+### 2-5. docx fill: `python-docx` で XML 直編集 (= 共通パターン)
+
+研究費応募・申請書類で頻出する 「☐ チェックリストと placeholder の docx を fill して PDF 化」 パターン。 `python-docx` ライブラリよりも、 zipfile + `word/document.xml` の直編集が **runtime 軽量で確実**。
+
+**typical docx form** の構造:
+
+- ☐ (= U+2610) と ☑ (= U+2611) はテキスト文字。 単純置換可
+- placeholder `＿＿＿＿＿＿` (= 全角アンダースコア繰り返し) は単一 `<w:t>...</w:t>` run に入っていることが多い
+- 識別フィールド (= 氏名・所属・部署・日付) は `<w:t>氏名：＿＿＿＿＿</w:t>` のようにラベル + placeholder が同じ run、 もしくは `<w:t>氏名</w:t>` + `<w:t>：＿＿＿＿＿</w:t>` の 2 run 分割
+
+**実装スケルトン**:
+
+```python
+import zipfile
+
+with zipfile.ZipFile(template_docx) as z:
+    files = {n: z.read(n) for n in z.namelist()}
+xml = files['word/document.xml'].decode('utf-8')
+
+# ☐ → ☑ (= 全置換、 または位置で選択置換)
+# 例: 19 個の ☐ のうち、 ある領域 (= 学生用 2 個) は ☐ 保持
+boundary_start = xml.find('学生が研究代表者として応募')
+boundary_end = xml.find('提出形式の確認')
+out = list(xml)
+for i, c in enumerate(xml):
+    if c == '☐' and not (boundary_start < i < boundary_end):
+        out[i] = '☑'
+xml = ''.join(out)
+
+# Placeholder 置換 (= <w:t>...</w:t> 単位)
+xml = xml.replace('<w:t>＿＿＿＿＿＿＿＿＿＿＿＿</w:t>',
+                  f'<w:t>{identity["name"]}</w:t>', 1)
+xml = xml.replace('<w:t>所属機関：＿＿＿＿＿＿＿＿</w:t>',
+                  f'<w:t>所属機関：{identity["org"]}</w:t>', 1)
+# 月日: <w:t>年＿＿月＿＿日</w:t> のような複合 run
+xml = xml.replace('<w:t>年＿＿月＿＿日</w:t>',
+                  f'<w:t>年{month}月{day}日</w:t>', 1)
+
+files['word/document.xml'] = xml.encode('utf-8')
+with zipfile.ZipFile(dest_docx, 'w', zipfile.ZIP_DEFLATED) as z:
+    for name, data in files.items():
+        z.writestr(name, data)
+```
+
+**事前 dump 必須**: docx の XML 構造を必ず最初に `unzip -p form.docx word/document.xml | python3 -c "..."` で grep して確認。 placeholder が `＿` 何文字か、 ラベルと placeholder が同じ run か分かれた run かを事前に把握。
+
+### 2-6. e-Rad の使用禁止文字 (= 入力フィールド charset 制限)
+
+e-Rad の long-textarea フィールド (= 研究目的・研究概要・経費根拠・役割分担等) は厳格な charset を強制。 以下は **エラーで弾かれる**:
+
+| 禁止文字 | 例 | 置換 |
+|---|---|---|
+| 上付き・下付き数字 | `H₀` (U+2080) | `H_0` (= ASCII underscore + 数字) |
+| ギリシャ文字 | `σ` `α` `μ` `β` | カタカナ「シグマ」「アルファ」「ミュー」 |
+| 数学記号 | `×` (multiplication U+00D7) | `と` or `に` |
+| 不等号系 | `≦` `≧` `≠` `→` | カタカナや日本語 |
+| セクション記号 | `§` (U+00A7) | `第〜節` or `〜節` |
+| エム・ダッシュ | `—` (U+2014) | `、` or ASCII `-` |
+| 丸付き数字 | `①②③` | `(1)(2)(3)` 半角括弧 |
+| ローマ数字 | `Ⅰ Ⅱ Ⅲ` | `I II III` (= ASCII) |
+| 機種依存文字 | `㈱ ㈲` | `(株) (有)` |
+
+xlsx 内部 (= 審査員が読む書類) は制限なし (= ギリシャ文字 / 下付き OK)。 制限は **e-Rad の textarea 経由でのみ**。 応募書類の draft 段階で禁止文字を排除しておくと、 xlsx と e-Rad textarea で writing convention の二重 maintenance が不要。
+
 ---
 
 ## 3. 提案書を音声で確認 (macOS `say` で TTS)
@@ -361,5 +469,6 @@ GUI 確認は MCP round-trip より user の直接視認が **常に速い**。 
 ## 5. 関連リポ
 
 - 実例: `~/Claude/grant-applications/applications/2026-jst-spread/fill_xlsx.py` (SPReAD 様式 1 fill)
+- docx 自動 fill 実例: `~/Claude/grant-applications/applications/2026-jst-spread/fill_forms.py` (SPReAD 様式 0 + 様式 2 fill、 §2-5 のリファレンス実装)
 - ヘルパ抽出元: 同上 `fit_cell` 関数 (内部、 上記 §1-4 のリファレンス実装)
 - 業績選定の連携先: `~/Claude/physics-research/papers/grant_pubs.py` (INSPIRE 連携)
