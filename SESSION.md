@@ -2,7 +2,30 @@
 
 ## 現在の状態
 
-**2026-05-13**: `conventions/office-automation.md` に 4 節を追加 (commit `2a48546`)。 ある研究費応募 (e-Rad 提出) の運用で確立した新ノウハウを横展開:
+**2026-05-13 (後段)**: 同日にもう 1 round の知見追加。 学事業務 (= 部署 / 学科 ML / 入試案件) を巡る一連の事故 + 解決 setup から、 以下を新規 / 拡張で documented。 全て layer 1 (= 全 Claude Code ユーザーが恩恵を受ける一般則) として書き、 PII は placeholder 化:
+
+### 新規 conventions (3 ファイル)
+
+- **`conventions/google-api-direct-access.md`** (新規): Google API を Python から直接アクセスする setup の全体像。 GCP project の 3 layer 構造 (= project 管理 owner / OAuth client / account token)、 API 個別 enable + propagate 待ち pattern (= until-loop polling)、 OAuth scope 設計 (= 最小化原則 + 既存 client vs 新規 client の trade-off)、 mimeType 判別 (= Sheets native vs xlsx、 `rtpof=true` URL signal)、 token refresh の運用、 documentation 義務 (= owner email 等を personal layer に明記)
+- **`conventions/email-surface-pattern.md`** (新規): 重要送信者・ML トピックを 3 layer (= Gmail filter + retroactive labeling + dashboard surface script) で構造的に見落とし防止する pattern。 規律 (= 「気をつける」) と仕組み (= 機械的検出) の補完関係、 filter pattern A (= from 限定) vs B (= ML + subject keyword)、 false positive と false negative の trade-off (= 後者優先)
+- **`conventions/ml-forward-judgment.md`** (新規): ML forward された依頼メールを inbox 化する際の reflex 判定 trap。 「元 TO に自分の名前なし = action なし」 reflex は危険、 過去 ML スレッドの分野割当履歴まで遡って確認する 3 段ゲート。 失敗 RCA (= 元 TO 5 名 = 分野責任者で自分は除外と reflex 判定 → 半月後リマインダーで再判定要)
+
+### 拡張 conventions (2 ファイル)
+
+- **`conventions/google-url.md`** 拡張: 既存「stable ID + authuser= 必須」 ルールに **GCP project 管理操作 URL** (= console.developers.google.com / console.cloud.google.com 系) を追加。 project owner ≠ active account の場合 project ID のみの URL は壊れる旨、 token 発行 layer と project 管理 layer の区別を明示
+- **`conventions/mcp.md`** 拡張: §「MCP で不十分な場合: API 直接アクセス」 の使い分け表に 2 行追加 (= Google Sheets / Drive 上のスプレッドシート読み + Calendar bulk update)。 詳細 pattern は新 conventions/google-api-direct-access.md に link
+
+### Meta 規律: 学事 / 部署系 ML の reflex 判定 trap
+
+「ML forward された依頼メールを 1 通だけ見て対応要否を判断する」 を reflex でやると、 **複数 thread に跨がる役割割当** (= 半年前の別 ML スレッドで自分が分野担当に割当られている事実) を見逃す trap が起きる。 inbox 化作業は「過去 ML を遡る」 を含む重い作業として位置付け直し、 後回しにしない (= 後回しは trap の温床) 規律を `ml-forward-judgment.md` に新規導入。 同種 trap は学会 ML / 委員会 ML 等にも generalize 可能なため、 layer 1 (claude-config) に書いた。
+
+### 仕組みとしての見落とし防止 (= 規律負担を下げる思想)
+
+`email-surface-pattern.md` は「重要部署 / 重要 ML トピックの見落としを規律で防ぐ」 のではなく「filter + label + dashboard surface の 3 layer で構造的に検出する」 思想を一般化。 setup 後の運用 cost は限りなく 0 で、 false positive を許容しつつ false negative を可能な限り 0 に寄せる方向で設計。 各 Claude Code ユーザーが自身の重要送信者群 (= 取引先・上長・委員会幹事) に対し同型の setup を組める。
+
+---
+
+**2026-05-13 (前段)**: `conventions/office-automation.md` に 4 節を追加 (commit `2a48546`)。 ある研究費応募 (e-Rad 提出) の運用で確立した新ノウハウを横展開:
 
 - **§1-1b** 画像挿入のシート指定は `wb[name]` (= 名前) を使う。 `wb.sheetnames[N]` (= 数値 index) は form template が先頭に参考シートを持つ場合「N 枚目」 という直感とずれる罠 (= 「研究計画調書\_5 枚目」 を `sheetnames[4]` で取ると `研究計画調書_3枚目` を指す例で実際に破綻)
 - **§2-4** docx → PDF は macOS では Pages.app AppleScript が最も robust (= Microsoft Word AppleScript は変数 scope 罠、 LibreOffice は別途 install、 pandoc + xelatex はフォント地獄)

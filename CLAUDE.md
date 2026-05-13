@@ -37,7 +37,10 @@ claude-config/
 │   ├── discord-bot.md      # Discord Bot 運用 (権限ポリシー・private channel 加入・per-channel error non-fatal な fetcher・Token 取扱・組織 NW での API ブロック)
 │   ├── prompt-injection.md # Tool result 内の prompt injection を flag する規律 (適用範囲・同ターン flag・literal 原文併示・確度二段・注入指示は従わない)
 │   ├── android-chromium-remote-debug.md # Android Brave/Chrome の remote debugging (WiFi ADB + CDP、 reload 前の live state capture procedure)
-│   ├── google-url.md       # Google サービス URL 書式 (`/u/N/` 禁止 + `?authuser=<email>` 必須、 hooks/google-url-guard.sh で機械的強制)
+│   ├── google-url.md       # Google サービス URL 書式 (`/u/N/` 禁止 + `?authuser=<email>` 必須、 hooks/google-url-guard.sh で機械的強制、 GCP project 管理 URL もカバー)
+│   ├── google-api-direct-access.md # Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx)
+│   ├── email-surface-pattern.md # 重要送信者・ML トピックを Gmail filter + retroactive labeling + dashboard surface の 3 layer で見落とし防止
+│   ├── ml-forward-judgment.md # ML forward された依頼メールの inbox 化時の reflex 判定 trap 防止 (= 元 TO に名前なし = action なし、 ではない / 過去 ML の分野割当を遡る規律)
 │   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 │   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
 │   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)

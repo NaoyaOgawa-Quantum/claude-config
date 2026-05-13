@@ -4,6 +4,71 @@
 
 ---
 
+## 2026-05-13: 学事業務系の見落とし防止 + Google API 直接アクセス setup
+
+### 事故 → 規律導入 → 仕組み導入 の一連
+
+1 セッションで連続発生した「同テーマ ML 上の議論を見落とし」 → 「規約導入」 → 「仕組み化」 のサイクル。 3 つの新 conventions + 2 つの既存 conventions 拡張で documented。
+
+#### 起点: ML forward された依頼メールの inbox 化誤判定
+
+ML 主任が部署外から受けた「○○作成依頼」 を ML 全体に Fwd するパターンで、 元メール To に名前がない「分野責任者」 リストを根拠に**「action なし」 と reflex 判定**してしまった事故。 半月後の主任リマインダー [ml-id:NNNN+1] で初めて自分が「○○分野担当」 と過去 ML で割当られていた事実が顕在化、 締切直前で対応。
+
+**判定の構造的問題** (= 1 通だけ見て対応要否を判断する reflex):
+- 元メール To 「分野責任者 N 名」 = 部署外 が連絡を取った中継者
+- ML 経由で展開される「実作業者」 = 過去 ML で割当られた各メンバー
+- **両者は別 set**、 元 To だけ見て「自分は対象外」 と判断するのは構造的に誤り
+
+**規律導入** (`conventions/ml-forward-judgment.md`): inbox 化時に 3 段ゲートを必ず通す:
+1. 元メール To に自分の名前があるか?
+2. 役割割当キーワード (= 分野 / 担当 / 責任者 / 作問 / 審査) が本文にあるか?
+3. 過去 ML スレッドで自分が割当 source として出ているか?
+
+判定根拠 (= ゲート 3 の引用元 ML message ID) は inbox notes に必ず残す (= future Claude が判定を追体験可能)。
+
+#### 派生: 重要部署 / ML トピックの見落とし防止仕組み
+
+同セッションで別の見落とし (= 半月前から重要部署が連絡してきていた校正依頼 25 件 + 同日 ML で 7 通の議論進行中) も発覚。 規律 (= 「気をつける」) では humanly 5 日経つと埋没するため、 **機械的検出仕組み** (= filter + label + dashboard surface) を導入する方向に。
+
+**仕組み導入** (`conventions/email-surface-pattern.md`): 3 layer 構造で構造的に検出:
+- Layer 1: Gmail filter (= 自動ラベル付け、 from 限定 + ML + subject keyword の 2 pattern)
+- Layer 2: Retroactive labeling (= 既存メールへの遡及適用、 batch_modify で過去 1 年分一斉)
+- Layer 3: Dashboard surface (= session 開始 script で UNREAD のみ最優先表示)
+
+false positive / false negative の trade-off は「**false positive を許容して false negative を 0 に寄せる**」 方向。 ラベル名は狭めすぎない (= 「入試-ML」 より「学科業務-ML」 で会議・人事等もカバー)。
+
+#### Bonus: 仕組みのため Google Sheets 自動読みを設計
+
+入学課作成 spreadsheet (= 学事関連表) を Claude が直接読みたいユースケースで、 既存 OAuth token (Gmail / Calendar / Classroom) のいずれにも Sheets scope なし。 そこから**Google API を Python から直接アクセスする setup** を一般化:
+
+**Setup 導入** (`conventions/google-api-direct-access.md`):
+- GCP project の 3 layer 構造 (= project 管理 owner / OAuth client / account token) を明示
+- 各 Google API は project レベルで個別 enable 必要 (Sheets / Drive は別)、 enable 後 propagate 5-10 分
+- OAuth scope は最小化原則 (= drive.metadata.readonly が可能なら drive.readonly を avoid)
+- mimeType 判別 (= Sheets native vs xlsx)、 URL の `rtpof=true` が xlsx の signal
+- token は git-crypt encrypt で MCP 設定リポに保管
+
+設計トレードオフ (= 既存 OAuth client に scope 追加 vs 新規 directory + 別 scope token) では**後者を推奨**: 既存 MCP の動作影響なし、 用途別独立管理が長期メンテで筋。
+
+#### Meta: GCP project の owner と Workspace アカウントは別 layer
+
+GCP コンソール (= console.developers.google.com / console.cloud.google.com) の管理操作は **project owner アカウントのみ** が実行可能。 Workspace アカウント (= 大学 / 会社の発行) で OAuth flow を回しても、 個人 Gmail の GCP project に対しては API enable できない。 URL 規約として `&authuser=<project_owner_email>` を必ず付ける (= `conventions/google-url.md` 既存ルールの新 case)。
+
+owner email は personal layer (= 個人層) の secrets-related docs に明記する義務、 multi-account 持ちの user / Claude が「どのアカウントで GCP コンソール開けばいい?」 で繰り返し混乱しないようにする。
+
+### Why all of these to layer 1 (claude-config)
+
+上記 4 案件は全て「**特定 user の固有事情に依存しない一般則**」 として整理可能:
+
+- ML forward 判定 trap は学会 ML / 委員会 ML / 顧客 ML 等に generalize 可能
+- email surface 仕組みは任意の重要送信者・トピックに適用可能
+- Google API 直接アクセス setup は GCP project を持つ任意の user に共通
+- GCP project owner と Workspace の layer 区別は GCP utility ユーザー全員に通用
+
+PII (= 実名・固有部署名・固有 spreadsheet ID 等) は全て placeholder 化、 examples は abstract (= 「重要部署からのメール」 「学科 ML」 等の generic 表現)。 layer 2 (= 共有プロジェクト) や layer 3 (= personal) に書くと、 同型問題に当たる他 Claude Code ユーザーが再発見しないといけない。 一般則は layer 1 に置くのが配置原則 (`docs/convention-design-principles.md §1`)。
+
+---
+
 ## PATH 管理: 二層防御の設計
 
 Claude Code の Bash ツールは起動時に生成したシェルスナップショットを source する。スナップショットの `export PATH=...` がセッション中の PATH を決定するため、ここで PATH が壊れると全コマンドに影響する。
