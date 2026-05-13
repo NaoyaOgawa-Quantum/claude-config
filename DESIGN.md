@@ -39,7 +39,7 @@ claude-code-guide agent + 公式 support article の参照で、 Claude in Chrom
 
 (1) を「すべてのサイト」 にしても (2) は domain ごと別途許可が必要。 これは AI-driven 自動操作を user 確認下に置く意図的な安全機構。
 
-期待 UX は sidepanel に「Permission required」 prompt が出て user が「Always allow」 を click。 ただし **prompt が render されない既知バグ** ([#53630](https://github.com/anthropics/claude-code/issues/53630)) があり、 silent block で詰む。 workaround は拡張再インストール等。
+期待 UX は sidepanel に「Permission required」 prompt が出て user が「Always allow actions on this site」 を click。 ただし **prompt が render されない既知バグ** ([#53630](https://github.com/anthropics/claude-code/issues/53630)) があり、 silent block で詰む。 workaround は拡張再インストール等。
 
 #### 規律導入
 
