@@ -9,7 +9,7 @@
 - Gmail filter が自動で「重要」 ラベル + STARRED + IMPORTANT を付ける
 - セッション開始時に必ず走らせる dashboard script が「重要」 ラベル付き未読を最優先で表示する
 
-の組み合わせなら、 規律に依存せず構造的に検出される。 規律と機械的検出は補完関係で、 機械的検出が「規律の負担を下げる」 ことに価値がある (= `CONVENTIONS.md §「機械的検出は規律を補完する」` の派生)。
+の組み合わせなら、 規律に依存せず構造的に検出される。 規律と機械的検出は補完関係で、 機械的検出が「規律の負担を下げる」 ことに価値がある。 関連事例として `conventions/expensive-intermediate-artifacts.md` (= `/tmp` への artifact 永続化 reflex を hook で機械的検出) や `conventions/google-url.md` (= `/u/N/` URL 禁止を hook で検出) も同型の「reflex を hook で構造化する」 pattern。
 
 ## 構成 (= 3 layer)
 
