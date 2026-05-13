@@ -2,6 +2,15 @@
 
 ## 現在の状態
 
+**2026-05-13**: `conventions/office-automation.md` に 4 節を追加 (commit `2a48546`)。 ある研究費応募 (e-Rad 提出) の運用で確立した新ノウハウを横展開:
+
+- **§1-1b** 画像挿入のシート指定は `wb[name]` (= 名前) を使う。 `wb.sheetnames[N]` (= 数値 index) は form template が先頭に参考シートを持つ場合「N 枚目」 という直感とずれる罠 (= 「研究計画調書\_5 枚目」 を `sheetnames[4]` で取ると `研究計画調書_3枚目` を指す例で実際に破綻)
+- **§2-4** docx → PDF は macOS では Pages.app AppleScript が最も robust (= Microsoft Word AppleScript は変数 scope 罠、 LibreOffice は別途 install、 pandoc + xelatex はフォント地獄)
+- **§2-5** docx 自動 fill は `zipfile` + `word/document.xml` の XML 直編集が軽量で確実。 ☐ → ☑ は位置で選択置換可、 placeholder `＿＿＿＿＿＿` は `<w:t>...</w:t>` run 単位で置換。 「事前 dump 必須」 原則 (= §4-1 と同源) を applied
+- **§2-6** e-Rad textarea の使用禁止文字 (= 上付き・下付き数字 `H₀` / ギリシャ文字 `σ` `α` `μ` / 数学記号 `×` / セクション記号 `§` / em-dash `—` / 丸付き数字 / ローマ数字 / 機種依存文字) と置換指針表。 xlsx 本体は制限なし、 e-Rad 入力経由でのみ発動するため draft 段階で排除しておくと二重 maintenance 不要
+
+public layer 1 リポ規律として 例示コードに実名・所属・メアドを含めないため、 placeholder 化 (= `identity["name"]` 等 dict 参照) で書いた。 reference 実装 path (= 個人層側のリポ) は §5 関連リポに既出のため追加 link で参照。
+
 **2026-05-10 (setup.sh-完遂)**: 直前の (defer-完遂) 後段で別 class として flag した `setup.sh` の **所属機関名 literal 2 件** (= CLAUDE.md L105 違反) を完全修復。 mechanism 設計: `SECRETS_REPOS` array の値正本を個人層 `secrets-repos.txt` に外出し、 `setup.sh` は Step 5a で検出済の `$LAYER` 変数経由で動的読み取り (1 行 1 repo、 awk で `#` comment 除去 + whitespace trim)。 移行順序は odakin-prefs (= file 先行 commit `b62bb7d`) → claude-config (= setup.sh refactor) で同 day push、 逆順でも functional regression 無し (= file 不在で SECRETS_REPOS 空 array → secrets handling skip → 既存 symlink 維持)。 設計詳細は `DESIGN.md §「SECRETS_REPOS の個人層外出し」` (= 棄却した代替案 = 手動書き換え案 / YAML upgrade 案 / 機能撤去案、 plain text format の理由、 foreign user 対応 mechanism)。 dry-run: 個人層 file から `SECRETS_REPOS` array が count=2 で動的に解決 (= 旧 hardcode と完全等価)。 これで claude-config の executable surface (`hooks/`, `scripts/`, `setup.sh`) 全てが odakin / 機関名 literal-free + foreign-user-compatible に到達、 5/10 self-audit chain の 6 commit は完全 closure。
 
 **2026-05-10 (defer-完遂)**: 直前の self-audit で defer した `scripts/*` の layer-3 hardcode 13 箇所を `scripts/lib/find-personal-layer.sh` 経由の動的解決にリファクタ。 helper は `setup.sh` Step 5a (= `.claude-personal-layer` marker file 検出) と同等のロジックを sourceable function `find_personal_layer` として export、 `public-precommit-runner.sh` + `audit-public-repos.sh` で `SENSITIVE_TERMS` を helper resolve に置換、 `setup-dropbox-refs.sh` の comment 例示も placeholder 化。 odakin 設定で dry-run: `PERSONAL_LAYER=~/Claude/odakin-prefs` + `SENSITIVE_TERMS=~/Claude/odakin-prefs/sensitive-terms.txt` が同 path に解決、 全 4 script の bash syntax check pass、 functional parity 確認。 `scripts/` 全体が odakin literal 0 (= 13→0)、 audit Open item を closure。 設計判断は `DESIGN.md §「個人層検出 helper」` に永続化 (= env var 案棄却の理由 = pre-commit hook / scheduled-task で env 継承されない、 setup.sh DRY 化見送りの理由 = bootstrap script で source 失敗 risk 回避、 helper 側に「setup.sh Step 5a と sync」 marker)。 これで本日 5/10 self-audit の修復系列が 5 commit で完全 closure、 全 layer-1 (`claude-config` docs / `hooks/` / `scripts/` / `setup.sh`) が odakin literal-free + foreign-user-compatible に到達。
