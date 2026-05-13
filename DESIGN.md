@@ -4,6 +4,72 @@
 
 ---
 
+## 2026-05-13 (3rd round): Discord API UA + Claude in Chrome permission モデル
+
+同日 3 回目の知見追加。 年次タスク (sg-l 登録) 周知のため Discord Bot で生 HTTP request を書いた + Claude in Chrome MCP で sg.smartcore.jp を操作しようとしたが domain permission で詰んだ、 の 2 件から layer 1 (claude-config) で残すべき一般則を導出。
+
+### Discord API call の UA 必須 (= `conventions/discord-bot.md` 拡張)
+
+#### 起点
+
+2026-05-13 17:38、 odakin が連絡責任者として研究室 Discord #一般 に sg-l 登録周知投稿を bot 名義で送信しようとして、 初回 Python urllib による POST が **Cloudflare 1010 (Access denied)** で reject。 既存 `discord-bot.md §「ネットワーク制約」` は「組織 NW egress filter」 を 1010 原因として帰責していたが、 今回は自宅 MacBook (= 同一 NW) で再現、 NW 起因ではなく **User-Agent header 欠落** が原因と判明。 `User-Agent: DiscordBot (<url>, <ver>)` を付加して再送 → 200 OK。
+
+#### 規律導入
+
+`conventions/discord-bot.md` に 2 節追加 / 修正:
+
+1. 新節「**Discord API call の User-Agent header 必須**」 — Discord 仕様で必須、 default UA (`Python-urllib/3.x`) は Cloudflare で reject、 正しい format (`DiscordBot (<repo-url>, <ver>)`) + Python サンプル
+2. 既存「ネットワーク制約」 を「**Cloudflare 1010 error の鑑別**」 に refactor — 1010 の原因が「(1) UA 欠落」 と「(2) 組織 NW egress filter」 の 2 系統あることを明示、 切り分け順序 (= まず UA を疑え、 NW に責を着せる前に自分の request を直せ)
+
+#### 判断: UA 知見を layer 1 に書く理由
+
+Discord SDK (discord.py / discord.js) ユーザーは自動で正しい UA が付くため踏まない。 落とし穴は **ad-hoc に curl / urllib で 1-shot post 書く時**。 odakin のように bot 投稿スクリプトを CLI で書く layer は他ユーザーにも普遍的 (= 「公式 SDK 入れずに sysadmin が curl で投げる」 という運用)。 1010 の鑑別順序も同様に普遍的。 個人層に閉じる根拠なし。
+
+### Claude in Chrome MCP の 2 層 permission モデル (= `conventions/web-tools.md` 拡張)
+
+#### 起点
+
+同日 sg.smartcore.jp の会員検索ページを MCP で操作しようとしたが `permission_required: sg.smartcore.jp` で reject。 user は Brave で「Chrome 標準の host_permissions = すべてのサイト」 を「ずっとむかしから」 設定済。 「全許可なのに動かない、 どこにドキュメントされているのか?」 という question で deep-dive 調査。
+
+#### 構造の判明
+
+claude-code-guide agent + 公式 support article の参照で、 Claude in Chrome は **2 層の permission モデル** を持つことが判明:
+1. **Chrome 標準の host_permissions**: user-driven 操作 (= content script、 ページ読取)
+2. **Claude in Chrome 独自の AI-driven domain allow-list**: MCP 経由の programmatic 操作 (= sidepanel prompt で domain 単位に許可)
+
+(1) を「すべてのサイト」 にしても (2) は domain ごと別途許可が必要。 これは AI-driven 自動操作を user 確認下に置く意図的な安全機構。
+
+期待 UX は sidepanel に「Permission required」 prompt が出て user が「Always allow」 を click。 ただし **prompt が render されない既知バグ** ([#53630](https://github.com/anthropics/claude-code/issues/53630)) があり、 silent block で詰む。 workaround は拡張再インストール等。
+
+#### 規律導入
+
+`conventions/web-tools.md` 末尾に「**Claude in Chrome MCP の domain permission モデル**」 節を新規追加:
+
+- 2 層 permission の表
+- 期待 UX + sidepanel prompt の 3 択
+- 既知バグ #53630 / #57219 + workaround
+- MCP tab group が user 手動タブと別 group である挙動 (= 既存セッションを直接操作不可)
+- 公式 doc link (Anthropic support article)
+
+#### 判断: web-tools.md に書く vs 新規ファイル
+
+新規 `conventions/claude-in-chrome.md` を作る案も検討したが、 既存 `web-tools.md` は「Web ツール全般の caveat 集」 (= WebSearch / WebFetch / broker block 等) として機能しており、 Claude in Chrome も同じ category。 1 ファイルに集約する方が「web 操作の時はここを見れば全部わかる」 という indexing 効果。 規約設計原則 (= 1 ルール = 1 ファイル + 密接関連は bundle 可) に照らして bundle 側。 ※将来 Claude in Chrome 専用の節が web-tools.md の半分を超えるようなら split を再検討。
+
+### Meta: 規約導入の 4 層振り分け (1 セッション内で起こった知見の layer 配置)
+
+今日 1 セッションで「sg-l 登録 (= odakin 固有 年次タスク)」 から派生して 4 層全てに渡る知見が得られた:
+
+| 層 | 配置先 | 内容 |
+|---|---|---|
+| **layer 1 (claude-config、 全 Claude Code ユーザー)** | conventions/discord-bot.md + conventions/web-tools.md | Discord UA + Claude in Chrome 2 層 permission |
+| **layer 2 相当 (email-office、 odakin 個人運用)** | docs/reference/yearly-tasks/sg-l.md + DESIGN.md §yearly_recurring schema | sg-l 検知ルール + identity + yearly_recurring schema |
+| **layer 3 (odakin-prefs、 個人層)** | next-steps.md (要追記: yearly_recurring 2 例目で格上げ検討) + dev-environment.md (要追記: domain permission 既知バグ) | personal layer fact |
+| **layer 4 (memory、 machine-local)** | (該当なし) | このセッションの知見はすべて cross-machine、 memory には書かない |
+
+「漏らさず書く」 = 各層に該当する知見を全部該当層に書く。 layer 1 に上げるべき知見を odakin 個人ファイルに閉じ込めないし、 個人固有値を layer 1 に漏らさない。 4 層モデル (= `docs/personal-layer.md`) の運用例として記録。
+
+---
+
 ## 2026-05-13: 学事業務系の見落とし防止 + Google API 直接アクセス setup
 
 ### 事故 → 規律導入 → 仕組み導入 の一連

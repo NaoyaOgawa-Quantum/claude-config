@@ -2,6 +2,16 @@
 
 ## 現在の状態
 
+**2026-05-13 (3rd round)**: sg-l (素粒子論グループ) 登録周知タスクから派生して layer 1 で残すべき 2 件を追加 documented:
+
+- **`conventions/discord-bot.md`** 拡張: 新節「**Discord API call の User-Agent header 必須**」 + 既存「ネットワーク制約」 を「**Cloudflare 1010 error の鑑別**」 にリファクタ。 1010 の原因が「(1) UA 欠落」 と「(2) 組織 NW egress filter」 の 2 系統あることを明示。 起点は Python urllib で bot 投稿時の 1010 reject、 UA 修正で即解決した実体験。 既存記述は「組織 NW」 のみ帰責で不完全だったので、 鑑別順序 (= まず UA を疑え) を併記
+- **`conventions/web-tools.md`** 拡張: 新節「**Claude in Chrome MCP の domain permission モデル**」。 Chrome 標準の host_permissions (= 「すべてのサイト」 設定) と Claude in Chrome 独自の AI-driven domain allow-list の 2 層構造、 期待 UX (= sidepanel prompt 3 択)、 既知バグ #53630 (= prompt 未 render)、 MCP tab group が user の手動タブと別 group である挙動、 公式 doc link を documented。 起点は sg.smartcore.jp を MCP で操作しようとして「全許可なのに permission_required で詰む」 を踏んだケース、 user 質問「どこにドキュメントされているのか?」 で deep-dive
+- **`DESIGN.md`** に判断記録 (= 上記 2 件 + 4 層振り分けの meta 規律)
+
+判断: 2 件とも個人層に閉じる根拠なし (= Discord SDK 未使用で curl/urllib 投稿する layer / Claude in Chrome を使う全ユーザーに普遍)、 layer 1 (claude-config) に書く。
+
+---
+
 **2026-05-13 (後段)**: 同日にもう 1 round の知見追加。 学事業務 (= 部署 / 学科 ML / 入試案件) を巡る一連の事故 + 解決 setup から、 以下を新規 / 拡張で documented。 全て layer 1 (= 全 Claude Code ユーザーが恩恵を受ける一般則) として書き、 PII は placeholder 化:
 
 ### 新規 conventions (3 ファイル)

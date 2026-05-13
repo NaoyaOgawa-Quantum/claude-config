@@ -126,4 +126,62 @@ manual transcribe で snapshot を作る方針は (a) transcription error、(b) 
 
 - arXiv ID があれば arXiv → なければ ADS abstract → 後継論文の citation 経由、の順で確認する
 - 古い和文論文は本文 PDF が画像形式なら諦めて、引用している後継論文の本文中要約を信用する
+
+---
+
+## Claude in Chrome MCP の domain permission モデル
+
+Claude in Chrome 拡張 (Chrome / Brave / 他 Chromium で動く Anthropic 公式拡張、 `mcp__Claude_in_Chrome__*` の MCP tools を提供) は **2 層の permission モデル** で動く。 設定間違いと混同しやすいので構造を理解しておく。
+
+### 2 層の独立した permission
+
+| 層 | 何 | 設定場所 |
+|---|---|---|
+| **(1) Chrome 標準の host_permissions** | content-script injection、 user-driven 操作時のページ読取 | `chrome://extensions/?id=<extId>` の「サイトへのアクセス」 (= 「すべてのサイト」 / 「特定のサイト」) |
+| **(2) Claude in Chrome 独自の AI-driven domain allow-list** | MCP 経由で Claude が programmatic に navigate / click / type する場合の per-domain 許可 | 拡張の sidepanel 内 prompt (= **「Permission required」 dialog**) で domain 単位に Always allow / one-time / Decline を選択 |
+
+**重要**: (1) を「すべてのサイト」 にしても (2) は domain ごとに別途許可が必要。 これは AI-driven 自動操作を user 確認下に置く意図的な安全機構。
+
+### 期待される UX
+
+MCP の `navigate` (or `left_click` / `type` 等) が未許可 domain に対して呼ばれると:
+1. backend は `permission_required: <domain>` を return
+2. **拡張の sidepanel に「Permission required: <domain>」 prompt が出る** (3 択: 「Allow this action」 / 「Always allow actions on this site」 / 「Decline」)
+3. user が「Always allow」 を選べば該当 domain が allow-list に追加 → 以降の MCP 経由操作は permission check pass
+
+### 既知バグ: prompt が render されないことがある (= 詰む)
+
+backend が `permission_required` を return しても、 **sidepanel の prompt UI が render されない** 既知バグがある ([GitHub claude-code #53630](https://github.com/anthropics/claude-code/issues/53630), [#57219](https://github.com/anthropics/claude-code/issues/57219))。 この状態だと user は「Always allow」 を click する手段がなく、 MCP 操作が完全に詰む (= silent block)。
+
+公式の「reset allowlist」 UI は無く、 報告されている workaround:
+- 拡張を一度削除 → Chrome Web Store から再インストール (= storage clear)
+- profile を変える / Chrome / Brave / Chromium を切り替える
+- バグ報告 (上記 GitHub issue にコメントで repro 情報を添える)
+
+### MCP tab group は user の手動タブと別
+
+Claude in Chrome MCP は **自分専用の tab group** で動く。 user が手動で開いたタブと MCP が操作するタブは別管理:
+- `tabs_context_mcp` は MCP の tab group 内のタブだけを返す (user の他タブは見えない)
+- 「user が既にログイン済の sg-l タブ」 のような既存セッションを MCP から直接操作することは不可
+- MCP は `tabs_create_mcp` で自分の tab group 内に新規タブを開いて navigate する
+
+これは tab group ごとに permission state が独立する設計の帰結。 user が手動でタブを操作している間に MCP が裏で別ドメインに勝手に navigate するのを防ぐ。
+
+### 公式ドキュメント
+
+- [Claude in Chrome Permissions Guide](https://support.claude.com/en/articles/12902446-claude-in-chrome-permissions-guide) (= 公式 permission モデル説明)
+- [Claude Code Permissions](https://code.claude.com/docs/en/permissions) (= MCP tool permission の上位概念)
+
+### How to apply
+
+- `permission_required: <domain>` を踏んだら、 まず sidepanel を user に見てもらい prompt の有無を確認 (= 既知バグかどうかの切り分け)
+- prompt があれば「Always allow actions on this site」 を user に click してもらう
+- prompt がなければ既知バグの可能性 → 拡張再インストール / 別 profile / スクショ共有 fallback を提案
+- 「Chrome 標準の host_permissions が「すべてのサイト」 になっているのに動かない」 は誤解、 (1)(2) が独立であることを最初に user に説明する
+- 既存 web ツール (`mcp__Claude_in_Chrome__*`) を新規ドメインで使う前に、 「permission prompt が出る前提」 で workflow を組む (= 1 回 prompt がかかる前提で批准点を設計)
+
+### 関連
+
+- broker UI の domain-level block: §「ロックイン済 web app からのテーブル data 取得は scrape より export を優先」 末尾の「Browser MCP の制約」 参照
+- 個人の母艦ブラウザ選定 (Brave 等) は personal layer (個人 dev-environment) で書く
 - 商用 publisher の paywall ページは内容が取れないので時間を浪費しない
