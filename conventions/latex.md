@@ -222,3 +222,77 @@ ln -s ~/Claude/claude-config/scripts/pre-commit-bib .git/hooks/pre-commit
 *.png binary
 *.jpg binary
 ```
+
+---
+
+## 日本語長 title の文節境界改行 (title_wrap pattern)
+
+ポスター・slide・cover page 等の **display title** で日本語 long title (= 15 文字以上) を扱う時、 LaTeX の auto-wrap は機械的に「N 文字/行」 で改行するため、 助詞「に」 「の」 や単語「保存量」 の途中で改行されて editorial 不自然になる。
+
+**例**: 「一般相対性理論における二つの保存量:エネルギーと重力電荷」 (17 chars)
+
+- auto-wrap (= 32pt × text_width 100mm): 「一般相対性理論に / おける二つの保存 / 量:エネルギーと重 / 力電荷」 (= 4 行、 助詞・単語途中改行)
+- title_wrap で手動指定: 「一般相対性理論における / 二つの保存量: / エネルギーと重力電荷」 (= 3 行、 文節境界)
+
+### How to apply
+
+1. yaml の data file に `title_wrap.ja` 配列 (= 行 list) を optional field で許可:
+   ```yaml
+   title:
+     ja: "一般相対性理論における二つの保存量:エネルギーと重力電荷"   # 純粋なタイトル (= web 用、 wrap なし)
+   title_wrap:
+     ja:
+       - "一般相対性理論における"
+       - "二つの保存量:"
+       - "エネルギーと重力電荷"
+   ```
+2. build script で `title_wrap.ja` を LaTeX の改行 (`\\`) で結合して inject:
+   ```python
+   title_for_template = " \\\\ ".join(line.strip() for line in title_wrap)
+   ```
+3. font size は **最大行の文字数が text_width 内に収まる** ように choose:
+   - default 40pt: 約 7 chars/line (= 100mm width)
+   - 32pt: 約 9 chars/line
+   - 25pt: 約 11 chars/line
+
+### When to use
+
+short title (= 13 chars 以下) は auto-wrap で OK、 title_wrap 不要。 long title で auto-wrap 結果が editorial 不自然なときのみ **opt-in** で使う (= 全 title に title_wrap を強制すると過剰運用、 short title での手動指定は冗長)。
+
+### font override pattern (= long content への対応)
+
+title だけでなく abstract 等の長 content も同様の課題が出る (= 2 段落 abstract が default 10pt で footer 領域を侵食、 等)。 解: yaml に `font.{title,abstract}.{size,leading}` override block を許可、 default は template の `\providecommand` で:
+
+```yaml
+font:
+  title:
+    size: 25         # default 40 (pt)
+    leading: 31      # default 46 (pt)
+  abstract:
+    size: 9.5        # default 10 (pt)
+    leading: 14.5    # default 17 (pt)
+```
+
+template 側:
+```latex
+\providecommand{\seminartitlefontsize}{40}
+\providecommand{\seminartitleleading}{46}
+% ...
+{\fontsize{\seminartitlefontsize pt}{\seminartitleleading pt}\selectfont \seminartitleja}
+```
+
+これで content 長に応じた個別 case adjustment を yaml で完結 (= テンプレ本体は触らない、 各 case は yaml の override で対応)。
+
+### paragraph break の保持 (= 段落区切り)
+
+abstract 等の長 content で **段落区切り**を保ちたい場合: yaml の block scalar `|` の空行は LaTeX `\providecommand{...}{<value>}` 内では消える (= 単純 space 化される) ので、 build script で `\n\n` → `\par ` 変換する:
+
+```python
+abstract_latex = re.sub(r"\n\s*\n", r"\\par ", abstract_yaml)
+```
+
+PDF 上で段落区切りが visible (= LaTeX default `\parskip` で 1 行分の vertical gap)。 強調したいなら template 側で `\setlength{\parskip}{4pt}` 等。
+
+### Why
+
+editorial typography で「機械改行を許容しない」 のは標準。 magazine cover / book cover / 学会ポスター等の display title は **文節境界改行**が defacto standard で、 auto-wrap 結果は visual quality を下げる。 yaml で行配列を持つ pattern は (a) wrap が text 編集の一部として扱える (b) display と web (= wrap なし) で同じ source から両方 generate できる、 2 つの利点がある。
