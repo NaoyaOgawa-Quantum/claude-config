@@ -15,7 +15,8 @@
 #   5a3. 個人層に scripts/setup-file-associations.sh があれば実行（macOS のみ、
 #        Launch Services のファイル拡張子別デフォルトアプリ設定）
 #   5b. git-crypt 暗号化リポを自動 unlock（鍵があれば）
-#   6.  LaTeX リポに pre-commit hook をインストール（Unicode→LaTeX 自動修正）
+#   6.  全リポに pre-commit hook をインストール（Unicode→LaTeX 自動修正、
+#        hook 自体が staged file 判定で no-op skip するので全 repo に install）
 #   6b. JHEP.bst を texmf-local にインストール（全リポからグローバル利用）
 #   7.  Hammerspoon 設定をインストール（Claude Cmd+Q 誤終了防止、macOS のみ）
 #   8.  Public repo pre-commit stubs をインストール（`.claude/public-repo.marker`
@@ -925,10 +926,22 @@ if command -v git-crypt &> /dev/null; then
     done
 fi
 
-# --- 6. Install pre-commit hook for LaTeX repos ---
-# .tex or .bib を含むリポに pre-commit hook (Unicode→LaTeX 自動修正) をインストール
+# --- 6. Install pre-commit hook for ALL repos ---
+# pre-commit hook (Unicode→LaTeX 自動修正) を全 repo にインストール
+#
+# 設計: hook 自体が staged file に .tex/.bib/.bst/.cls/.sty が無ければ no-op
+# で exit 0 する (scripts/pre-commit-bib L31-35)。 よって LaTeX file 検出は
+# 不要。 全 repo に install する方が robust:
+#
+# - 旧方式 (= 検出 logic 経由) は時点依存: setup.sh 実行時に .tex/.bib 不在
+#   の repo は skip → 後から .tex 追加されても hook 未 install のまま (= 2026-05-14
+#   個人層 private repo の深い path で発生、 RCA は DESIGN.md)
+# - 旧方式の bash glob `**/*.tex` は globstar 無効時に深い path を検出しない
+#   (depth 4 で detection failed)
+# - 新方式 (= 全 repo install) は時点依存性が消える、 LaTeX 不在 repo でも
+#   hook overhead は staged file の grep 1 回のみ (= 無視できる)
 echo ""
-echo "=== Step 6: Installing pre-commit hooks for LaTeX repos ==="
+echo "=== Step 6: Installing pre-commit hooks for all repos (LaTeX guard) ==="
 
 PRE_COMMIT_SRC="$SCRIPT_DIR/scripts/pre-commit-bib"
 
@@ -940,16 +953,6 @@ else
 
     for REPO_DIR in "$CLAUDE_DIR"/*/; do
         [ -d "$REPO_DIR/.git" ] || continue
-
-        # LaTeX ファイルが存在するか簡易チェック
-        HAS_LATEX=false
-        for ext in tex bib; do
-            if ls "$REPO_DIR"*."$ext" "$REPO_DIR"**/*."$ext" 2>/dev/null | head -1 | grep -q .; then
-                HAS_LATEX=true
-                break
-            fi
-        done
-        [ "$HAS_LATEX" = true ] || continue
 
         HOOK_DST="$REPO_DIR.git/hooks/pre-commit"
         REPO_NAME="$(basename "$REPO_DIR")"

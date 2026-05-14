@@ -4,7 +4,73 @@
 
 ---
 
-## 2026-05-13 (3rd round): Discord API UA + Claude in Chrome permission モデル
+## 2026-05-14: 全 repo に pre-commit-bib install (= 時点依存検出の撤廃)
+
+### 起点
+
+個人層 private repo (講義運営系、 例外リスト外なので名前は伏せる) で新規 `.tex` ファイルに literal Unicode em-dash (`—`) を直書き、 西欧 accent (`ö`) も Unicode で記述。 `conventions/latex.md` L186 で「`.tex/.bib` 内 Unicode は `pre-commit-bib` hook で自動修正」 と規定があり、 `setup.sh` Step 6 が hook を install するはずだったが、 当該 repo の `.git/hooks/pre-commit` が **未 install** だった。
+
+### 失敗構造の分解 (4 layer)
+
+| Layer | 状態 |
+|---|---|
+| L1 規約 | `conventions/latex.md` に規定あり ✓ |
+| L2 Tool | `scripts/fix-bib-unicode.py` 実装あり ✓ |
+| L3 Hook 本体 | `scripts/pre-commit-bib` 実装あり ✓ |
+| L4 Bootstrap (= setup.sh Step 6) | **時点依存の検出 logic で fail** ✗ |
+
+### L4 の 2 つの欠陥
+
+旧 setup.sh Step 6 は「`.tex/.bib` を含む repo にだけ install」 という検出 logic を採用:
+
+```bash
+for ext in tex bib; do
+    if ls "$REPO_DIR"*."$ext" "$REPO_DIR"**/*."$ext" 2>/dev/null | head -1 | grep -q .; then
+        HAS_LATEX=true
+    fi
+done
+```
+
+問題 1 (**時点依存**): setup.sh 実行時に `.tex/.bib` 不在の repo は skip → 後から `.tex` 追加されても hook 未 install のまま追従しない。
+
+問題 2 (**bash glob 深度不足**): `ls "$REPO_DIR"**/*.tex` は bash で globstar 無効時に 1 階層しか見ない。 該当 private repo の `.tex` は depth 4 で detection 失敗 (= 「`.tex` 追加された」 タイミングで再実行しても検出されない)。
+
+### 修正: 検出 logic 撤廃 + 全 repo install
+
+観察: `scripts/pre-commit-bib` 自体が staged file に `.tex/.bib/.bst/.cls/.sty` が無ければ `exit 0` で no-op skip する (L31-35)。 つまり LaTeX file 不在の repo に hook を install しても害無し (overhead = staged file の grep 1 回)。
+
+→ setup.sh Step 6 から検出 logic を撤廃し、 全 git repo に install するように変更。 これで:
+
+- **時点依存性が消える**: 後から `.tex` 追加されても catch される
+- **深度依存性が消える**: bash glob を使わなくなる
+- **コード単純化**: 検出 logic ~10 行が消える
+
+副次効果: hook install が repo の現在の物性ではなく「Claude エコシステムに属する repo であること」 をトリガーにするので、 同型の遅延 trigger 規約 (= setup 時の物性検出依存) の anti-pattern として参考になる。
+
+### 一般化された anti-pattern
+
+「**setup-time 物性検出による配備の condition gate**」 は時点依存 + 検出の robustness 依存で fragile。 代替 pattern:
+
+- **(a) 配備時 condition gate を撤廃**: install action を冪等 + 無害化して全対象に install (今回の選択)
+- **(b) runtime condition gate**: install は全対象、 hook 自身が runtime で条件判定 (= 今回の hook はこの形)
+- **(c) post-merge / event-triggered re-detection**: 物性変化のたびに再走 (overhead 高、 別 trigger 設計要)
+
+このうち (a) + (b) の組み合わせが最も robust。 setup.sh の他 step も同型の問題を持つか sweep する価値があるが、 公開 leak guard / git-crypt / dropbox-refs は明示的 marker / config file 経由の trigger なので時点依存問題は薄い (= marker 作成 = 意図的な setup action)。
+
+### 関連修正
+
+- `setup.sh` Step 6 の検出 logic 削除、 全 repo install に変更
+- `claude-config/CLAUDE.md` Step 8 説明を更新
+- `conventions/latex.md §pre-commit hook` 節を全 repo install 方式 + Claude 規律の明示 + 旧設計失敗の経緯記述に拡張
+- 既存 36 repos に retroactive install + 1 repo update (= network-notes の旧 hook `../../scripts/pre-commit.sh` を上書き、 git history で復元可) + 13 repos で既存 hook を `.bak` backup して上書き
+
+### Claude 側の reflex 失敗 (sub-RCA)
+
+直接因とは別に: 私 (Claude) が `.tex` 新規作成前に `conventions/latex.md` を読まなかった。 CLAUDE.md table の「LaTeX」 entry は規約 file への pointer はあるが「いつ読むか」 (= 適用タイミング) の inline rule が無い。 機械化 (= hook 強化) で防げる範囲は強化したので、 reflex 規律追加は見送る (= `work-discipline.md` の 2026-04-17 教訓「規律を 1 つ増やすより hook 強化」 と整合)。
+
+---
+
+
 
 同日 3 回目の知見追加。 年次タスク (sg-l 登録) 周知のため Discord Bot で生 HTTP request を書いた + Claude in Chrome MCP で sg.smartcore.jp を操作しようとしたが domain permission で詰んだ、 の 2 件から layer 1 (claude-config) で残すべき一般則を導出。
 
