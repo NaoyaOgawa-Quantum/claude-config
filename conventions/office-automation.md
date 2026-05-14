@@ -504,7 +504,7 @@ label cell に narrative を直接書き込んでしまう (= overwriting the pr
 **実害**:
 - 提出後に審査機関 (= 教育研究支援課等) から 「**①様式の改変**」 として差戻し
 - ファイル単位の reject や再提出処理コスト
-- 2026-05-13 JST SPReAD で odakin が同 pattern で 3 箇所 (= Sheet 3 行 10/18/28) で発生、 八木さん指摘で発覚。 user 申告では prior form fill でも同 pattern を起こしていた (= 再発 pattern)
+- 2026-05-13 JST SPReAD で 提出者が同 pattern で 3 箇所 (= Sheet 3 行 10/18/28) で発生、 所属機関の事務担当者から指摘で発覚。 提出者申告では prior form fill でも同 pattern を起こしていた (= 再発 pattern)
 
 ### 5-3. 機械的検出: `diff-form-xlsx.py`
 
