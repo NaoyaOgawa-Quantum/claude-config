@@ -27,7 +27,7 @@ Each step downward narrows the audience by **one meaningful boundary**:
 - 2 → 3: drops "your collaborators" → narrows to **you alone**, but still **any of your machines** (you might run Claude Code on a laptop, a desktop, or both)
 - 3 → 4: drops "your other machines" → narrows to **this single machine**, the one running Claude right now
 
-The 3 → 4 step matters because **the same person can have facts that differ across their machines**: hostname-specific symptoms, OS-version drift, hardware quirks (e.g. one machine is Apple Silicon, another is Intel; one has a flaky USB hub; etc.). Layer 4 is the audience-minimized place to record those — writing them at layer 3 would falsely propagate them to machines they don't apply to. **Layer 4 exists to absorb the difference between your machines as the smallest meaningful audience unit.**
+The 3 → 4 step matters because **the same person can have facts that differ across their machines**: hostname-specific symptoms, OS-version drift, hardware quirks (e.g. one machine is Apple Silicon, another is Intel; one has a flaky USB hub; `brew install foo` fails on a Tier 2 OS/arch combination but succeeds on the other — see [`conventions/install-failures.md`](../conventions/install-failures.md) for the registry pattern; etc.). Layer 4 is the audience-minimized place to record those — writing them at layer 3 would falsely propagate them to machines they don't apply to. **Layer 4 exists to absorb the difference between your machines as the smallest meaningful audience unit.**
 
 This shows up in practice as a three-way decision when you have a machine-specific fact:
 
