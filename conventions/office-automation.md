@@ -466,7 +466,89 @@ GUI 確認は MCP round-trip より user の直接視認が **常に速い**。 
 
 ---
 
-## 5. 関連リポ
+## 5. **label vs input row anti-pattern** (= 様式 改変 の主因)
+
+行政・学術 様式 xlsx の頻発バグ。 **記入前に必ず読む**。
+
+### 5-1. 構造
+
+日本の公的 様式 xlsx は section ごとに以下の 2 行 pair で組まれる:
+
+```
+Row N:    "<セクション名>の必要性" / "<セクション名>の明細"   ← pre-printed LABEL
+Row N+1:  (空白、 列方向に merged)                        ← 記入位置
+```
+
+例 (= 2026-05 JST SPReAD 様式 1 研究計画調書 Sheet 3):
+
+| 行 | 内容 | role |
+|---|---|---|
+| 9  | "総計" | label |
+| **10** | **"設備備品費、消耗品費の必要性"** | **label (pre-printed)** |
+| 11 | (empty, A11:G11 merged) | **input — 記入はここ** |
+| 18 | "謝金、旅費の必要性" | label |
+| 19 | (empty) | input |
+| 28 | "その他の必要性" | label |
+| 29 | (empty) | input |
+
+### 5-2. 典型バグ (= 様式改変)
+
+label cell に narrative を直接書き込んでしまう (= overwriting the pre-printed label)。
+
+**原因 (= reflexive form-fill)**:
+- label テキストが「section title なので、 ここに content を書け」 と読めてしまう
+- 真の入力行 (N+1) は empty に見えて「未使用 cell」 と誤解する
+- Excel は label vs input を視覚的に区別する style 付けをしない (= 同じ font、 同じ border)
+- merged input cell が大きく開いていても「装飾の空き」 にしか見えない
+
+**実害**:
+- 提出後に審査機関 (= 教育研究支援課等) から 「**①様式の改変**」 として差戻し
+- ファイル単位の reject や再提出処理コスト
+- 2026-05-13 JST SPReAD で odakin が同 pattern で 3 箇所 (= Sheet 3 行 10/18/28) で発生、 八木さん指摘で発覚。 user 申告では prior form fill でも同 pattern を起こしていた (= 再発 pattern)
+
+### 5-3. 機械的検出: `diff-form-xlsx.py`
+
+`claude-config/scripts/diff-form-xlsx.py` で雛形と提出版を全 cell diff し、 label 上書きを検出。
+
+```bash
+python3 ~/Claude/claude-config/scripts/diff-form-xlsx.py \
+    /path/to/filled.xlsx \
+    /path/to/template.xlsx
+```
+
+- **`LABEL_OVERWRITE`** (= critical): 雛形に「〜の必要性 / 〜の明細 / 〜について」 等の label-like text があり、 提出版がそれを別 text で上書き
+- **`LABEL_DELETED`** (= critical): label が空になっている
+- **`INPUT_FILLED`** (= info): 雛形 empty → 提出版 fill (= 正常)
+- **`VALUE_CHANGED`** (= info): その他の変更 (= placeholder 置換等)
+
+critical 検出時は exit code 1。 提出前 / commit 前に必ず実行する pipeline にする。
+
+label 判定は heuristic で suffix 一致 (= `の必要性 / の明細 / について / の内容 / の確認 / の有無 / の状況`)。 新しい雛形で別 suffix が現れたら script の `LABEL_SUFFIXES` に追記する。
+
+### 5-4. 予防 workflow (= 規律)
+
+1. **§0 dump で template の構造を **必ず** 最初に把握** (= label 行 と input 行 を **目視で特定** 後に fill code 書く)
+2. fill code 内で **label 行に対する write は禁止**。 input 行 (= N+1) にのみ write
+3. **fill 後に `diff-form-xlsx.py` を実行** して mechanical 検証 (= 人間目視が missed cell を catch)
+4. critical 検出時は、 label を template から restore + narrative を N+1 行に move
+
+### 5-5. dump 段階での label 識別
+
+§0 の `dump_form.py` 出力時、 各 cell が label か input かを mark するヘルパ:
+
+```python
+# dump_form.py の cell loop 内に追加
+label_marker = " [LABEL?]" if isinstance(c.value, str) and any(
+    c.value.strip().endswith(s) for s in ("の必要性", "の明細", "について", "の内容", "の確認")
+) else ""
+print(f"  {c.coordinate} (...): {v}{label_marker}")
+```
+
+dump 時点で label が浮き上がる → fill 対象から自動的に除外する判断が容易になる。
+
+---
+
+## 6. 関連リポ
 
 - 実例: `~/Claude/grant-applications/applications/2026-jst-spread/fill_xlsx.py` (SPReAD 様式 1 fill)
 - docx 自動 fill 実例: `~/Claude/grant-applications/applications/2026-jst-spread/fill_forms.py` (SPReAD 様式 0 + 様式 2 fill、 §2-5 のリファレンス実装)
