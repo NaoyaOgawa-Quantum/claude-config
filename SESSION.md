@@ -2,6 +2,15 @@
 
 ## 現在の状態
 
+**2026-05-15**: 個人層 LaTeX project の lecture draft で発生した「em-dash codepoint 混在 + okumacro hallucination」 事故から `conventions/latex.md` に 2 節追加 (commit `802aa5f`):
+
+- **fix-bib-unicode の codepoint scope** (= §「pre-commit hook」 sub-section): hook の `UNICODE_MAP` が U+2013/U+2014 のみ handle、 U+2500/U+2015/U+30FC は scope 外で保持されるという事実を codepoint 別 table で明示。 「視覚的に em-dash」 のつもりで何の codepoint を打鍵しているか自覚する規律 + audit grep の提示
+- **日本語横罫線の 3 方式比較** (= 新規 section): (a) `──` U+2500 doubled / (b) `---` LaTeX em-dash / (c) `------` LaTeX double em-dash の 3 方式、 ligature 機構、 hook 相互作用、 推奨選択を documented。 過去事故 (= Claude が「uplatex + okumacro が日本語横罫線として render」 と verify なし主張、 user の「これ本当?」 で実物 verify → okumacro 関与は捏造と判明) を経緯付きで記載
+
+判断: typographic / rendering の事項は font / OS / LaTeX package interaction で挙動が分岐するため layer 1 (全 Claude Code ユーザー) に普遍。 関連 trait「**安価な memory recall で expensive な実物 verify を bypass する**」 の規律本体は `odakin-prefs/work-discipline.md §「Typographic claim」` に外出し済 (= 個人層、 commit `f165085`)。
+
+---
+
 **2026-05-13 (3rd round)**: sg-l (素粒子論グループ) 登録周知タスクから派生して layer 1 で残すべき 2 件を追加 documented:
 
 - **`conventions/discord-bot.md`** 拡張: 新節「**Discord API call の User-Agent header 必須**」 + 既存「ネットワーク制約」 を「**Cloudflare 1010 error の鑑別**」 にリファクタ。 1010 の原因が「(1) UA 欠落」 と「(2) 組織 NW egress filter」 の 2 系統あることを明示。 起点は Python urllib で bot 投稿時の 1010 reject、 UA 修正で即解決した実体験。 既存記述は「組織 NW」 のみ帰責で不完全だったので、 鑑別順序 (= まず UA を疑え) を併記
