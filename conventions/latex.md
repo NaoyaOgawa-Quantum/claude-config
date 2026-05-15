@@ -204,6 +204,40 @@ ln -s ~/Claude/claude-config/scripts/pre-commit-bib .git/hooks/pre-commit
 
 → 全 repo install に切替えた (hook 自体が no-op skip するので害無し)。 移行は `setup.sh` を 1 回再実行すれば既存 repo に retroactive install される。
 
+### fix-bib-unicode の codepoint scope (2026-05-15 確認)
+
+hook (`scripts/fix-bib-unicode.py`) の `UNICODE_MAP` は **U+2013 (en-dash) と U+2014 (em-dash) のみ** dash 系で handle する。 他の「視覚的に似ているが codepoint が違う horizontal-line 系文字」 は scope 外:
+
+| codepoint | 字形 | hook 挙動 | 物理書での出処 |
+|---|---|---|---|
+| U+2013 | `–` (en-dash) | → `--` | 範囲記号 (page 12--15) |
+| U+2014 | `—` (em-dash) | → `---` | 欧文 em-dash |
+| **U+2500** | `─` (box drawings light horizontal) | **scope 外、 保持** | 日本語典籍の罫線 (1 つでは細い、 2 つ並べて `──` で長い横棒) |
+| U+2015 | `―` (horizontal bar) | scope 外、 保持 | 日本語小説の dash 様 (= em-dash 様の太い横棒) |
+| U+30FC | `ー` (katakana-hiragana prolonged sound mark) | scope 外、 保持 | カタカナ長音 (= dash ではないが視覚的に紛らわしい) |
+
+**Claude 規律**: `.tex/.bib` を書くとき、 「視覚的に em-dash」 のつもりで何の codepoint を打鍵しているか自覚する。 input method (= IME) が打鍵によって違う codepoint を吐くことがあり、 同じ文書内で codepoint 不一致が発生する (= 2026-05-15 個人層 private 日本語 LaTeX project の lecture draft で comments 部 U+2014 / body 部 U+2500 の混在を 1 セッション内で気付かずに作成、 hook が U+2014 のみ変換した結果 visual 一致だが source 不一致に着地)。 IME の確認 + 章執筆 1 個分書いたら `grep -P "[\x{2013}\x{2014}\x{2015}\x{2500}]"` で出現 codepoint を audit する。
+
+## 日本語横罫線 (em-dash 系) の書き方 (2026-05-15、 個人層 LaTeX project 経験で導入)
+
+日本語典籍 (= 物理書・数学書・小説・新聞) で多用される「**思考の挿入・補足・話題転換**」 を示す長い横棒 (typographically: `──` or `――`) を LaTeX で書く 3 方式の比較。 視覚的には全て似ているが source / build / hook との相互作用が異なる。
+
+| 方式 | source 例 | PDF 出力 (uplatex + jsbook/jsarticle) | hook 相互作用 | 視覚的 feel |
+|---|---|---|---|---|
+| (a) U+2500 doubled | `本章はこう書く ── これが結論` | 日本語 font の box drawings light horizontal glyph × 2 = `──` (細く均一の幅の罫線 2 連) | hook scope 外、 保持 | 日本語典籍に最も忠実 |
+| (b) LaTeX em-dash | `本章はこう書く --- これが結論` | em-dash 1 個 = `—` (タイポグラフィ的な横棒 1 本) | hook が U+2014 → `---` に変換 (= source clean を保てる) | 欧文 em-dash スタイル、 やや短い |
+| (c) LaTeX em-dash doubled | `本章はこう書く ------ これが結論` | em-dash 2 個隣接 = `——` (タイポグラフィ的な横棒 2 連) | ASCII only、 hook 介入なし | (a) に近い罫線風、 ただし接続点に細い seam が見えうる |
+
+**ligature 機構**: LaTeX で `---` は 3 文字 ligature として em-dash 1 個に変換される。 `------` は 「`---` + `---`」 と parse され em-dash 2 個になる。 `----` (4 文字) は `---` + `-` で em-dash + hyphen、 `-----` (5 文字) は `---` + `--` で em-dash + en-dash になるので、 横罫線目的なら 3 の倍数 (= 3 か 6) を使う。
+
+**推奨選択** (= 2026-05-15 個人層 LaTeX project の lecture draft 判断):
+
+- **日本語典籍に近い見た目**を最優先 → (a) U+2500 doubled。 ただし IME 由来の codepoint 混在事故に注意 (= 上の「fix-bib-unicode の codepoint scope」 参照)
+- **source ASCII clean + hook 非依存**を優先 → (c) `------`。 (a) に近い視覚 feel を ASCII で実現
+- **欧文流儀でよい / 単一の em-dash で十分** → (b) `---`。 最もシンプル
+
+**過去の事故 + 判断経緯**: 個人層 LaTeX project の lecture draft で当初 (a) U+2500 doubled を使用、 5/15 セッションで Claude が「uplatex + okumacro が日本語横罫線として render する」 と verify なし主張、 user の「これ本当?」 で実物 verify、 (b) `---` に一旦切替するも user が日本語典籍の見た目を考慮し直して (c) `------` に再切替で着地。 okumacro は実際には U+2500 の render に関与しておらず、 単に uplatex default の日本語 font が U+2500 を box-drawing glyph で render するだけだった (= Claude の typographic 主張は実物 verify なしには信用しない、 詳細規律は個人層 work-discipline.md §「Typographic claim」)。
+
 ## ドキュメント読み取り
 
 - **内容理解が目的なら PDF を `pages` パラメータ付きで読む。** tex ソースはトークン消費が大きい（数万トークンになることも）。PDF なら必要なページだけ効率的に読める
