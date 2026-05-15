@@ -45,9 +45,12 @@ claude-config/
 │   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 │   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
 │   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)
-│   ├── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認)
+│   ├── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block)
 │   ├── expensive-intermediate-artifacts.md # `-output /tmp/...` reflex 防止 (= OCR / ML / 数値計算で 5 分以上要する artifact をリポ内永続化、 hooks/expensive-tmp-guard.sh で機械的検出)
-│   └── data-pipeline-automation.md # データ単一ソース化・forward-only schema migration・judgment-required placeholder pattern・script input validation・自動化機構の validity 検証 (= reproduce by script) を bundle
+│   ├── data-pipeline-automation.md # データ単一ソース化・forward-only schema migration・judgment-required placeholder pattern・script input validation・自動化機構の validity 検証 (= reproduce by script) を bundle
+│   ├── macos-claude-app-pty-leak.md # macOS で Claude.app が `kern.tty.ptmx_max=511` を独占 → Terminal 等で `forkpty: Device not configured` 発生時の段階的 sysctl bump workaround (hard ceiling ~960、 root 対処は Claude.app restart、 Anthropic bug report 候補)
+│   ├── google-forms-automation.md # Google Forms の `FB_PUBLIC_LOAD_DATA_` HTML scrape で entry id 抽出 (= Forms API は entry id を返さない)、 prefill URL は単 section form のみ動作 (多 section で section navigation 後に prefill 失効)、 完全自動化は Selenium/Playwright + cookie 経由
+│   └── sensitive-data-pass-through.md # 受信した URL / file を別 recipient に forward する前に「依頼の scope」 と「届いた data の scope」 を必ず照合する規律 (= over-share / permission mismatch / scope downscope 機会損失の 3 失敗モード回避)
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（§8 feedback deny + escape hatch）
