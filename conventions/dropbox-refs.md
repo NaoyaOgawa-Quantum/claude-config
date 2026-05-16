@@ -41,7 +41,7 @@ $DBROOT/<subpath>/<repo>/          ← 実 working tree、.git/ もここ
 | solo 運用で Dropbox が自分の素材置き場 | **A** | 同上 |
 | arXiv cite だけで完結し Dropbox の参照 PDF を触らない | どちらでもない | 普通の `<base>/<repo>` clone で十分 |
 
-**trade-off の本質**: Pattern B は `.git/` を Dropbox の外に出すことで同期 race を根本排除する代わりに、source と asset の場所が分離して `dropbox-refs` symlink という layer が増える。Pattern A は layer が少なく mental model が単純だが、Dropbox 同期が `.git/` を触る前提 — 複数 machine が同じ `.git/` を同時に書くと壊れるので、同時編集の有無が分水嶺。
+**trade-off の本質**: Pattern B は `.git/` を Dropbox の外に出すことで同期 race を根本排除する代わりに、source と asset の場所が分離して `dropbox-refs` symlink という layer が増える (= 詳細は §9 「Pattern B のメンタルモデル」)。Pattern A は layer が少なく mental model が単純だが、Dropbox 同期が `.git/` を触る前提 — 複数 machine が同じ `.git/` を同時に書くと壊れるので、同時編集の有無が分水嶺。
 
 設計時の思考過程と経緯は `DESIGN.md` 「dropbox-refs convention」セクション参照。
 
@@ -208,6 +208,8 @@ CLAUDE.md セクションのテンプレート:
 
 `<subpath>` は **collaborator 同士で合意した Dropbox 内の場所**を書く (例: `Shared/Project/refs`)。これにより、自分用の registry を持っていない collaborator も Dropbox を Finder で navigate して同じ場所にたどり着ける。
 
+さらに collaborator (および将来の自分) が「2 つの sync チャネルの境界」 を誤解しないよう、 §9 のメンタルモデル節を SETUP.md (or CLAUDE.md) に inline するか参照することを推奨する。
+
 ---
 
 ## 4. Dropbox install root の解決
@@ -266,3 +268,61 @@ CLAUDE.md セクションのテンプレート:
 - **Path に space や非 ASCII**: scripts は quote 厳守で対応済み。TeX 等で参照する際にも `dropbox-refs/...` (ASCII) を経由するので問題は出にくい
 - **Dropbox 解約 / 移行**: 別 cloud に移った場合は `dropbox-root.sh` 相当の resolver を別途書き、setup-dropbox-refs.sh を変更するか、汎用化版に置き換える
 - **Windows-native**: 現状 unsupported。WSL なら (1) DROPBOX_ROOT または (4) ~/Dropbox 経由で動く
+
+---
+
+## 9. Pattern B のメンタルモデル: 「同一 file への 2 つの access path」 と「同期チャネル 2 系統」
+
+Pattern B では collaborator (および将来の自分) に **2 つの mental confusion 源** が生まれる。 §0 trade-off 表で「mental model layer が増える」 と書いた具体内容がこれ。 Pattern B を採用した repo の CLAUDE.md / SETUP.md には、 以下 2 点を明示することを推奨する。
+
+### 9.1 junction = 「同一 file への 2 つの access path」 (= コピーではない)
+
+`<repo>/dropbox-refs/` は **symlink (POSIX) または junction (Windows)** で、 ターゲットは `$DBROOT/<subpath>/`。 すなわち:
+
+```
+<repo>/dropbox-refs/foo.tex
+≡ $DBROOT/<subpath>/foo.tex   (同一 file への 2 つの path)
+```
+
+これは **コピーではない**。 どちらの path で開いても同じ file を編集している。 保存タイミングのズレも同期競合も構造的に起き得ない (= junction の本質)。
+
+初見の collaborator は「Dropbox にもあるし repo にもある = 2 つのコピーを sync する仕組みが要るのか?」 と誤解しやすい。 「junction = 近道、 本体は Dropbox 側 1 つ」 と説明するのが mental model 上有効。
+
+### 9.2 同期チャネル 2 系統の table
+
+Pattern B では何が git で運ばれて何が Dropbox で運ばれるかが分裂する。 collaborator にこれを明示する義務がある (= `conventions/shared-repo.md` §「standalone で成立」 の operational 完結性に相当):
+
+| チャネル | 何が運ばれるか | trigger |
+|---|---|---|
+| Dropbox client | `dropbox-refs/` 内の content (= asset folder = TeX 原稿 / 図 / 参考 PDF 等) | 保存と同時、 Dropbox client が常駐していれば即時 |
+| git push / pull | `dropbox-refs/` 以外の repo content (= notes / drafts/ PDF snapshot / CLAUDE.md / DESIGN.md / SESSION.md 等) | 明示的 `git add` + `git commit` + `git push` |
+
+**collaborator 視点の operating rule**:
+
+1. `dropbox-refs/` 配下を編集 → Dropbox sync に任せる、 git は無視
+2. それ以外 (notes / docs / PDF snapshot) を編集 → `git add` + `git commit` + `git push`
+3. 「PDF snapshot を提出版として commit する」 ような cross-channel 操作のみ明示的に行う (`cp dropbox-refs/<output> drafts/<dated>.pdf && git add -f`)
+
+### 9.3 SETUP.md inline テンプレート
+
+Pattern B repo の SETUP.md に以下を追加することを推奨:
+
+```markdown
+## ワークフロー早見表 (Pattern B 共通)
+
+このリポは 2 つの同期チャネルを併用しています。 編集する file がどっち経由で
+collaborator に届くかを把握しておくと事故が減ります。
+
+junction = 「同一 file への近道」 です。 `dropbox-refs/<subpath>` と Dropbox 直
+path (例 `~/Dropbox/<subpath>` ・ `~/Library/CloudStorage/Dropbox/<subpath>` 等) は
+**同じ file** で、 どっちで開いても同じです。
+
+| 編集対象 | 同期チャネル | 普段の操作 |
+|---|---|---|
+| (project 固有: 例 .tex / 図 / 参照 PDF) | Dropbox 自動 sync | 保存だけで OK |
+| (project 固有: 例 notes / drafts/ PDF) | git push/pull | `git commit` + `git push` |
+
+詳細規約: `~/Claude/claude-config/conventions/dropbox-refs.md §9`
+```
+
+`(project 固有: ...)` は各 project の実 path を書く。 SETUP.md は collaborator 向け cold reference なので、 抽象 (= 「assets vs notes」) ではなく具体 path を書くこと。
