@@ -33,6 +33,7 @@ claude-config/
 │   ├── substack.md         # Substack 規約（入稿: Markdown→リッチテキスト変換手順 / 取得: notes・コメントの Gmail MCP + WebFetch 経由回収）
 │   ├── shell-env.md        # シェル環境（PATH 二層防御: .zprofile 修正 + スナップショットパッチ、macOS deny ルール）
 │   ├── dropbox-refs.md     # 共同 PDF を Dropbox に置いてリポから symlink で参照する規約
+│   ├── dropbox-placeholder-diagnosis.md # Dropbox の online-only placeholder (0 byte) 診断: xattr `com.dropbox.placeholder` 検出 + OS 別 materialize 方法 + 「0 byte = 配置忘れ」 reflex 防止
 │   ├── scientific-computing.md # 数値解析 gotchas (scale-dependent default 等、科学計算リポ共通)
 │   ├── multi-machine-state.md # 複数マシンで同じ Claude Code セットアップを使うときの規律 (audit scope 明示・実機検証・idempotent setup.sh)
 │   ├── install-failures.md     # マシン固有の install 不可 package を layer 4 (machine-local memory) に蓄積する規律 (再試行コスト回避、 frontmatter format + machine-local marker + 試行日/コマンド/原因/代替の必須項目)
