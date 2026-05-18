@@ -2,6 +2,20 @@
 
 ## 現在の状態
 
+**2026-05-18 (zoom session 中の private statistical analysis project の作業から派生)**: ある cosmological tension の Phase 2 実証 work で発掘した layer 1 知見 3 件を新規追加。 朝の別 Claude session で commit された `hooks/pdf-read-fallback-nudge.sh` (= PyMuPDF 1-liner injection の機械的 enforcement) と integration:
+
+- **`conventions/wolfram-scripting.md`** (新規): Wolfram/wolframscript の script モード固有 gotcha 集。 §1 `Print[NumberForm]` literal stringification + `fmt[x_, spec_] := ToString[NumberForm[x, spec]]` helper、 §2 `SetDirectory[DirectoryName[$InputFileName]]` の空文字 fallback (= `First[$ScriptCommandLine]`)、 §3 PDF `Import "Plaintext"` を **secondary fallback** として活用 (PyMuPDF が first-line で hook injection、 wolframscript は Mathematica 持ちで PyMuPDF まで届かない時の選択肢)。 `scientific-computing.md` は「数値解析 silent failure」 scope を守って別 file 分離。 起点 = wolframscript で書いた analysis script の console table 全 cell が `NumberForm[0.8169, {6, 4}]` の literal で出力された事故 (= notebook では format 発火、 script では発火しない documented behavior)
+- **`conventions/multi-session-coordination.md`** (新規): 同 user の並列 Claude session が同 file path を race する防御規律。 §1 Session 開始 reflex (= `git fetch` + `git log --oneline -5` + plan 読み込み)、 Write 前 `find`/`ls`、 Edit 前 Read 強制、 `File has been modified since read` retry 時の必須再 Read。 §2 plan checkbox `[x]` は **実装済のみ** semantic、 forward-look は別 section 分離、 session 開始時 `git log -- <file>` で `[x]` 信用度確認。 §3 prev session の commit を「他人 commit」 として cold-read、 同日内 self-trust の罠防御。 §4 zoom 中の real-time co-editing。 [`shared-repo.md`](conventions/shared-repo.md) (= 他 user collaborator 軸) と scope 分離。 起点 = 朝の Claude session が commit 済 yaml + 複数 scripts + plots を、 新 session が plan 未読のまま独立に再現した事故 (= 偶然 content overlap で害無しだったが、 一般には session A の work を破壊する race)
+- **`docs/usage-tips.{ja,md}` §10**: plan / DESIGN の checkbox `[x]` は **実装済のみ** で使う、 forward-look は別マーカー (= `[ ]` + 「実装予定」 別 section)。 mixed semantics は別 session の reflex で必ず誤読される。 session 開始時 `git log --oneline -- <file>` で commit 存在確認の習慣化。 `multi-session-coordination.md §2` の reading mirror として配置 (= Tips 集として 1 セクション level で軽量化)
+
+**判断 (4 層モデル準拠)**: 3 件いずれも全 Claude Code ユーザーで true な fact / 規律で layer 1 行き。 wolframscript gotcha は「Mathematica 持っていれば誰でも踏む」 = 個人層に閉じる根拠なし、 multi-session race は「同 user 並列 Claude session を 1 度でも使えば誰でも踏む」 = 同様、 plan checkbox semantics は「plan を書くすべての session で関係する」 = 同様。 PII は placeholder 化 (= `<your>-prefs/` 等)、 起点 project 固有数値は触らない (= layer 2 内 closed)。
+
+**CLAUDE.md structure tree** 更新済 (= conventions/ index に 2 新 file の entry)。 [`hooks/pdf-read-fallback-nudge.sh`](hooks/pdf-read-fallback-nudge.sh) (= 別 Claude session staged) と私の `wolfram-scripting.md §3` (PDF fallback chain) が PyMuPDF first-line で integration、 wolframscript は明示的に secondary に位置付け。
+
+**残**: 起点 project 側の 4 軸 sweep TODO (= 個人層 / 該当 layer 2 リポ内) は別 commit、 cross-check (= 共著者) は後続セッション、 `wolframscript` 系統で観察された TauSqMax の scale-adaptive 対応 は別 commit (= `scientific-computing.md §1` LESSON の再発例として 後で追記候補)。
+
+---
+
 **2026-05-15**: 個人層 LaTeX project の lecture draft で発生した「em-dash codepoint 混在 + okumacro hallucination」 事故から `conventions/latex.md` に 2 節追加 (commit `802aa5f`):
 
 - **fix-bib-unicode の codepoint scope** (= §「pre-commit hook」 sub-section): hook の `UNICODE_MAP` が U+2013/U+2014 のみ handle、 U+2500/U+2015/U+30FC は scope 外で保持されるという事実を codepoint 別 table で明示。 「視覚的に em-dash」 のつもりで何の codepoint を打鍵しているか自覚する規律 + audit grep の提示

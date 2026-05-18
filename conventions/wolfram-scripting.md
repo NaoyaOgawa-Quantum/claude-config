@@ -153,4 +153,4 @@ If[Head[res] === List, Length[res], StringLength[res]]
 
 - 数値計算の scale-dependent default 等 numerical silent failure: [`scientific-computing.md`](scientific-computing.md)
 - マシン固有 install 不可 package の蓄積 (= poppler 等が source build 失敗した時の machine-local 記録): [`install-failures.md`](install-failures.md)
-- PDF text 抽出の代替 tool (= PyMuPDF / sips / arXiv HTML) と環境別の選択順序は 個人層 (`<your>-prefs/`) の dev-environment 規約で machine 別に分岐表として持つのが筋 (= 「odakin の家 MacBook では PyMuPDF first / 職場 iMac では wolframscript も候補」 等は machine-dependent fact)
+- PDF text 抽出の代替 tool (= PyMuPDF / sips / arXiv HTML) と環境別の選択順序は 個人層 (`<your>-prefs/`) の dev-environment 規約で machine 別に分岐表として持つのが筋 (= 「マシン A では PyMuPDF first / マシン B では wolframscript も候補」 のような machine-dependent fact は cross-machine 比較を含むので layer 3 行き、 cf. [`docs/personal-layer.md`](../docs/personal-layer.md))
