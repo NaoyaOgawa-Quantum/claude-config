@@ -75,7 +75,7 @@ grep -nE '\\(newcommand|renewcommand|providecommand|nc|def|NewDocumentCommand|De
 
 `\newcommand{\foo}[N]{...prefix...#1...suffix...}` 形式で **argument の前後に hardcoded prose を持つ macro** を定義する場合、 source level (= `.tex` の grep / git diff / 自分の音読) では prefix/suffix と argument の grammatical 統合が **見えない**。 短 argument で正しく書けた fixed text が、 長 / 拡張 argument で render 後に文法的 broken する。 これは pdftotext / 視覚 PDF inspection でしか expose 不能な class の bug。
 
-**典型失敗例 (= 2026-05-18 einstein-cartan、 retraction marker macro)**:
+**典型失敗例 (= 2026-05-18、 物理 LaTeX project の retraction marker macro)**:
 
 ```latex
 % 旧定義 (= bug あり)
