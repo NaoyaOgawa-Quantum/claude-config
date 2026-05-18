@@ -71,6 +71,49 @@ grep -nE '\\(newcommand|renewcommand|providecommand|nc|def|NewDocumentCommand|De
 
 リポ固有の active semantic macro 一覧と例外運用は各リポの `CLAUDE.md §LaTeX rules` 参照 (Layer 2)。Layer 1 の本則は「プリアンブルにあれば必ず使う」、Layer 2 は「このリポで何が active か」 のディレクトリ。
 
+## 新規 macro に fixed framing text を含める前に source-render asymmetry の罠を抑える
+
+`\newcommand{\foo}[N]{...prefix...#1...suffix...}` 形式で **argument の前後に hardcoded prose を持つ macro** を定義する場合、 source level (= `.tex` の grep / git diff / 自分の音読) では prefix/suffix と argument の grammatical 統合が **見えない**。 短 argument で正しく書けた fixed text が、 長 / 拡張 argument で render 後に文法的 broken する。 これは pdftotext / 視覚 PDF inspection でしか expose 不能な class の bug。
+
+**典型失敗例 (= 2026-05-18 einstein-cartan、 retraction marker macro)**:
+
+```latex
+% 旧定義 (= bug あり)
+\newcommand{\subretracted}[1]{%
+  \par\noindent\textit{[Retracted. See #1 above for context.]}\par%
+}
+```
+
+- 短 argument: `\subretracted{Movement 3 retraction box}` → "See Movement 3 retraction box above for context." ✓
+- 拡張 argument: `\subretracted{Movement 3 retraction box --- the literature fact remains valid}` → "See Movement 3 retraction box --- the literature fact remains valid above for context." ✗ ("remains valid above for context" が文法的に意味不明)
+
+source レベルでは「うまく書けている」 ように見える。 10 instances 中 5 instances broken だが 4 layer の sweep を回しても本人気付かず、 pdftotext で初めて発覚した実例。
+
+**回避設計 (= 推奨される 1st choice)**: macro に hardcoded prose を持たせず、 **全 prose を argument に持たせる**。 macro は wrapper のみ:
+
+```latex
+% 修正後 (= bug 不能)
+\newcommand{\subretracted}[1]{%
+  \par\noindent\textit{[Retracted. #1]}\par%
+}
+% caller 側で full sentence を渡す:
+%   \subretracted{See Movement 3 retraction box above for context.}
+%   \subretracted{See Movement 3 retraction box above. The literature fact remains valid.}
+```
+
+caller が完結した sentence を渡すので、 macro 側 fixed text と argument の grammatical 衝突が原理的に起きない。
+
+**回避不能で fixed framing を含めざるを得ない場合 (= 2nd choice)**: commit 前に必ず render verify。 全 instance を pdftotext で extract → semantic 読み:
+
+```bash
+pdftotext -layout file.pdf - > /tmp/render.txt
+grep -B1 -A2 "your-marker-keyword" /tmp/render.txt
+```
+
+複数 instance がある場合は **全部** 読む (= 1 instance だけ verify して OK と結論する trap も同 class)。
+
+**一般化 (= 同 class の bug が出やすい構造)**: figure caption macro / table header macro / footnote wrapper macro / theorem environment / itemize/enumerate label customization / hyperref anchor macro 等、 「macro 側で fixed prose を author し、 argument で variable 部分のみ受ける」 全ての構造に同警戒。 source 静的解析 (grep / lint) では基本的に expose 不能、 render が唯一の検証手段。
+
 ## コンパイラ
 
 odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2 段ワークフローは**英語論文では使わない**。
