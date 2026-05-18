@@ -349,3 +349,28 @@ PDF 上で段落区切りが visible (= LaTeX default `\parskip` で 1 行分の
 ### Why
 
 editorial typography で「機械改行を許容しない」 のは標準。 magazine cover / book cover / 学会ポスター等の display title は **文節境界改行**が defacto standard で、 auto-wrap 結果は visual quality を下げる。 yaml で行配列を持つ pattern は (a) wrap が text 編集の一部として扱える (b) display と web (= wrap なし) で同じ source から両方 generate できる、 2 つの利点がある。
+
+## PDF 視覚検証 reflex: compile success + log no-error だけで完了としない
+
+LaTeX edit 後、 `pdflatex` が完走しても visual の overflow / misalignment / text 切れは普通に起きる。 「compile 成功」 を成功 signal にすると見落とす。 edit のたびに以下を回す:
+
+1. `pdflatex -interaction=nonstopmode FILE.tex 2>&1 | grep -iE "^! |Overfull"` — fatal error + overflow warning を確認
+2. `python3 -c "import fitz; doc=fitz.open('FILE.pdf'); pix=doc[N].get_pixmap(dpi=200); pix.save('/tmp/check.png')"` — 該当 page を PNG 化
+3. `/tmp/check.png` を Read tool で開いて **視覚確認** (= 「compile OK」 だけで完了としない)
+4. `Overfull \hbox (N pt too wide)` warning が出たら必ず該当 page を render して overflow が visual に問題ないか確認
+
+### 典型 trap (= 2026-05-18 EC erratum note 編集で連続再発)
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `\paragraph{...}` 直後の `\colorbox{...}` が page 右に流れる + 右端 truncate | `\paragraph` は inline header、 後続 box が paragraph 内の continuation 扱い | `\subsubsection*{...}` か `\par\medskip\noindent\textbf{...}\par` で block separate |
+| tikz の隣接 node が重なる | 2 node 間の position 計算が tight | 1 つの node に統合 (e.g., `=` と次 text を 1 node) または coordinates を広げる |
+| `\verb|...|` が `\colorbox{...}\parbox{...}` 内で `! \verb illegal in argument` | `\verb` は box 引数内で使えない | `\texttt{...\\_...}` で literal underscore escape |
+| `\bfseries` が math mode で `! Command \bfseries invalid in math mode` | bold を math 内で適用しようとした | `\boldsymbol{}` か、 `\text{\bfseries ...}` で text 切り替え |
+| Unicode `✗` `✓` で `! LaTeX Error: Unicode character (U+xxxx)` | utf8 inputenc default で読めない記号 | `$\times$` `\checkmark` に置換、 または `\usepackage{pifont}` + `\ding{}` |
+| table の comment 列が page 右を超えて truncate | column が自然幅で expand、 long text で overflow | `p{width}` で wrap 化 + `\setlength{\tabcolsep}{4pt}` で間隔調整 + 必要なら `\footnotesize` |
+| tikzpicture 全体が page 右に偏る | tikz の `\node[align=center]` の width が長い text で右に extend、 bounding box が asymmetric | text 位置を `align=center` の代わりに固定 coord で配置 + node 間 spacing を測って overlap 避ける |
+
+### Why
+
+`pdflatex` の exit code 0 + `! ` error 不在は **build success** の signal であって **visual success** の signal ではない。 `Overfull \hbox` は warning として log に出るだけで build を止めない (= 文字が page 外に hanging するだけ)。 PDF を visual で見ない限り「✓ IS RIGHT (phy...」 で truncate されている等の事故は気付けない。 PyMuPDF (`fitz`) は poppler 不要で macOS default で使えるので、 reflex として安価。
