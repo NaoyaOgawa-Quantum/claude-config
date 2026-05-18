@@ -2,6 +2,16 @@
 
 ## 現在の状態
 
+**2026-05-19 (個人層 42+ repo への GitHub security automation 全展開からの汎化)**: 前日 evening 以降の長 session で個人層 repo 群 (= odakin/ + twcu-phys/) に Dependabot/CodeQL/Semgrep/auto-merge baseline 全展開 (= [`odakin-prefs/security-automation.md`](../odakin-prefs/security-automation.md)) + Eleventy 2→3 migration + Dependabot PR 50+ 件 tier-based merge + auto-baseline 適用 dashboard 拡張、 そこで発掘した **generic patterns + tool-level gotcha** を layer 1 に外出し:
+
+- **`conventions/github-security-automation.md`** (新規、 11 sections): (1) Baseline 構成 (= alerts/updates/CodeQL/Semgrep/auto-merge/branch-protection の責務分離)、 (2) **Free plan silent rejection patterns** (= `allow_auto_merge=true` の PATCH 200 OK だが state は false、 verify-after-write 必須)、 (3) Auto-merge workflow 設計 (= `pull_request_target` checkout-less + capability check graceful skip + safety cutoff `github-actions ∨ patch/minor`)、 (4) Workflow permissions explicit 宣言 + CodeQL `missing-workflow-permissions` 警告対処、 (5) Monorepo dependabot.yml `directories:` + `groups:` で noise 低減、 (6) **Dependabot PR review tier discipline** (Tier 1-4、 patch / github-actions major / sibling-proven migration / library 自体の major)、 (7) **ESM migration backwards-compatible normalizer** (= `raw.default || raw` で v1/v3 両対応、 land normalizer first → merge bumping PR 後追い)、 (8) **`gh` CLI gotcha** (= `users/X/repos` public-only / `gh repo list` で private 含む / mergeStateStatus = UNKNOWN は wait+retry / `gh search prs --owner` 複数指定)、 (9) **bash `set -e` + heredoc + `$(...)` interaction** (= `set +e` / `set -e` bracketing で fail-tolerant 化)、 (10) Cascading Dependabot PR convergence loop (= monorepo `directories:` で 1 PR merge 後 sibling subdir で同 PR 連発、 5 iter で converge)、 (11) Layer 1 vs Layer 3 cross-references。
+
+**判断 (4 層モデル準拠)**: 上記 11 sections はいずれも GitHub repo を運用する全 Claude Code user で true な fact / pattern で layer 1 行き。 具体 repo 数 / 具体 PR 番号 / 具体的 owner 名 等の **個別 user 実装**は layer 3 ([`odakin-prefs/security-automation.md`](../odakin-prefs/security-automation.md)) に残置、 layer 1 から cross-ref。 layer 3 の冒頭にも逆方向の cross-ref を追加 (= 「generic patterns 正本は layer 1」 と明示)。 `secure-new-repo.sh` (= 実 deploy script + templates) は特定 GH user の repo 集合に当てる前提なので layer 3 維持。
+
+**CLAUDE.md structure tree** 更新済 (= conventions/ index に github-security-automation.md entry 追加)、 CONVENTIONS.md 冒頭の conventions/ list にも追加。
+
+---
+
 **2026-05-18 (zoom session 中の private statistical analysis project の作業から派生)**: ある cosmological tension の Phase 2 実証 work で発掘した layer 1 知見 3 件を新規追加。 朝の別 Claude session で commit された `hooks/pdf-read-fallback-nudge.sh` (= PyMuPDF 1-liner injection の機械的 enforcement) と integration:
 
 - **`conventions/wolfram-scripting.md`** (新規): Wolfram/wolframscript の script モード固有 gotcha 集。 §1 `Print[NumberForm]` literal stringification + `fmt[x_, spec_] := ToString[NumberForm[x, spec]]` helper、 §2 `SetDirectory[DirectoryName[$InputFileName]]` の空文字 fallback (= `First[$ScriptCommandLine]`)、 §3 PDF `Import "Plaintext"` を **secondary fallback** として活用 (PyMuPDF が first-line で hook injection、 wolframscript は Mathematica 持ちで PyMuPDF まで届かない時の選択肢)。 `scientific-computing.md` は「数値解析 silent failure」 scope を守って別 file 分離。 起点 = wolframscript で書いた analysis script の console table 全 cell が `NumberForm[0.8169, {6, 4}]` の literal で出力された事故 (= notebook では format 発火、 script では発火しない documented behavior)
