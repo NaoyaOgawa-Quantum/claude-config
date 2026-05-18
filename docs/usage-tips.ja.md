@@ -111,3 +111,26 @@ CONVENTIONS.md §3 の「SESSION.md ~80 行」 target を守るには、 各 doc
 - ~~strikethrough done~~ entry は CONVENTIONS §3「完了 [x] を除去」 に従い削除
 
 **実例 (2026-05-05 LorentzArena Rule B exit margin、 棚卸し怠慢)**: SESSION.md が既に 188 行 (~80 行 target の 2.4x 超) の状態で、 私 (Claude) は 18 行の detail entry を追加して 204 行に押し上げた。 user 「コードを深く 4 軸チェック」 で post-deploy 棚卸しを initiate された結果、 5/2-5/5 の deploy 済 + verified entries (= 5 session 分) が詳細のまま残存していると判明、 全面棚卸しで 204 → 104 行 (= 49% 削減) に圧縮。 entry detail は DESIGN.md / docstring / commit message に既存していたため SESSION からは link のみで sufficient だった (= 重複の典型)。 詳細: [LorentzArena commit `ddcd0d6`](https://github.com/sogebu/LorentzArena/commit/ddcd0d6)
+
+## 10. plan / DESIGN の checkbox `[x]` は **実装済のみ** で使う
+
+### Why
+
+`[x]` の semantic を「実装済」 と「実装予定 (forward-look)」 で **混用すると、 別 session の Claude が plan を読んだ時に reflex 解釈で誤る**。 「実装予定」 を `[x]` で書いてしまった forward-look entry を、 後で別 session が「実装済」 として skip した結果、 該当 task が永遠に欠落する事故が発生する。 逆に、 実装済の `[x]` を未着手と勘違いして重複実装するケースも起きる ([`multi-session-coordination.md §2`](../conventions/multi-session-coordination.md))。
+
+### How to apply
+
+| マーカー | 意味 | 別 session が読んだ時の解釈 |
+|---|---|---|
+| `[ ]` | 未着手 | 「これから実装する」 |
+| `[ ] (実装中: <hash>)` | 部分実装、 完了でない | 「commit はあるが意図を満たしていない、 続きを引き受ける」 |
+| `[x]` | **実装済 + main 取り込み済 + 意図を満たす** | 「無条件 skip して次の task へ」 |
+
+forward-look (= 「次にやる予定」) は `[x]` を使わない。 plan の別 section (= 「次にやる」 / 「Phase 2 予定」 等) に分離して、 checkbox 軸は「実装済 / 未着手」 の 2 値に保つ。 mixed semantics は別 session の reflex で必ず誤読される。
+
+session 開始時に plan を読んで `[x]` を見たら、 該当 task が **対応する commit を含むか** を `git log --oneline -- <relevant-file>` で 1 回確認する習慣を入れる (= 同日内の self-trust の罠の防御)。 commit が存在しなければ forward-look の疑い、 plan 著者 (= user) に確認するか自分で実装する。
+
+### Anti-pattern
+
+- **session 切れる直前に「予定として `[x]`」 を書く**: 次 session の自分 (or 別 Claude session) が誤読の温床。 切れる前に `[ ] (next session で実装)` の方が明示的
+- **`[x] (forward-look)` 等のラベル付き forward-look**: 機械的 grep / reflex 解釈で label を見落として誤読される。 forward-look は `[ ]` のままで運用

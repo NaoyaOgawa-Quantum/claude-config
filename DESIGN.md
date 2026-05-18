@@ -977,3 +977,81 @@ git commit -m "test"     # → 期待: tier-b で reject
 
 - 2026-05-14 leak (= ε 3 件目、 forcing function 閾値到達): 個人層 `leak-incidents.md` に詳細
 - setup.sh post-merge での symlink 自動 verify は未実装 (= 将来 enhancement、 `scripts/setup-dropbox-refs.sh` と同様の pattern で `scripts/setup-sensitive-terms.sh` を作る案あり)
+
+## 2026-05-18: PDF Read tool fallback hook 設計判断
+
+### 起点 = 2 連続失敗の RCA
+
+2026-05-18 朝、 別 Claude session が bayes-kai/plans/2026-05-18-letter-diagnostic-battery.md 議論中に `~/Dropbox/papers/2312.08542v2.pdf` を Read tool で読もうとして `Error: pdftoppm is not installed` で fail (= 職場 iMac の Intel kabylake Tier 2 で poppler の bottle 不在 + source build 失敗 という既知パターン)、 arXiv HTML v1 に lazy substitution → HTML v1 の section 構造から「Gariazzo+ 2023 review」 と attribution → 真は **Leizerovich, Landau, Scóccola** (= UBA+CONICET+UNLP の research paper, NOT review) で 1〜2 hour の議論が誤前提で進行。 odakin-prefs 側で規律化 (= CLAUDE.md inline §18 + work-discipline.md §「PDF Read tool error...」 + memory `reference_install_failures.md` の poppler entry に代替経路試行順序)。
+
+同日後続セッションで第二事例: CosmoVerse PDF (24 MB) を Read tool fail → 「Wolfram で完全に賄える」 と発話 + PyMuPDF / sips 試行 skip + 即 Mathematica で PDF text 抽出を実行。 Mathematica 実行自体は valid だったが、 規律された default 経路 (= PyMuPDF) を skip して別 valid path に jump した = 規律順守 reflex の gap。 旧 wording 「arXiv HTML への lazy substitution」 を別セッションが arXiv HTML specific と reflex 解釈、 「Wolfram への substitution は別 issue」 と読まれた。
+
+これは「規律 wording の reflex 解釈に依存する」 設計の脆弱性を実証 = **規律 commit のみでは不十分、 機械的 enforcement layer が必要**。
+
+### 設計選択
+
+**選択**: `claude-config/hooks/pdf-read-fallback-nudge.sh` を新規追加 (= layer 1、 universal 規律)、 `PostToolUse` の `matcher: "Read"` で hook、 stdin JSON の `.tool_input.file_path` (= `.pdf` 拡張子) + 全体 stdin に `pdftoppm is not installed` を含む条件で発火、 system reminder で PyMuPDF 1-liner を injection。
+
+**logic**:
+1. stdin JSON parse (jq 必須、 git-state-nudge.sh と同パターン)
+2. file_path が `.pdf` (case-insensitive) かつ stdin 全体に `pdftoppm is not installed` を含む → 発火条件成立
+3. `python3 -c 'import fitz'` で PyMuPDF 利用可能性を probe
+4. PyMuPDF 利用可能 → `python3 -c "import fitz; doc = fitz.open('<escaped-path>'); print(doc.metadata, doc.page_count); print(doc[0].get_text()[:500])"` の 1-liner を system reminder で emit
+5. PyMuPDF 利用不可 → `pip3 install --user pymupdf` の install hint + `sips` fallback hint を emit
+6. system reminder には arXiv HTML 代替の絶対条件 (= 版一致 + PyMuPDF metadata で attribution cross-check) も併記
+
+**Always exit 0**: 情報的 nudge であってブロックではない (= `permissionDecision: ask` は使わない、 既に Read tool が fail した後の事後 nudge)。
+
+**stateless**: state file 持たず per-call 完結。 何度発火しても同じ message。
+
+**silent 条件** (= false positive 防止):
+- jq / stdin 不在 (hook 環境不在)
+- `.pdf` 拡張子無し
+- pdftoppm 失敗 marker 不在 (= 別 error)
+- python3 不在 (= PyMuPDF も install できない環境)
+
+### 4 層モデル上の位置付け
+
+hook 本体 (script + settings.json schema) = **layer 1** (claude-config、 全 Claude Code ユーザー)。 「Read tool が PDF を pdftoppm で render する設計」 と「PyMuPDF が独立 path として valid」 は universal fact、 layer 1 で書ける。 ただし activation 自体は machine 環境依存:
+- PyMuPDF が install されていれば 1-liner が動く
+- PyMuPDF が install されていなければ install hint を emit
+- python3 が無ければ silent (= 発火条件不成立)
+
+これは layer 1 の「universal 規律 + machine 環境への conditional 反応」 という mixed pattern で、 既存 hook (= `expensive-tmp-guard.sh` が Audiveris / oemer 等の存在を probe するのと同型) と整合。
+
+### 規律 wording との併用設計
+
+規律本体 (= odakin-prefs CLAUDE.md inline §18 + work-discipline.md §「PDF Read tool error を別経路への lazy substitution で覆い隠さない」 + memory poppler entry) は **wording-level の reflex 起動**、 hook は **mechanical enforcement layer**。 2 重 (規律 + hook) で reflex の癖に依存しない設計。 加えて §18 の冒頭 1 行を command-form punchy 化 (= 2026-05-18 同日 commit) して reflex 起動の起点を最短化、 これと hook の system reminder の wording を一致 (= 「`python3 -c "import fitz; ..."` を 1 回」) させて、 Claude が「規律で読んだ 1-liner」 = 「hook が injection した 1-liner」 と認識できるよう設計。
+
+### 既知の limitation
+
+- PyMuPDF が image-only PDF (= scanned) で text empty を返した場合は sips PNG 化に fallback、 sips も無ければ Claude が手動で別経路を探す必要 (= 規律本体に書いてある)
+- hook は `pdftoppm is not installed` symptom に依存。 別 PDF read failure mode (= PDF corrupt、 access denied 等) には発火しない (= 他 path で対応)
+- python3 path が PATH に無い環境 (= virtualenv 未 activate 等) で `command -v python3` が fail する場合は silent。 false negative。 setup.sh の PATH 二層防御で `/usr/bin/python3` が常に見える前提
+
+### 検証手順
+
+```bash
+# 1. hook script の手動 test (= stdin JSON 渡しで 3 scenarios)
+echo '{"tool_input":{"file_path":"/path/foo.pdf"},"tool_response":{"error":"Error: pdftoppm is not installed."}}' \
+  | ~/.claude/hooks/pdf-read-fallback-nudge.sh
+# → system reminder emit を確認 (exit 0)
+
+echo '{"tool_input":{"file_path":"/tmp/foo.md"},"tool_response":{"error":"x"}}' \
+  | ~/.claude/hooks/pdf-read-fallback-nudge.sh
+# → silent (exit 0)
+
+# 2. settings.json に entry 登録済か
+jq '.hooks.PostToolUse[] | select(.hooks[]?.command | contains("pdf-read-fallback-nudge"))' \
+  ~/.claude/settings.json
+# → entry 1 件返る
+
+# 3. 実 Read tool で fail を再現して hook 発火を観察 (= 次セッションで)
+# Read tool で .pdf を読む → fail → 次 turn の context に system reminder が
+# inject されているか確認
+```
+
+### 関連事故 / 規律
+
+- 2026-05-18 朝 arXiv:2312.08542 Gariazzo 誤同定: bayes-kai/plans/2026-05-18-letter-diagnostic-battery.md §13 + 個人層 work-discipline.md §「PDF Read tool error を別経路への lazy substitution で覆い隠さない」 + odakin-prefs CLAUDE.md inline §18
+- 2026-05-18 同日後続 Wolfram lazy substitution (= 第二事例): 同 plan §13 第二事例 sub-section + メタ層 RCA (= 規律を書く Claude も §16「context 構築での単一情報源 null 結論飛躍」 を起こす)

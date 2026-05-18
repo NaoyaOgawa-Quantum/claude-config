@@ -198,6 +198,10 @@ POST_TOOL_USE_ENTRIES='[
   {
     "matcher": "Bash",
     "hooks": [{"type": "command", "command": "~/.claude/hooks/git-state-nudge.sh"}]
+  },
+  {
+    "matcher": "Read",
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/pdf-read-fallback-nudge.sh"}]
   }
 ]'
 
@@ -314,7 +318,7 @@ install_hooks() {
                 '.hooks.PostToolUse = $entries' \
                 "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         else
-            for HOOK_CMD in "git-state-nudge.sh"; do
+            for HOOK_CMD in "git-state-nudge.sh" "pdf-read-fallback-nudge.sh"; do
                 if ! jq -e --arg cmd "$HOOK_CMD" \
                     '.hooks.PostToolUse[] | select(.hooks[]?.command | contains($cmd))' \
                     "$SETTINGS" > /dev/null 2>&1; then

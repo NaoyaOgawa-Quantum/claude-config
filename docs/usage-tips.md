@@ -111,3 +111,26 @@ Separate roles and temporal scopes:
 - Per CONVENTIONS §3 "remove `[x]` items": delete ~~strikethrough done~~ entries
 
 **Worked example (2026-05-05 LorentzArena Rule B exit margin, cleanup neglected)**: SESSION.md was already at 188 lines (2.4x over the ~80 line target). I (Claude) added an 18-line detail entry, pushing it to 204 lines. After the user prompted "audit the code with all four axes", a post-deploy cleanup revealed that entries from 5 sessions (5/2–5/5) — all deployed + verified — were still sitting in SESSION at full detail. A full pass compressed it to 104 lines (49% reduction). The detail already lived in DESIGN.md / docstring / commit messages, so SESSION only needed link-outs (= textbook duplication case). See [LorentzArena commit `ddcd0d6`](https://github.com/sogebu/LorentzArena/commit/ddcd0d6).
+
+## 10. plan / DESIGN checkbox `[x]` means **implemented**, nothing else
+
+### Why
+
+Mixing "implemented" and "forward-look (planned)" semantics on `[x]` causes **another Claude session reading the plan to mis-interpret it on reflex**. A forward-look entry mistakenly marked `[x]` gets skipped by the next session as "already done", and the task vanishes forever. The opposite also happens: an actually-implemented `[x]` gets re-implemented by a session that didn't recognize it ([`multi-session-coordination.md §2`](../conventions/multi-session-coordination.md)).
+
+### How to apply
+
+| Marker | Meaning | How another session will read it |
+|---|---|---|
+| `[ ]` | Not started | "I'll implement this" |
+| `[ ] (in progress: <hash>)` | Partial, not complete | "There's a commit but the intent isn't fully met — I'll pick up the rest" |
+| `[x]` | **Implemented + merged to main + satisfies the intent** | "Unconditionally skip and move on" |
+
+Don't use `[x]` for forward-look (= "next thing to do"). Forward-look items go in a separate plan section (= "Next" / "Phase 2 planned" / etc.). Keep the checkbox axis binary: done vs not started. Mixed semantics will always be misread by another session on reflex.
+
+When you open a session and read a plan, every `[x]` you encounter should be sanity-checked with `git log --oneline -- <relevant-file>` to confirm a corresponding commit exists (= guards against the same-day self-trust trap). If no commit exists, treat it as a forward-look suspect: ask the plan author (= user) or implement it yourself.
+
+### Anti-pattern
+
+- **Marking `[x]` "as a plan" right before a session ends**: the next self (or another Claude session) will misread it. Use `[ ] (implement next session)` to be explicit instead.
+- **Labeled forward-look like `[x] (forward-look)`**: grep-based / reflex-based reads miss the label. Forward-look entries stay `[ ]`.
