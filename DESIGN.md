@@ -982,7 +982,7 @@ git commit -m "test"     # → 期待: tier-b で reject
 
 ### 起点 = 2 連続失敗の RCA
 
-2026-05-18 朝、 別 Claude session が bayes-kai/plans/2026-05-18-letter-diagnostic-battery.md 議論中に `~/Dropbox/papers/2312.08542v2.pdf` を Read tool で読もうとして `Error: pdftoppm is not installed` で fail (= 職場 iMac の Intel kabylake Tier 2 で poppler の bottle 不在 + source build 失敗 という既知パターン)、 arXiv HTML v1 に lazy substitution → HTML v1 の section 構造から「Gariazzo+ 2023 review」 と attribution → 真は **Leizerovich, Landau, Scóccola** (= UBA+CONICET+UNLP の research paper, NOT review) で 1〜2 hour の議論が誤前提で進行。 odakin-prefs 側で規律化 (= CLAUDE.md inline §18 + work-discipline.md §「PDF Read tool error...」 + memory `reference_install_failures.md` の poppler entry に代替経路試行順序)。
+2026-05-18 朝、 別 Claude session が個人層の private research repo plan ファイルでの議論中に arXiv preprint PDF を Read tool で読もうとして `Error: pdftoppm is not installed` で fail (= Intel Mac の Tier 2 で poppler の bottle 不在 + source build 失敗 という既知パターン)、 arXiv HTML v1 に lazy substitution → HTML v1 の section 構造から別 group の review と誤 attribution → 真は research paper で別著者 chain (= arXiv ID 自体は public、 攻撃面なし) で 1〜2 hour の議論が誤前提で進行。 個人層で規律化 (= CLAUDE.md inline §18 + work-discipline.md §「PDF Read tool error...」 + memory `reference_install_failures.md` の poppler entry に代替経路試行順序)。
 
 同日後続セッションで第二事例: CosmoVerse PDF (24 MB) を Read tool fail → 「Wolfram で完全に賄える」 と発話 + PyMuPDF / sips 試行 skip + 即 Mathematica で PDF text 抽出を実行。 Mathematica 実行自体は valid だったが、 規律された default 経路 (= PyMuPDF) を skip して別 valid path に jump した = 規律順守 reflex の gap。 旧 wording 「arXiv HTML への lazy substitution」 を別セッションが arXiv HTML specific と reflex 解釈、 「Wolfram への substitution は別 issue」 と読まれた。
 
@@ -1053,5 +1053,5 @@ jq '.hooks.PostToolUse[] | select(.hooks[]?.command | contains("pdf-read-fallbac
 
 ### 関連事故 / 規律
 
-- 2026-05-18 朝 arXiv:2312.08542 Gariazzo 誤同定: bayes-kai/plans/2026-05-18-letter-diagnostic-battery.md §13 + 個人層 work-discipline.md §「PDF Read tool error を別経路への lazy substitution で覆い隠さない」 + odakin-prefs CLAUDE.md inline §18
-- 2026-05-18 同日後続 Wolfram lazy substitution (= 第二事例): 同 plan §13 第二事例 sub-section + メタ層 RCA (= 規律を書く Claude も §16「context 構築での単一情報源 null 結論飛躍」 を起こす)
+- 2026-05-18 朝 arXiv preprint attribution 誤同定 RCA: 個人層 research repo の関連 plan + 個人層 work-discipline.md §「PDF Read tool error を別経路への lazy substitution で覆い隠さない」 + odakin-prefs CLAUDE.md inline §18
+- 2026-05-18 同日後続 Wolfram lazy substitution (= 第二事例): 同 plan の対応 sub-section + メタ層 RCA (= 規律を書く Claude も §16「context 構築での単一情報源 null 結論飛躍」 を起こす)

@@ -110,7 +110,7 @@ git log --oneline --all -- analyses/data/foo.yaml | head -3
 
 ### 実例パターン
 
-- prev session が attribution 訂正 commit (= `arXiv:2312.08542 = Leizerovich+ Landau+ Scóccola, NOT Gariazzo`) を打った後、 新 session が plan の「Gariazzo」 と書かれた残存箇所を読んで「Gariazzo は確定」 と reflex 採用 → 訂正済 fact を逆戻り
+- prev session が attribution 訂正 commit (= arXiv preprint の著者帰責を別グループへ訂正) を打った後、 新 session が plan の旧著者名と書かれた残存箇所を読んで「旧著者帰責は確定」 と reflex 採用 → 訂正済 fact を逆戻り
 - prev session が plan の Phase 2 task list で `[x]` を打った後、 新 session が「Phase 2 完了」 と reflex 解釈して Phase 3 着手 → Phase 2 の cross-check task が残っていることに気付かない
 
 防御: `git log -p -3` で最近 3 commit の **完全 diff** を読み、 prev session の意図を context として吸収してから自 session の action を判断。

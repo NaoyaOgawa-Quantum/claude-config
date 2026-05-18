@@ -22,13 +22,14 @@
 #   But the discipline depends on Claude's reflex interpretation of
 #   the wording, which has failed twice within 2026-05-18:
 #     (a) Morning: Read tool fail → arXiv HTML v1 lazy substitution
-#         → Gariazzo attribution misidentification (real author:
-#         Leizerovich+ Landau+ Scóccola).
+#         → arXiv preprint attribution misidentified (HTML v1 section
+#         names were treated as authoritative; real authors were a
+#         different research group).
 #     (b) Afternoon (POST initial discipline commit): Read tool fail
-#         → "Wolfram で完全に賄える" + skipped PyMuPDF/sips, jumped
-#         straight to Mathematica. Mathematica execution itself was
-#         valid, but skipping the regulated default path was a
-#         discipline violation.
+#         → "alternative-tool で完全に賄える" + skipped PyMuPDF/sips,
+#         jumped straight to the alternative. The alternative
+#         execution itself was valid, but skipping the regulated
+#         default path was a discipline violation.
 #
 #   This hook provides a MECHANICAL enforcement layer that does not
 #   depend on Claude reading the discipline correctly: every time the
@@ -155,11 +156,10 @@ cat <<'EOF'
 Substitution to arXiv HTML / Wolfram / WebFetch is acceptable ONLY AFTER
 PyMuPDF has been tried and its result exposed in chat. When using arXiv
 HTML, version-match the user's PDF (v2 PDF → v2 HTML, never v1) and
-cross-check author/title with PyMuPDF metadata (the 2026-05-18 morning
-RCA: arXiv:2312.08542 was misattributed to "Gariazzo+ 2023 review"
-because the Claude session used HTML v1 section names without
-PyMuPDF-based author verification — the real authors are Leizerovich,
-Landau, Scóccola).
+cross-check author/title with PyMuPDF metadata. The 2026-05-18 morning
+RCA shows that HTML v1 section names alone — without PyMuPDF-based
+author verification — led to attributing an arXiv preprint to the
+wrong research group.
 </system-reminder>
 EOF
 
