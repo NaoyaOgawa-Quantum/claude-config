@@ -161,6 +161,8 @@ const usable = raw.default || raw;
 - v1 (= old CJS): `raw.default` is undefined、 fallback to `raw` (= bare function) ✓
 - v3 (= new ESM): `raw.default` is the function ✓
 
+**Edge case (= 知っていれば足りる)**: `.default` が falsy 値 (= 0 / null / "" 等) を取る ESM module では fallthrough して raw 全体を返す。 plugin library で `.default` が function 以外になることは実務的に稀だが、 numerical / data library で `.default` に数値を export している場合は `raw.default ?? raw` (= nullish coalescing) や明示的 `'default' in raw ? raw.default : raw` で対処。
+
 **運用順序**:
 
 1. Backwards-compatible normalizer を main に先 land (= 現在の v1 でも動く)
