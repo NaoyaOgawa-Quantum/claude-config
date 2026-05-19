@@ -6,7 +6,7 @@
 
 **Canonical = Overleaf project の web UI で設定する GitHub linking**。 user が Overleaf web で "Pull GitHub changes into Overleaf" / "Push Overleaf changes to GitHub" ボタン 1 つで bidirectional sync 可能 (= linking active 中は user 操作で生成された commit が自動 propagate)。
 
-**Secondary = local mirror clone (`.overleaf-mirror/`)**。 安田くん等の共著者が Overleaf で編集中の最新状態を local で `diff -r` 確認したい用途のみ。 **mirror から直接 git push は禁止** (= GitHub linking と競合して 403 timeout)。
+**Secondary = local mirror clone (`.overleaf-mirror/`)**。 共著者等の共著者が Overleaf で編集中の最新状態を local で `diff -r` 確認したい用途のみ。 **mirror から直接 git push は禁止** (= GitHub linking と競合して 403 timeout)。
 
 ## 推奨 setup 手順
 
@@ -28,8 +28,8 @@
 | 場面 | 操作 |
 |---|---|
 | Local / GitHub main 更新 → Overleaf に反映 | user が Overleaf web で **"Pull GitHub changes into Overleaf"** クリック |
-| 安田くんの Overleaf 編集 → GitHub に反映 | 通常は **auto-sync** (= linking active で自動)、 もしくは user が "Push Overleaf changes to GitHub" クリック |
-| 安田くんが Overleaf で編集中の最新状態を Claude が確認 | `cd .overleaf-mirror && git pull` で取得 → `diff -r` で本文と比較 |
+| 共著者の Overleaf 編集 → GitHub に反映 | 通常は **auto-sync** (= linking active で自動)、 もしくは user が "Push Overleaf changes to GitHub" クリック |
+| 共著者が Overleaf で編集中の最新状態を Claude が確認 | `cd .overleaf-mirror && git pull` で取得 → `diff -r` で本文と比較 |
 | Local edit を Overleaf に流す | (1) local で commit + push to GitHub main、 (2) user が Overleaf web で "Pull GitHub changes into Overleaf" |
 
 ## bidirectional auto-sync の挙動
@@ -69,14 +69,14 @@ token は account 単位、 project access 権限とは別 layer。 token 期限
 
 ## Claude への規律
 
-設計判断で「既存サービスの built-in 機能は困難 / 不可能」 と assertion する前に、 user の web UI を確認するか user に「サービスに X 機能ないか?」 と聞く。 文献的推測 (= service capability の cell 埋め) で却下すると、 後で built-in 機能が存在することが判明して設計やり直しになる (= ejp-revision で 1 度発生)。
+設計判断で「既存サービスの built-in 機能は困難 / 不可能」 と assertion する前に、 user の web UI を確認するか user に「サービスに X 機能ないか?」 と聞く。 文献的推測 (= service capability の cell 埋め) で却下すると、 後で built-in 機能が存在することが判明して設計やり直しになる (= ある private paper repo で 1 度発生)。
 
 これは CLAUDE.md inline §13 trait family (= 安価な操作で expensive な操作を bypass する) の現れ。 設計の reasoning domain でも同じ trait が出る。
 
 ## 実例
 
-ejp-revision (2026-05-19) で発見 + 経路改訂。 詳細経緯 + 全 4 拠点 (GitHub main / Overleaf master / mirror / local working tree) の同期確認: `ejp-revision/DESIGN.md §7.7`。
+ある private paper repo (2026-05-19) で発見 + 経路改訂。 詳細経緯 + 全 4 拠点 (GitHub main / Overleaf master / mirror / local working tree) の同期確認: `(該当 private paper repo の DESIGN.md)`。
 
 ## 二例目が出たら refine
 
-将来 time-energy-head-on (Oda + Ogawa) や twcu-phys-* で同様の Overleaf 共著が発生したら、 本 convention を refine。 現状は ejp-revision で完結。
+将来他の共同 LaTeX paper で同様の Overleaf 共著が発生したら、 本 convention を refine。 現状は 該当 private paper repo で完結。

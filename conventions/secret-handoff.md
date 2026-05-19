@@ -100,7 +100,7 @@ Secret を `~/.secrets/<name>` 系に運ぶ手順を提示する時は **必ず 
 - `od -c ~/.secrets/discord-bot-token` (= 全文出力)
 - 任意の binary inspector を「token format 確認」 を名目に実行
 
-**実例 (= 2026-05-19 ejp-revision session で発生)**:
+**実例 (= 2026-05-19 (該当 private paper repo) session で発生)**:
 - Overleaf token (= `~/.secrets/overleaf-token`) を `xxd ~/.secrets/overleaf-token | tail -1` で format 確認した結果、 末尾 8 文字 (= 40 char token の 20%) が chat 出力に流出
 - 直接的 impact は限定的 (= 8/40 文字で brute-force 範囲縮小は微小、 user の判断で rotate 不要となった) だが、 user に rotate 推奨を伝える必要が発生、 paper 作業の流れを中断
 - もし「`xxd` で確認したい」 という reflex が起こったら、 `wc -c` + `head -c 4` + `tr -d '\n' | wc -c` の 3 段で代替
