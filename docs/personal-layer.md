@@ -17,7 +17,49 @@ The numbering follows audience containment: `public ⊃ collaborator set ⊃ own
 
 > **History note**: as of **2026-05-01** the numbering was changed to align with audience size (layers 2 and 3 were swapped — old `2 = personal / 3 = shared` became new `2 = shared / 3 = personal`). Commit messages and docs from before that date may use the old numbering; if you see "layer 2 = personal layer" in older commit logs, that's the old scheme. See `claude-config/DESIGN.md §「4 層モデルの renumber: layer 2 ↔ 3 swap (2026-05-01)」` for the rationale and full impact map.
 
-**Core rule**: each layer may only depend on layers whose audience contains its own. So a shared-project layer (layer 2) can reference claude-config (layer 1, public) but **must not** reference your personal layer (layer 3, only you), because your collaborators cannot see your personal layer.
+**Core rule**: each layer may only depend on layers whose audience contains its own. So a shared-project layer (layer 2) can reference claude-config (layer 1, public) but **must not depend on** your personal layer (layer 3, only you), because your collaborators cannot see your personal layer.
+
+### What "depend" means: structural dependency vs. mention
+
+The rule above bans **structural dependencies** across layer boundaries, not **mentions**. The distinction matters because the harm comes from one but not the other — and conflating them produces docs that are *less* helpful to the wider audience, not more safe.
+
+| | 依存 (structural dependency) | 言及 (mention / 名指し) |
+|---|---|---|
+| **Definition** | A's correctness or operability requires B (= reader cannot use A without access to B) | A's docs inform the reader that B exists, but A is self-contained (= reader can use A without ever touching B) |
+| **Effect on reader without B** | A breaks / is unreadable | A still works; reader just knows the larger system better |
+| **Across-layer rule** | ❌ Forbidden when B is in a smaller-audience layer than A (= the canonical Core rule) | ✅ Allowed when accompanied by an explicit boundary statement (see below) |
+
+**Mention is not a layer violation.** Naming a smaller-audience artifact in a wider-audience doc is just informational. What's forbidden is making the wider audience's experience *depend on* access to the smaller-audience artifact.
+
+#### Why mention is fine in principle
+
+- claude-config's `setup.sh` (layer 1, public) detects personal-layer (layer 3) directories by *name* (`<owner>-prefs/`). An L1 script can know what an L3 name looks like without depending on any specific L3 content.
+- This very document mentions personal-layer locations from inside layer 1 — that's informational, not a dependency.
+- 名指し ≠ access dependency。 Telling a reader "B exists, you don't need it" is more useful than abstract paraphrase ("managed separately by the owner") that hides the system structure. The latter is the *worse* failure mode: collaborator can't even ask informed questions about the boundary.
+
+#### The boundary statement requirement
+
+When you mention a smaller-audience artifact in a wider-audience doc, **include a boundary statement at the same spot** so the reader doesn't misread the mention as an implicit dependency:
+
+- "Collaborators don't need access to this; the current repo is self-contained."
+- "This is owner-only / machine-local; other environments don't have it and don't need to."
+- "Informational reference only — the upstream is managed separately by the owner."
+
+Without a boundary statement, a mention drifts into implicit dependency: the reader thinks "ah, I need that one too" and goes looking, hits 404 or permission-denied, gets confused.
+
+#### What's still forbidden across layer boundaries
+
+Mention covers **names** of repos / concepts. The following are **structural** by nature and remain forbidden when crossing into a smaller audience:
+
+- **Internal file paths** into a smaller-audience layer (e.g. `<owner>-prefs/something.md` written inside an L2 doc). A path invites navigation, which *is* dependency. Repo name alone (`<owner>-prefs`) is mention; `<owner>-prefs/something.md` is dependency.
+- **Absolute filesystem paths** like `/Users/<owner>/...` — these don't work in another environment regardless of intent.
+- **Owner-specific identifiers** (email addresses, calendar IDs, secret-file paths) — these are owner data; the layer rule isn't the only reason to omit them (privacy / leak prevention is the primary, see [`conventions/shared-repo.md`](../conventions/shared-repo.md) §「公開前の Audit」).
+
+The compact rule: **name it, don't path into it.**
+
+#### Where to enforce
+
+Per-layer documents apply this principle to their own boundary. The L2-specific application (= what an L2 shared-project repo may or may not contain) lives in [`conventions/shared-repo.md`](../conventions/shared-repo.md) §「例外: boundary 明示付き名指し」, which references this section as the canonical source. The L1-specific application lives in `claude-config/CLAUDE.md` §「安全規則（公開リポ）」.
 
 ### Why does layer 4 isolate machine-local facts?
 
