@@ -81,3 +81,37 @@ Secret を `~/.secrets/<name>` 系に運ぶ手順を提示する時は **必ず 
 
 - `discord-bot.md §「Bot Token の取り扱い」` — Token を chat に貼らせない原則 (本ファイルの前提条件)
 - `~/Claude/CONVENTIONS.md §5「安全規則」` — secret 全般の git/ chat への流出禁止
+
+## Secret file の binary inspection 禁止
+
+⚠️ **secret file (`~/.secrets/*`、 `gcp-oauth.keys.json`、 `.env` 等) に対して `xxd` / `od` / `hexdump` 等の binary inspection コマンドを実行しない。**
+
+これらは secret の **部分文字列を chat 出力に流す** リスクがある。 たとえ partial 表示 (= 末尾 8 文字等) でも、 token / Bot Token / API key の **同定性** や **brute-force 範囲縮小** の手がかりになり、 secret rotate が要求される。
+
+代わりに:
+- 存在確認: `ls -la <file>` で permissions / size
+- format check: `head -c 4 <file>` で prefix のみ (= `olp_` / `GOCSPX-` 等 known prefix の有無)
+- byte count: `wc -c <file>`
+- 改行有無の検証: `tr -d '\n' < <file> | wc -c` (= 末尾改行込み vs 込まずの diff)
+
+**禁止例**:
+- `xxd ~/.secrets/overleaf-token` (= 全文出力)
+- `xxd ~/.secrets/overleaf-token | tail -1` (= 末尾出力、 これでも token の一部が leak、 同定性高)
+- `od -c ~/.secrets/discord-bot-token` (= 全文出力)
+- 任意の binary inspector を「token format 確認」 を名目に実行
+
+**実例 (= 2026-05-19 ejp-revision session で発生)**:
+- Overleaf token (= `~/.secrets/overleaf-token`) を `xxd ~/.secrets/overleaf-token | tail -1` で format 確認した結果、 末尾 8 文字 (= 40 char token の 20%) が chat 出力に流出
+- 直接的 impact は限定的 (= 8/40 文字で brute-force 範囲縮小は微小、 user の判断で rotate 不要となった) だが、 user に rotate 推奨を伝える必要が発生、 paper 作業の流れを中断
+- もし「`xxd` で確認したい」 という reflex が起こったら、 `wc -c` + `head -c 4` + `tr -d '\n' | wc -c` の 3 段で代替
+
+## Claude への規律 (secret 取扱の根本)
+
+「secret file の内容を chat に流す可能性のある操作」 を見たら、 まず **「partial でも leak の手がかりになるか?」** を自問する。 partial leak でも:
+- token 全体の同定性 (= どの token かが特定できる)
+- format 確認 (= 末尾文字パターンから token type 推測)
+- collision search の範囲縮小
+
+の手がかりになる。 partial = 安全という reflex は誤り。
+
+これは CLAUDE.md inline §13 trait family (= 安価な操作で expensive な操作を bypass する) の secret 取扱 domain での現れ。 `xxd` は「token 確認」 という目的に対して **安価すぎる手段** で、 「partial だから OK」 という illusion で leak risk を覆い隠す。
