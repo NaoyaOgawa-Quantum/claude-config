@@ -136,17 +136,48 @@ setup.sh が自動で行うこと:
 3. 変更後は commit + push（全リモートに）
 
 ## 安全規則（公開リポ）
-**このリポは public。** 以下を絶対に **file 本文 / commit message / PR description / tag annotation / commit author email** のいずれにも書かない (= git history surface 全体が対象、 file 本文だけが対象ではない):
+
+**このリポは public** (= GitHub で誰でも閲覧可、 検索 index 対象)。 本節は **leak prevention 軸** の rule で、 [4 層 model の layer dependency 軸](docs/personal-layer.md#what-depend-means-structural-dependency-vs-mention) (= 「depend vs mention」) とは別 axis。 leak 軸では mention でも leak が完了するため、 「boundary 文を併記すれば OK」 という layer 軸の救済は **適用されない** (= public surface に名前が焼き付いた時点で覆らない)。
+
+以下を絶対に **file 本文 / commit message / PR description / tag annotation / commit author email** のいずれにも書かない (= git history surface 全体が対象、 file 本文だけが対象ではない):
 - 実名（GitHub ユーザー名 `odakin` は可）
 - メールアドレス
-- 非公開リポ名（→ 個人層の `repos.md` に記載）。例外: ツール・運用設定リポ名（`gmail-mcp-config`, `research-collab`, `email-office`, `odakin-prefs`, `secrets-config`）は可
+- 非公開リポ名（→ 個人層の `repos.md` に記載）。 後述「§例外 list と criterion」 参照
 - 金融データ・口座情報
 - 所属機関名
 - 他ユーザーのユーザー名
 
 変更前に「公開リポに載せて問題ないか」を必ず確認すること。
 
+### 例外 list と criterion
+
+以下の非公開リポ名は本リポでの mention OK (= leak しても business / research specifics が漏れない category-level / function-level の name):
+
+| repo name | category / function | mention OK の理由 |
+|---|---|---|
+| `gmail-mcp-config` | Gmail MCP server 運用設定 | 機能カテゴリ名、 odakin が Gmail MCP を使うことは tool 利用の事実のみ leak |
+| `research-collab` | 研究 collaboration 管理 (= mail thread / project index) | カテゴリ名、 odakin が共同研究者を持つことは public profile から既知 |
+| `email-office` | 学内事務メール処理 | 機能カテゴリ名 |
+| `odakin-prefs` | personal layer (= L3 個人層) | 規約上の position name、 personal-layer.md で公開構造として説明済 |
+| `secrets-config` | 秘密情報の保管経路 | 機能カテゴリ名 |
+| `physics-research` | 物理研究 career DB | category 名、 odakin が物理学者であることは INSPIRE 等から公知 |
+| `twcu-phys-web` / `twcu-phys-lab` | 大学研究室 site / 運営 (= twcu-phys org private) | 所属が public profile から既知のため新 leak ではない |
+| `twcu-seminar` | セミナー運営 | 機能カテゴリ名、 institution code は所属 public と整合 |
+
+**criterion**: 名前が (1) category-level / function-level の一般語であり、 (2) 名前から推察される specifics が既に public profile (= INSPIRE / 大学サイト) から得られる範囲なら例外 OK。 NG 例: `<project-codename-specific>` (= 個別 project codename)、 `<collaborator-name>-collab` (= 共著者名 leak)、 `<unpublished-result>-analysis` (= 未公開研究 leak)。
+
+新規リポを例外 list に追加する判断は user が行う (= Claude が独断で追加しない)。
+
 **commit message 拡張の根拠 (2026-05-13)**: file 本文では意識的に抽象化 (例: 「upstream リポ」) しても commit message で同 session の private repo 名を直書きする事故が複数 commit にわたって発生 (incident 集計は odakin-prefs/leak-incidents.md にあり)。 commit message は `git log` で grep 可能な public surface なので file 本文と同じ規律を適用する。 既存 `public-precommit-runner.sh` は file 本文の Tier A 検出のみで commit-msg は対象外、 将来 `commit-msg` hook で再利用候補。
+
+### Layer 軸 vs Leak 軸の関係 (= 混同しないための table)
+
+| | layer dependency 軸 | leak prevention 軸 (本節) |
+|---|---|---|
+| 何を防ぐ | smaller-audience layer に依存 → collaborator 環境破綻 | public surface に private 情報の永久記録化 |
+| 適用範囲 | 任意の L_n → L_m (m > n) reference | claude-config 自身 (= L1 public) の全 surface |
+| mention の扱い | boundary 明示付きで許容 | 例外 list 内 name のみ許容 (= boundary 文では救済不可) |
+| 正本 doc | [`docs/personal-layer.md` §「depend vs mention」](docs/personal-layer.md#what-depend-means-structural-dependency-vs-mention) | 本節 |
 
 ## 運用ルール
 - CONVENTIONS.md の正本はこのリポ内のファイル
