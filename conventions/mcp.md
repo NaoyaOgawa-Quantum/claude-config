@@ -113,9 +113,29 @@ Chrome MCP は `claude mcp` 配下ではなく **Claude.app の Chrome extension
 2. または Chrome を quit + 再起動
 3. 上記でダメなら Mac app (Claude.app) も quit + 再起動
 
+### Chrome MCP で 認証 SPA を scrape できないケース
+
+一部の Google SPA (= Classroom 等、 認証済 iframe 内に主要 content が描画される構成) は Chrome MCP context (= browser の Claude 拡張経由) で **完全に load しない**。 症状:
+
+- `navigate` → URL は変わるが body innerText は ~75 chars (= top nav + 「ページを読み込んでいます…」 banner のみ)
+- 数十秒待っても content frame の grid / button 群が render されない
+- `read_page` accessibility tree に `progressbar "読み込んでいます…"` が永続表示
+- `javascript_exec` で `document.querySelectorAll('iframe')` を probe すると `iframe.src` / `window.gapi` 等の sensitive accessor が **`[BLOCKED: Sensitive key]` / `[BLOCKED: Cookie/query string data]`** で blanked (= Chrome MCP の defensive feature、 cookie / OAuth state が embedded されている可能性のある属性は遮蔽)
+- `window.location.reload()` / 更新 button click でも改善せず
+
+### 対処 (= fallback path)
+
+1. **user の主 browser で開いてもらう**: 通常の browser window (= MCP context 外) で同じ URL を開き、 user に手動で paste / 必要なら screenshot 投稿してもらう。 Chrome MCP の通常 page navigation は依然動くので、 別 tab に「scrape できる方」 と「できない方」 が共存可
+2. **scrape できる類似 page を探す**: 該当 service に MCP / REST API があれば API ルートを優先 (= SPA の view が API で代替可能なら API 取得を選ぶ)
+
+### 一般化 (= 他の認証 SPA でも起こりうる)
+
+「Chrome MCP は scrape できる前提」 で workflow を組まない。 navigate 後に accessibility tree が `読み込んでいます` で凍る、 iframe internals が BLOCKED で取れない場合、 **その page を Chrome MCP で取れない**と判定して即 fallback (= user 手動 paste / API ルート)。 ループで waiting し続けて時間を溶かさない。
+
 ### 過去事例
 
 - **2026-05-01**: classroom-cis (stdio) が session 中に disconnected。server.mjs 単独 stdio handshake は OK、log は `Successfully connected` で終わる (落ちた時刻のログなし)。`claude mcp remove + add` で再登録 → 数分後に ToolSearch + tool 呼び出し成功。Mac app は quit せず session 維持で復旧した sample。同時に gmail-* 4 server も system-reminder で disconnected と告知されたが、こちらは自動で再接続成功 (stdio でも `@gongrzhe` の MCP は graceful reconnect 機構を持つ模様)。Chrome MCP は別 incident で接続不可、Mac app 側の対応必要。
+- **2026-05-19**: Classroom UI (= 課題提出者一覧の「ファイルを開いていない」 ラベル展開 view) を Chrome MCP で scrape 試行。 上記症状 (body 75 chars / progressbar 永続 / iframe BLOCKED) を観察、 ~1 min waiting で reload + 更新 button click でも改善せず。 fallback で user 主 browser からの paste 経由に切替えて解決。 一般化ルール (= 上記「対処」) を本 convention に組み入れ。
 
 ## MCP 設定リポの役割
 
