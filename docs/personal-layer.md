@@ -59,7 +59,7 @@ The compact rule: **name it, don't path into it.**
 
 #### Where to enforce
 
-Per-layer documents apply this principle to their own boundary. The L2-specific application (= what an L2 shared-project repo may or may not contain) lives in [`conventions/shared-repo.md`](../conventions/shared-repo.md) §「例外: boundary 明示付き名指し」, which references this section as the canonical source. The L1-specific application lives in `claude-config/CLAUDE.md` §「安全規則（公開リポ）」.
+Per-layer documents apply this principle to their own boundary. The L2-specific application (= what an L2 shared-project repo may or may not contain) lives in [`conventions/shared-repo.md`](../conventions/shared-repo.md) §「L2 における「名指し」 の適用 (boundary 明示付き)」, which references this section as the canonical source. The L1-specific application (= claude-config itself as a public repo) adds a **separate leak-prevention axis** on top of the layer rule, documented in `claude-config/CLAUDE.md` §「安全規則（公開リポ）」. The leak axis is stricter: even mention with a boundary statement is governed by an explicit exception list, because once a name appears in public git history, the boundary statement cannot un-publish it.
 
 ### Why does layer 4 isolate machine-local facts?
 
