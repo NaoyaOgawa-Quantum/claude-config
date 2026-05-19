@@ -5,7 +5,7 @@
 > **正本は `~/Claude/claude-config/CONVENTIONS.md`。** `~/Claude/CONVENTIONS.md` は symlink。
 > 編集後は `cd ~/Claude/claude-config && git add -A && git commit && git push`。
 > **規約を追加・修正する前に** [docs/convention-design-principles.md](docs/convention-design-principles.md) を読むこと（配置原則・重複回避・追加判断基準）。
-> ドメイン固有規約は `conventions/` に分離: [shared-repo.md](conventions/shared-repo.md), [latex.md](conventions/latex.md), [mcp.md](conventions/mcp.md), [research-email.md](conventions/research-email.md), [collaborators.md](conventions/collaborators.md), [identity-in-config.md](conventions/identity-in-config.md), [substack.md](conventions/substack.md), [scheduled-tasks.md](conventions/scheduled-tasks.md), [shell-env.md](conventions/shell-env.md), [dropbox-refs.md](conventions/dropbox-refs.md), [preview.md](conventions/preview.md), [google-url.md](conventions/google-url.md), [scientific-computing.md](conventions/scientific-computing.md), [japanese-email-honorifics.md](conventions/japanese-email-honorifics.md), [multi-machine-state.md](conventions/multi-machine-state.md), [debugging-discipline.md](conventions/debugging-discipline.md), [discord-bot.md](conventions/discord-bot.md), [secret-handoff.md](conventions/secret-handoff.md), [web-tools.md](conventions/web-tools.md), [prompt-injection.md](conventions/prompt-injection.md), [android-chromium-remote-debug.md](conventions/android-chromium-remote-debug.md), [ui-toggle-convention.md](conventions/ui-toggle-convention.md), [expensive-intermediate-artifacts.md](conventions/expensive-intermediate-artifacts.md), [office-automation.md](conventions/office-automation.md), [data-pipeline-automation.md](conventions/data-pipeline-automation.md), [github-security-automation.md](conventions/github-security-automation.md), [overleaf-integration.md](conventions/overleaf-integration.md), [paper-audit.md](conventions/paper-audit.md)
+> ドメイン固有規約は `conventions/` に分離: [shared-repo.md](conventions/shared-repo.md), [latex.md](conventions/latex.md), [tikz-pgfplots.md](conventions/tikz-pgfplots.md), [mcp.md](conventions/mcp.md), [research-email.md](conventions/research-email.md), [collaborators.md](conventions/collaborators.md), [identity-in-config.md](conventions/identity-in-config.md), [substack.md](conventions/substack.md), [scheduled-tasks.md](conventions/scheduled-tasks.md), [shell-env.md](conventions/shell-env.md), [dropbox-refs.md](conventions/dropbox-refs.md), [preview.md](conventions/preview.md), [google-url.md](conventions/google-url.md), [scientific-computing.md](conventions/scientific-computing.md), [japanese-email-honorifics.md](conventions/japanese-email-honorifics.md), [multi-machine-state.md](conventions/multi-machine-state.md), [debugging-discipline.md](conventions/debugging-discipline.md), [discord-bot.md](conventions/discord-bot.md), [secret-handoff.md](conventions/secret-handoff.md), [web-tools.md](conventions/web-tools.md), [prompt-injection.md](conventions/prompt-injection.md), [android-chromium-remote-debug.md](conventions/android-chromium-remote-debug.md), [ui-toggle-convention.md](conventions/ui-toggle-convention.md), [expensive-intermediate-artifacts.md](conventions/expensive-intermediate-artifacts.md), [office-automation.md](conventions/office-automation.md), [data-pipeline-automation.md](conventions/data-pipeline-automation.md), [github-security-automation.md](conventions/github-security-automation.md), [overleaf-integration.md](conventions/overleaf-integration.md), [paper-audit.md](conventions/paper-audit.md)
 >
 > **パスの記述規則:** CLAUDE.md・SESSION.md 等でローカルパスを記述する際は `~` で表記（例: `~/Dropbox/...`）。`/Users/odakin/` のようなユーザー固有の絶対パスは共同編集者の環境で壊れるため使わない。
 >
@@ -172,6 +172,22 @@ git の状態管理は 1 本の `PostToolUse` hook で機械的に支援する: 
 **Why**: 「sweep report を produce する」 default goal の下では cell が埋まれば achievement 判定で、 cell の semantic 妥当性は副次。 「✓ pass」 発話で conversation state が「sweep 済」 に確定し、 後の error 発見が inertia で抑圧される。 6 つの bypass pattern (= 上記 table の左列) はすべて **単一 trait「安価な操作で高価な操作を bypass する」** の異なる現れ。 規律で 6 つを覚える代わりに、 **1 つの問い** (= cell 埋めか error expose か) を sweep 中に保持する。 既存 §3 push 前チェック表 (= 整合性 / 無矛盾性 / 効率性 / 安全性) は **何を** check するかの axis、 本 § は **どの goal で** check するかの mode。
 
 **実例 (= 2026-05-10 反証)**: 「深く 4 軸 sweep」 を 3 回実施したと称しながら、 同セッション内で書いた SESSION.md の内部矛盾 (= 同 section 内で table と prose が逆を主張) + 複数 file の旧解釈 stale 残存を全部見逃した。 next session の fresh-eyes audit で初めて発覚 (= 別 session の Claude が cold-read で即座に矛盾検出)。 個人 RCA + 反例詳細は personal layer の reflex-trap 文書に記載 (= suppl reference、 必須参照ではない)。
+
+#### Visual artifact (PDF / PNG / SVG / HTML) の場合: compile 成功 ≠ visual 成功
+
+任意の visual artifact (= LaTeX-PDF / TikZ figure / matplotlib plot / SVG / HTML page) を edit した時、 「compile / build / lint exit code 0」 + 「log / console error 0」 は **build success** の signal であって **visual success** の signal ではない。 「fix した」 と user に報告する前に必ず render → 視覚確認 loop を 1 周回す。
+
+**3-step reflex**:
+
+1. **edit → build → render artifact** (= PNG / PDF / preview screenshot)
+2. **user feedback の対象要素が実際に変化したか** before/after 比較で確認 (= 「subtitle と graph の gap」 と user が指摘したなら、 その gap が visually 縮小したかを 自分の目で 確認)
+3. **周辺要素への副作用** scan (= 同 area の他要素に cascade が起きてないか、 例: plot 拡大で xlabel が card 底からはみ出てないか)
+
+step 3 を省略すると、 1 修正で別 issue を作り、 user の次 turn で発覚する loop が始まる。 visual artifact の iterative feedback では特に発生しやすい (= 数値で検証できない、 1 turn 1 build cycle のコストで連鎖)。
+
+**「user に Yes と言われるまで fix と書かない」 ルール**: 自分の目で「変わった」 と思っても、 user の specific 指摘 (= screenshot 添付 + 「ここがまだダメ」) が解消されたか **自分では最終判定しない**。 報告は「変更点 X / Y / Z を実装した。 PDF を Preview で開いた。 ご確認ください」 で止める。 fix / 完了 / OK 系の language は user 確定後に使う。
+
+**実例 (= 2026-05-19 cosmology infographic、 [odakin/infographics](https://github.com/odakin/infographics) `cosmology-history/`)**: 20 turn の user iteration で、 私が「fix した」 と複数 turn 報告した直後に user が screenshot 添付で「ぜんぜん減ってなくない？空白」 と再指摘した事例多数。 build success / log clean を「✓ pass」 と扱った結果、 visual に残った gap / overflow / 重なりに私自身は気付かず、 user 確認のたびに新 issue が露見する loop が発生。 各 turn の cascade は `conventions/tikz-pgfplots.md §「サイクル: 『compile 成功』 ≠ 『visual 成功』」` で TikZ/pgfplots 特化の症例集として残置。
 
 ---
 

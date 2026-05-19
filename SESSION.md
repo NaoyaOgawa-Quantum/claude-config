@@ -2,6 +2,18 @@
 
 ## 現在の状態
 
+**2026-05-19 night (cosmology infographic 20-iter session の TikZ/pgfplots gotcha + visual-artifact render 規律)**: 2026-05-19 終日 user feedback driven で `cosmology-history` infographic を LaTeX/TikZ/pgfplots で制作 (= [odakin/infographics](https://github.com/odakin/infographics))、 20 iteration の中で踏んだ「公式 doc 通りに動かない / 直感に反する」 pgfplots 罠 + 視覚検証の規律不足から発生した事故を layer 1 知見として外出し:
+
+- **`conventions/tikz-pgfplots.md`** (新規、 8 sections + 関連リンク): (1) pgfplots `width`/`height` は axis title / xlabel を bounding しない → scope shift + size 縮小 + xlabel/ylabel xshift/yshift の 3 段組合せ、 (2) outer top と data top の internal padding → subtitle を `title=` axis option 経由で内部統合、 (3) `node[pos=p, sloped]` の pos は path-length parametric で予測困難 → explicit `axis cs:` + 手動 `rotate=` に置換、 (4) TikZ `\foreach` で `\col` 等 color macro が undefined → 個別 node 展開 fallback、 (5) smooth functional curve は `\draw plot[smooth, samples=N]` (= Bezier 4-segment は angular)、 sub-section で Mexican hat / Higgs potential aesthetic (= central peak vs outer rim 比 1:5 で sombrero 様シルエット)、 (6) macOS Hiragino font は PostScript 名 (`HiraMinProN-W3` 等) 指定、 `fontTools.ttLib` で .ttc 内 face 名確認、 (7) TikZ matrix の `text=fgmute` と math mode color 干渉、 (8) **「compile 成功 ≠ visual 成功」 サイクル** (= render → PNG → 視覚確認の reflex 化、 3-step + 「user に Yes と言われるまで fix と書かない」 ルール)
+- **`conventions/latex.md` 拡張**: 末尾に「編集向け infographic / poster / 1 枚 figure の design 規約」 section 新設、 cream paper (`#FBF8F2`) / Libertinus 4 family / `Numbers=Lining` / Hiragino setup / `array{r@{\;}c@{\;}l}` 3 列 align (= label/relation/value)、 日本語を `\text{}` 内 idiom、 A4 強制 (= `geometry` mm 単位 + TikZ `[x=1mm, y=1mm]`) を bundle
+- **`CONVENTIONS.md §3 sweep / review / audit の goal alignment`**: 新 sub-section「Visual artifact (PDF / PNG / SVG / HTML) の場合: compile 成功 ≠ visual 成功」 追加。 3-step reflex (= build → render → 視覚確認 → 副作用 scan) + 「user に Yes と言われるまで fix と書かない」 ルール + 2026-05-19 cosmology infographic の loop 事例 reference (= 私が「fix した」 と複数 turn 報告した直後に user の screenshot で再指摘される pattern)。 cell 埋め vs error expose の binary を「visual artifact iteration」 文脈に適用
+
+**判断 (4 層モデル準拠)**: 上記 3 件いずれも全 Claude Code ユーザーで true な fact / 規律で layer 1 行き。 TikZ/pgfplots gotcha は「公式 doc + tutorial では遭遇しないが実 project で必ず踏む」 系で重複 wheel reinvention 防止、 visual artifact render reflex は LaTeX 限定でなく matplotlib / SVG / HTML 等 build-then-visual な全 artifact に共通する規律。 個別の cosmology / 物理パラメータ (= ΛCDM / 共動距離 / Higgs vev) は layer 2 (= [odakin/infographics](https://github.com/odakin/infographics) 自身) に閉じて layer 1 から cross-ref。
+
+**CLAUDE.md structure tree** 更新済 (= conventions/ index に `tikz-pgfplots.md` 追加)、 CONVENTIONS.md 冒頭の conventions/ list にも追加。
+
+---
+
 **2026-05-19 evening (Chrome MCP で 認証 SPA を scrape できないケースを `conventions/mcp.md` に追加)** ([e76dd92](https://github.com/odakin/claude-config/commit/e76dd92)): Google 系の認証 SPA (= Classroom UI 等、 iframe 内 content + sensitive accessor の遮蔽) を Chrome MCP context で scrape 試行した際、 navigate 後に body innerText が ~75 chars で凍る (= progressbar 永続) / iframe probe が `[BLOCKED: Sensitive key]` で blanked / reload / button click でも復旧不可、 という一般症状を観察。 fallback (= 通常 browser window + 手動 paste / API ルート優先) を一般化して `conventions/mcp.md` に新 subsection 追加。 「Chrome MCP で scrape できる前提」 で workflow を組まない reflex を明文化、 navigate 後に loading が永続する場合は即 fallback すべき instruction を含む。 関連: `odakin-prefs/work-discipline.md §「API state と UI state を直交軸として扱う」` で同 session 由来の orthogonality 教訓を別 layer に documents。
 
 ---

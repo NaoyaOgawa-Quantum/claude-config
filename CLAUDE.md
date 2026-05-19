@@ -22,6 +22,7 @@ claude-config/
 ├── conventions/
 │   ├── shared-repo.md      # 共有リポ固有規約
 │   ├── latex.md            # LaTeX 固有規約（物理リポで参照）
+│   ├── tikz-pgfplots.md    # TikZ/pgfplots 固有 gotchas（infographic / poster / 1 枚 figure 制作で必読、 latex.md と併読）
 │   ├── mcp.md              # MCP 固有規約（MCP 使用時に参照）
 │   ├── research-email.md   # 研究メール分類・記録規約
 │   ├── japanese-email-honorifics.md # 日本語メールの敬称規約 (内 vs 外、身内に「様」「皆様」を使わない)

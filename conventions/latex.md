@@ -417,3 +417,97 @@ LaTeX edit 後、 `pdflatex` が完走しても visual の overflow / misalignme
 ### Why
 
 `pdflatex` の exit code 0 + `! ` error 不在は **build success** の signal であって **visual success** の signal ではない。 `Overfull \hbox` は warning として log に出るだけで build を止めない (= 文字が page 外に hanging するだけ)。 PDF を visual で見ない限り「✓ IS RIGHT (phy...」 で truncate されている等の事故は気付けない。 PyMuPDF (`fitz`) は poppler 不要で macOS default で使えるので、 reflex として安価。
+
+---
+
+## 編集向け infographic / poster / 1 枚 figure の design 規約
+
+scientific infographic (= A4 / A3 1 枚もの) や poster を LaTeX で制作するときの design choice。 TikZ / pgfplots を多用する制作では本 file の上記 LaTeX 一般規約 + `conventions/tikz-pgfplots.md` (TikZ/pgfplots gotchas) を併読。
+
+### 印刷前提なら light theme + cream paper
+
+dark theme (= 黒背景 + 明色 text) は screen で映えるが **印刷時 toner / inkjet を大量消費**する。 1 枚 infographic を「印刷物として家に貼る / 配布する」 用途なら light theme 一択。 cream paper (`#FBF8F2` 系) は pure white より editorial で目に優しい。
+
+```latex
+\definecolor{bgpage}{HTML}{FBF8F2}    % cream paper
+\definecolor{bgcard}{HTML}{FFFFFF}    % 白カード
+\definecolor{fgstrong}{HTML}{1A1D26}  % near-black charcoal
+\definecolor{fg}{HTML}{2E323F}        % body text
+\definecolor{fgmute}{HTML}{6E7280}    % muted secondary
+\usepackage{eso-pic}
+\AddToShipoutPictureBG*{\AtPageLowerLeft{\color{bgpage}\rule{\paperwidth}{\paperheight}}}
+```
+
+### Libertinus フォントファミリー (= 数式統一の選択肢)
+
+scientific infographic で Latin (= 英文) + math + Japanese を共存させる場合、 `TeX Gyre Pagella` 系より `Libertinus` 系の方が refined。 4 family を 1 set で揃えられる:
+
+```latex
+\setmainfont{LibertinusSerif}[
+  Extension=.otf, UprightFont=*-Regular, ItalicFont=*-Italic,
+  BoldFont=*-Semibold, BoldItalicFont=*-SemiboldItalic,
+  Numbers=Lining,
+]
+\setsansfont{LibertinusSans}[
+  Extension=.otf, UprightFont=*-Regular, ItalicFont=*-Italic,
+  BoldFont=*-Bold, Numbers=Lining,
+]
+\setmathfont{LibertinusMath-Regular.otf}
+\setmonofont{LibertinusMono-Regular.otf}
+```
+
+**`Numbers=Lining` (vs `OldStyle`)**: Libertinus の数字は default で OldStyle (= 「123」 が baseline からはみ出す古風な numerals) になりがち。 印刷 / 図表で数値を扱うなら `Lining` (= 現代的、 同高 numerals) に明示。 `Numbers=OldStyle` を意図的に選ぶのは literary 書籍用途のみ。
+
+### macOS Hiragino と Libertinus の組合せ
+
+```latex
+\setmainjfont{HiraMinProN-W3}[BoldFont=HiraMinProN-W6]
+\setsansjfont{HiraginoSans-W3}[BoldFont=HiraginoSans-W6]
+```
+
+PostScript 名 (= `HiraMinProN-W3` 等) が必要。 display name (= `Hiragino Mincho ProN W3`) では fontspec が見つけられない。 詳細は [`conventions/tikz-pgfplots.md` §「macOS Hiragino font は PostScript 名で指定」](tikz-pgfplots.md#macos-hiragino-font-は-postscript-名で指定)。
+
+### 数式 + 日本語を mix する align 環境
+
+infographic / poster で「label / 関係記号 / 値」 を縦に揃えたいとき、 個別 TikZ node × 3 で配置するより `array{r@{\;}c@{\;}l}` 1 個に集約する方が baseline 整列が math engine 任せで精密:
+
+```latex
+\node[anchor=north west, font=\fontsize{7.4}{9.2}\selectfont, text=fgstrong, inner sep=0pt]
+  at (x, y) {%
+  $\renewcommand{\arraystretch}{1.0}\begin{array}{r@{\;}c@{\;}l}
+    z              & \gtrsim   & 10^{12} \\
+    t              & \sim      & 10^{-6}\text{--}10^{-5}\,\text{s} \\
+    \text{過去}    & \approx   & 138\,\text{億年前} \\
+    \text{距離}    & \approx   & 461\,\text{億光年} \\
+    T_{\gamma}     & \gtrsim   & 10^{12}\,\text{K}\;\text{\tiny(90 MeV)}
+  \end{array}$%
+};
+```
+
+3 列の意味:
+- `r` = label (= 右揃え、 z / t / 過去 / 距離 / T_γ が右端で揃う)
+- `@{\;}` = 列間 spacing (= math thick space で固定、 array default の wide gap を抑制)
+- `c` = 関係記号 (= 中央揃え、 ≳ / ~ / ≈ が縦軸で揃う)
+- `l` = 値 (= 左揃え、 数値以降が左端で揃う)
+
+**日本語は `\text{}` 内に書く**: math mode 内の `過去` / `距離` / 単位 (`億年前` / `億光年` / `K` / `s` / `MeV` / `GeV` / `eV`) は全部 `\text{...}` で囲む。 単位を裸で書くと `K` が math italic になる (= `K` 1 文字が変数扱い) 等の事故が起きる。 range の `--` (= en-dash) も math mode では double-minus に解釈されるので `\text{--}` 経由。
+
+luatexja は `$過去$` (= 裸の kanji) も accept するが、 標準 idiom は `\text{過去}` (= 移植性 / 明示性で勝る)。
+
+### print fidelity を A4 強制したい場合
+
+```latex
+\documentclass[10pt]{article}
+\usepackage[paperwidth=297mm, paperheight=210mm, margin=0pt]{geometry}  % A4 landscape
+\pagestyle{empty}
+\parindent=0pt
+
+\begin{document}
+\noindent\begin{tikzpicture}[x=1mm, y=1mm]
+  \useasboundingbox (0,0) rectangle (297, 210);
+  ...
+\end{tikzpicture}
+\end{document}
+```
+
+`[x=1mm, y=1mm]` で TikZ 座標が mm 単位に固定、 `geometry` で page size mm 指定。 printer で「実寸印刷」 設定にすれば狙い通りの mm 単位で印刷される。 screen 表示では browser / viewer の zoom が効く。

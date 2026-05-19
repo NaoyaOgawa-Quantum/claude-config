@@ -1,0 +1,224 @@
+# TikZ / pgfplots 規約
+
+TikZ や pgfplots を含む LaTeX project で適用。 一般 LaTeX 規約は [`conventions/latex.md`](latex.md)、 PDF 視覚検証規律は同 latex.md §「PDF 視覚検証 reflex」 を併読。
+
+本 file の知見は **2026-05-19 の cosmology infographic 制作 (= [odakin/infographics](https://github.com/odakin/infographics) `cosmology-history/`) で 20 iteration を user feedback 駆動で回した記録**。 大半は「公式 doc 通りには動かない / 動くが直感に反する」 系の罠で、 1 度踏むと原因特定に 1-2 turn 浪費する。
+
+## pgfplots `width` / `height` は axis title / xlabel を含めて bounding しない
+
+**通説**: `width=Wmm, height=Hmm` は axis 全体の outer bounding box。 label / tick / title 全部含まれて W × H に収まる。
+
+**実態**: ylabel (rotated) や xlabel は **outer box の外側** に renderer される。 axis ticks までは width/height に収まるが、 axis title はその外。
+
+**症状**: card 内に pgfplots を置くと、 「width = card_width - margin」 で計算したのに ylabel / xlabel が card 境界からはみ出す。
+
+**対処** (= 3 段組合せ):
+
+1. **scope を内側にずらす**: `\begin{scope}[shift={(x, y)}]` の x/y を card 境界から十分内側にする。 axis 外側 label area の分を margin で抜く
+2. **axis size を縮小**: `width` / `height` を card 利用可能 size より小さく設定
+3. **xlabel/ylabel に explicit shift**: `xlabel style={yshift=Nmm}` `ylabel style={xshift=Nmm}` で label 位置を内側に押し込む
+
+```latex
+% card 内 199mm × 104mm に plot を収める例
+\begin{scope}[shift={(106, 22)}]   % card 左から 16mm、 下から 8mm に scope 原点
+  \begin{axis}[
+    width=176mm, height=90mm,        % outer は card より十分小さく
+    xlabel style={font=\fontsize{8.5}{10}\selectfont, yshift=0mm},
+    ylabel style={font=\fontsize{8.5}{10}\selectfont, xshift=3mm},  % 右に 3mm 押し込み
+    ...
+  ]
+    ...
+  \end{axis}
+\end{scope}
+```
+
+3 つの shift の役割は overlap する (= scope shift で全体を内側に、 size 縮小で更に縮め、 label 個別 shift で微調整)。 1 つだけでは不十分なケースが多い。
+
+## pgfplots は outer top と data top の間に internal padding を持つ
+
+**症状**: subtitle や caption を pgfplots 環境の **外** に node として置くと、 axis outer top との visual gap が closing できない。 外部 node を outer top ぎりぎりに置いても、 「subtitle と data 領域 (era label 等)」 の間に 3-5mm の空白が残る。 user 視点では「タイトル下に無駄な余白」 と認識される。
+
+**原因**: pgfplots は outer box 内部に inner padding を確保している (= y-axis tick label と data 領域の間、 data 領域の上下に作業空間)。 outer top 自体を外部から押し込んでもこの padding は埋まらない。
+
+**対処**: subtitle / 補助 caption を **`title=` axis option 経由で axis 環境内** に置く。 padding zone がそのまま subtitle 空間として利用される。
+
+```latex
+\begin{axis}[
+  title={%
+    \fontsize{10}{12}\selectfont\sffamily\bfseries\color{fgstrong}メインタイトル%
+    \\[-0.5mm]%
+    \fontsize{7.5}{9.5}\selectfont\normalfont\itshape\color{fgmute}サブタイトル text...%
+  },
+  title style={
+    anchor=south west,
+    at={(rel axis cs:0, 1)},
+    align=left,
+    yshift=0.5mm,
+    inner sep=0pt,
+  },
+  ...
+]
+```
+
+- `at={(rel axis cs:0, 1)}` で title 起点を data area の左上に置く
+- `anchor=south west` + multi-line で title が上向きに伸び、 padding zone を埋める
+- `\\[-0.5mm]` で 2 行の間も詰める
+- 外部 node はもはや作らない (= 重複削減)
+
+**Why**: 外部 node 方式では subtitle と data 間に「padding 高さ ≥ 0 の不可避空白」 が常に残る。 内部 title 方式は padding 空間そのものを subtitle が占有するので **真に gap = 0** が達成できる。
+
+## `\addplot ... node[pos=p, sloped]` の pos は path-length parametric で予測困難
+
+**症状**: log-log plot で `\addplot[smooth, samples=80, domain=1e-7:2]` を作り、 `node[pos=0.5, sloped, anchor=south]` で line label を attach すると、 想定外の位置に出る。 特に samples を **linear-domain** で取っているとき (= domain=`1e-7:2` は linear sampling、 log sampling ではない)、 大半の sample が x ≈ 2 付近にクラスタし、 視覚的な「線分の真ん中」 と pos=0.5 は一致しない。
+
+**対処** (= 2 択):
+
+1. **explicit `axis cs:` + manual `rotate=`**: 線のどこに label を置きたいか axis 座標で指定、 line slope から visual 回転角を手動計算
+   ```latex
+   % rad line slope -4 on log-log, plot width 176mm / 7.3 decades = 24mm/decade x,
+   % height 90mm / 21 decades = 4.3mm/decade y. Visual slope -4 × (4.3/24) ≈ -0.72.
+   % Angle = atan(-0.72) ≈ -36°.
+   \node[anchor=center, rotate=-34, inner sep=0.7mm, fill=bgcard, ...]
+     at (axis cs:6e-6, 1e13) {放射 $\rho_{\text{rad}} \propto a^{-4}$};
+   ```
+2. **`samples at`** で log spacing を作り、 そこに pos= で attach。 ただし `samples at` の指定は煩雑
+
+**Why**: `samples=80` は默认 linear spacing。 log-log plot 上で「線の中央」 は log-uniform で測るのが直感的だが、 pgfplots の pos は path-length 基準。 両者がズレる。
+
+## TikZ `\foreach` で多変数 + 色名引数は `\col` 等 expansion で失敗
+
+**症状**:
+```latex
+\foreach \i/\x/\col in {1/1.05e-7/c0, 2/1.5e-7/c1, ...} {
+  \node[circle, fill=\col, ...] at (axis cs:\x, 4e-5) {\i};
+}
+```
+で `! Undefined control sequence. \col` が出る。 単純なはずなのに動かない。
+
+**原因**: pgfmath / TikZ math と pgfkeys のスタイル expansion が tangle、 特に `axis cs:\x` の数値 parse と `fill=\col` の color name expansion が干渉する場合がある。
+
+**対処**: 個別 node に展開する。 多少冗長だが reliable。
+
+```latex
+\node[circle, fill=c0, ...] at (axis cs:1.05e-7, 4e-5) {1};
+\node[circle, fill=c1, ...] at (axis cs:1.5e-7,  4e-5) {2};
+...
+```
+
+または `\stagebadge{i}{x}{col}` 系の `\newcommand` macro を作って明示展開。
+
+**Why**: pgfmath は `\x` を数値として、 `\col` を color macro として、 同 expansion 中に異なる context で解釈しようとすると失敗する。 macro 展開 timing と expansion context の問題。 動くケースもある (= `\foreach \i/\x in {1/22.5, ...}` のような 2 変数 + 数値のみは安定) ので、 失敗時は個別 node fallback が rule of thumb。
+
+## smooth functional curve は `\draw plot[smooth, samples=N]` を使う、 Bezier 4-segment は angular
+
+**症状**: Higgs potential / Mexican hat / 任意の 4 次関数を `\draw .. controls (a,b) and (c,d) .. (e,f)` 形式の Bezier で描くと、 制御点が少ない (= 4-8 segment) と curve が angular (= 「W 文字風」) に見える。 user feedback で「4 次関数に見えない、 W みたい」 と指摘される類。
+
+**対処**: parametric plot + smooth + 多 sample:
+
+```latex
+% V(φ) = c(φ² − v²)² の smooth 描画 (= 100+ samples で滑らか)
+\draw[c1, line width=1pt, smooth, samples=120, domain=-2.7:2.7] plot
+  ({1.6*\x}, {0.32*(\x*\x - 1.96)*(\x*\x - 1.96) - 1});
+```
+
+- `samples=120` で domain を細分、 segment 間の visual 角度を最小化
+- `smooth` で点間を Catmull-Rom 系 interpolation
+- `\x*\x` で `\x²` (pgfmath は `^` を演算子として認識しないので multiplication で記述)
+- 座標スケール調整は `({1.6*\x}, {... mm 単位})` 等で外側に出す
+
+### Mexican hat の aesthetic (= 「W」 に見えない parameter 選び)
+
+Higgs / Mexican hat の cross-section は数学的には W 形状だが、 **central peak の高さ vs outer rim の高さ** の比で見え方が変わる:
+
+- **比 1:1** → 「W」 文字に見える (= 中央山と両端山が同じ高さ)
+- **比 1:5 以上** → 「中央 ぺったんこ + 両端急角度」 の sombrero (帽子のつば) 様シルエット、 物理 textbook iconic
+
+`V(φ) = c(φ² − v²)²` の parameter で V(0) = c·v⁴ (中央 peak の高さ)、 V(2v) = c·9v⁴ = 9·V(0) (= 2v 点で 9 倍)。 outer rim を peak の 5 倍以上にするには、 domain を `[-2.5v, 2.5v]` 程度まで広げて outer の急角度部分を含める。
+
+例: `c = 0.32, v² = 1.96` (= v ≈ 1.4)、 domain `-2.7:2.7`:
+- V(0) = 0.32 × 1.96² ≈ 1.23
+- V(±1.4) = 0 (minima)
+- V(±2.7) = 0.32 × (7.29 − 1.96)² ≈ 9.1
+- 比 outer/peak ≈ 7.4 → sombrero 様
+
+## macOS Hiragino font は PostScript 名で指定
+
+**症状**: `\setmainjfont{Hiragino Mincho ProN W3}` は `! Package fontspec Error: The font "Hiragino Mincho ProN W3" cannot be found.` で失敗する。
+
+**原因**: macOS の `.ttc` ファイル (= TrueType Collection) は複数 weight を 1 file 内に持ち、 display name (= "Hiragino Mincho ProN W3") は ファイル内 face を識別する family + style suffix。 fontspec / luaotfload は **PostScript name** (= `HiraMinProN-W3`) で参照する必要がある。
+
+**確認方法**:
+```bash
+python3 -c "
+from fontTools.ttLib import TTCollection
+t = TTCollection('/System/Library/Fonts/ヒラギノ明朝 ProN.ttc')
+for i, f in enumerate(t.fonts):
+    names = {n.nameID: str(n) for n in f['name'].names if n.nameID == 6}
+    print(i, names)
+"
+```
+
+`nameID == 6` が PostScript name。 .ttc 内に複数 face があるので index ごとに違う PostScript 名が出る (= e.g., W3 と W6)。
+
+**対処**:
+```latex
+\setmainjfont{HiraMinProN-W3}[BoldFont=HiraMinProN-W6]
+\setsansjfont{HiraginoSans-W3}[BoldFont=HiraginoSans-W6]
+```
+
+macOS 標準で使える Hiragino face の PostScript 名 (W3/W4/W5/W6/W7 等):
+- `HiraMinProN-W3` / `HiraMinProN-W6` (= 明朝 ProN)
+- `HiraginoSans-W3` / `HiraginoSans-W6` 等 (= 角ゴシック ProN ベース、 W0〜W9 まで)
+- `HiraKakuProN-W3` / `HiraKakuProN-W6` (= 角ゴシック ProN)
+
+## TikZ matrix で `text=fgmute` (= 色) と math mode の干渉
+
+**症状**: `\matrix[matrix of nodes, column 1/.style={text=fgmute, font=...}]` で 1 列目に math symbol を入れると、 期待通り fgmute 色で表示されないことがある。 特に math 内の数字や Greek letter が default 色 (= black) に戻る。
+
+**対処**: per-cell explicit `\color{fgmute}` を使う、 または matrix を諦めて explicit `\node` で 1 個ずつ配置 (= alignment は手動で揃える)。 または `\node[...]{$...$}` の color style が math context で reset される問題なので、 `\color{...}` を `$...$` 内に書く:
+```latex
+{$\color{fgmute} z$ }
+```
+
+ただし math fragment color 設定は font / glyph によっては部分的にしか効かない。 visual check 必須。
+
+## サイクル: 「compile 成功」 ≠ 「visual 成功」
+
+TikZ / pgfplots の edit 直後、 `lualatex` exit code 0 + log error 0 でも **以下は普通に起きる**:
+- Label が card 境界からはみ出す
+- 線が data 領域外まで extend して clip される
+- 数式中央揃えが微妙にズレている
+- font が想定と違う (= 別 face fallback)
+
+`latex.md §「PDF 視覚検証 reflex」` で defined されている **render → PNG → 視覚確認** loop を、 TikZ / pgfplots では特に必須化する。 公式 doc 通りに書いても rendering は doc と異なることが多いため、 「公式 doc を引用して fixed と主張」 は使えない (= user に「動いてない」 と指摘される)。
+
+### TikZ / pgfplots 編集後の render reflex
+
+```bash
+# 1 行 compile + render (= editor の save hook 化推奨)
+lualatex -interaction=nonstopmode FILE.tex && \
+  pdftoppm -r 300 -png FILE.pdf /tmp/render && \
+  open /tmp/render-1.png
+```
+
+`pdftoppm -r 300` で 300 DPI = 印刷品質。 細部の overflow / misalignment まで確認可能。 PIL.crop で局所拡大して特定要素を inspection:
+```python
+from PIL import Image
+img = Image.open('/tmp/render-1.png')
+w, h = img.size
+img.crop((int(w*0.27), int(h*0.42), w, h)).save('/tmp/zoom.png')
+```
+
+### 「fix した」 と user に報告する前に必須化する 3 step
+
+1. **edit → compile → render PNG → 視覚確認**
+2. ある特定の要素 (= user feedback の対象、 例: 「subtitle と graph の gap」) が **実際に変わったか** を before/after で比較
+3. 周辺要素 (= 同 area の他要素) に **副作用が無いか** scan (= scope shift で xlabel が card 底からはみ出る、 等の cascade)
+
+step 3 を省略すると、 1 修正で別 issue を作り、 user の次 turn で発覚する loop が始まる。 本 session の 20 iteration の半分はこの cascade の発見と修正だった (= 反省)。
+
+## 関連
+
+- 全 LaTeX 規約 (= 数式マクロ規律、 PDF 視覚検証 reflex 等): [`latex.md`](latex.md)
+- pgfplots 公式 manual: [pgfplots.sourceforge.net](https://pgfplots.sourceforge.net/pgfplots.pdf)
+- 個人層の「規律の reflex 化」 関連: `odakin-prefs/work-discipline.md`
