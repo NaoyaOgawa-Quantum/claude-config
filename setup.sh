@@ -205,6 +205,24 @@ POST_TOOL_USE_ENTRIES='[
   }
 ]'
 
+# UserPromptSubmit hooks: run on each user message submit.
+# currentdate-anchor.py: time-deictic 表現が prompt に含まれる場合 currentDate
+# anchor を inject (= 2026-05-20 追加、 詳細は conventions/time-context.md)
+USER_PROMPT_SUBMIT_ENTRIES='[
+  {
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/currentdate-anchor.py"}]
+  }
+]'
+
+# SessionStart hooks: run on session start.
+# currentdate-anchor.py: 無条件 currentDate inject (= session 起点 anchor refresh、
+# multi-day session の day change を early notice、 2026-05-20 追加)
+SESSION_START_ENTRIES='[
+  {
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/currentdate-anchor.py"}]
+  }
+]'
+
 install_hooks() {
     if [ ! -d "$HOOKS_SRC" ]; then
         echo "  No hooks directory found. Skipping."
@@ -216,7 +234,8 @@ install_hooks() {
     # symlink 作成（Windows は cp にフォールバック）
     # 絶対パス使用: ~/.claude/hooks/ と <base>/claude-config/hooks/ は
     # 異なるディレクトリツリーのため、相対パスは脆弱
-    for HOOK in "$HOOKS_SRC"/*.sh; do
+    # *.sh + *.py 両方サポート (= 2026-05-20 追加、 currentdate-anchor.py 用)
+    for HOOK in "$HOOKS_SRC"/*.sh "$HOOKS_SRC"/*.py; do
         [ -f "$HOOK" ] || continue
         HOOK_NAME="$(basename "$HOOK")"
         LINK="$HOOKS_DST/$HOOK_NAME"
@@ -262,7 +281,9 @@ install_hooks() {
         mkdir -p "$(dirname "$SETTINGS")"
         jq -n --argjson pre "$HOOK_ENTRIES" \
               --argjson post "$POST_TOOL_USE_ENTRIES" \
-            '{hooks: {PreToolUse: $pre, PostToolUse: $post}}' > "$SETTINGS"
+              --argjson ups "$USER_PROMPT_SUBMIT_ENTRIES" \
+              --argjson ss "$SESSION_START_ENTRIES" \
+            '{hooks: {PreToolUse: $pre, PostToolUse: $post, UserPromptSubmit: $ups, SessionStart: $ss}}' > "$SETTINGS"
         echo "  Created: $SETTINGS"
         return 0
     fi
@@ -273,7 +294,9 @@ install_hooks() {
         echo "  Adding hooks config to settings.json ..."
         jq --argjson pre "$HOOK_ENTRIES" \
            --argjson post "$POST_TOOL_USE_ENTRIES" \
-            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post}}' \
+           --argjson ups "$USER_PROMPT_SUBMIT_ENTRIES" \
+           --argjson ss "$SESSION_START_ENTRIES" \
+            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post, UserPromptSubmit: $ups, SessionStart: $ss}}' \
             "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         echo "  Done."
     else
@@ -331,6 +354,54 @@ install_hooks() {
                 fi
             done
         fi
+
+        # UserPromptSubmit 処理 (= 2026-05-20 追加、 currentdate-anchor.py 用)
+        if ! jq -e '.hooks.UserPromptSubmit' "$SETTINGS" > /dev/null 2>&1; then
+            echo "  Adding UserPromptSubmit hooks ..."
+            jq --argjson entries "$USER_PROMPT_SUBMIT_ENTRIES" \
+                '.hooks.UserPromptSubmit = $entries' \
+                "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+        else
+            for HOOK_CMD in "currentdate-anchor.py"; do
+                if ! jq -e --arg cmd "$HOOK_CMD" \
+                    '.hooks.UserPromptSubmit[] | select(.hooks[]?.command | contains($cmd))' \
+                    "$SETTINGS" > /dev/null 2>&1; then
+                    echo "  Adding missing UserPromptSubmit hook: $HOOK_CMD"
+                    ENTRY=$(echo "$USER_PROMPT_SUBMIT_ENTRIES" | jq --arg cmd "$HOOK_CMD" \
+                        '[.[] | select(.hooks[]?.command | contains($cmd))][0]')
+                    jq --argjson entry "$ENTRY" \
+                        '.hooks.UserPromptSubmit += [$entry]' \
+                        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+                fi
+            done
+        fi
+
+        # SessionStart 処理 (= 2026-05-20 追加、 currentdate-anchor.py 用)
+        # 注: 過去に session-git-check.sh の SessionStart hook を退役させた経緯あり
+        # (= 上の Cleanup section)、 ただしそれは「git fetch を毎 session で噴出」 が
+        # noise だったため。 currentdate-anchor.py は session start に 1 行 anchor を
+        # injection するだけで noise でない (= 当日付確認は常に有用)、 復活ではなく
+        # 別目的の新規 hook。
+        if ! jq -e '.hooks.SessionStart' "$SETTINGS" > /dev/null 2>&1; then
+            echo "  Adding SessionStart hooks ..."
+            jq --argjson entries "$SESSION_START_ENTRIES" \
+                '.hooks.SessionStart = $entries' \
+                "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+        else
+            for HOOK_CMD in "currentdate-anchor.py"; do
+                if ! jq -e --arg cmd "$HOOK_CMD" \
+                    '.hooks.SessionStart[] | select(.hooks[]?.command | contains($cmd))' \
+                    "$SETTINGS" > /dev/null 2>&1; then
+                    echo "  Adding missing SessionStart hook: $HOOK_CMD"
+                    ENTRY=$(echo "$SESSION_START_ENTRIES" | jq --arg cmd "$HOOK_CMD" \
+                        '[.[] | select(.hooks[]?.command | contains($cmd))][0]')
+                    jq --argjson entry "$ENTRY" \
+                        '.hooks.SessionStart += [$entry]' \
+                        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+                fi
+            done
+        fi
+
         echo "  Hooks check complete."
     fi
 }
