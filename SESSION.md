@@ -2,6 +2,16 @@
 
 ## 現在の状態
 
+**2026-05-20 evening (pre-commit-bib に layer-3 custom hook の optional chain logic 追加)** ([3dc0a0f](https://github.com/odakin/claude-config/commit/3dc0a0f)): 既存 LaTeX file 自動修正 hook の挙動を不変保持しつつ、 末尾に `$HOME/Claude/odakin-prefs/scripts/pre-commit-yaml-scan.sh` が executable なら chain で呼ぶ optional block を追加。 他 user 環境では custom hook 不在で silent skip (= 影響なし)、 odakin 環境では layer 3 の yaml silent corruption scan が commit 前に走り、 corruption あれば commit reject。
+
+設計動機: odakin-prefs/scripts/scan-yaml-corruption.py で expose した 5 件の yaml silent corruption (= same-id duplicate / same-field duplicate / silent entry merge) を **commit 前に物理 block** する pre-commit hook chain の実現。 odakin-prefs 側で `.git/hooks/pre-commit` を直接 install しようとして symlink target (= 本 file 自身) を destroy する事故が同 session 内で発生、 git restore で復元 + layer 1 generic 拡張で chain logic を持つ設計に切り替えた。
+
+odakin-prefs の mention は本 file CLAUDE.md §「安全規則 (公開リポ)」 §「例外 list」 内の personal layer position name として既に明示済み、 leak 軸 OK。 layer 1 modification は「optional layer-3 hook chain」 という generic 機能で他 user にも benefit potential あり (= 他 user が自身の personal layer から hook を chain したい場合に同 pattern で extend 可能)。
+
+詳細経緯: [`~/Claude/odakin-prefs/SESSION.md §2026-05-20`](../odakin-prefs/SESSION.md)
+
+---
+
 **2026-05-19 night (cosmology infographic 20-iter session の TikZ/pgfplots gotcha + visual-artifact render 規律)**: 2026-05-19 終日 user feedback driven で `cosmology-history` infographic を LaTeX/TikZ/pgfplots で制作 (= [odakin/infographics](https://github.com/odakin/infographics))、 20 iteration の中で踏んだ「公式 doc 通りに動かない / 直感に反する」 pgfplots 罠 + 視覚検証の規律不足から発生した事故を layer 1 知見として外出し:
 
 - **`conventions/tikz-pgfplots.md`** (新規、 8 sections + 関連リンク): (1) pgfplots `width`/`height` は axis title / xlabel を bounding しない → scope shift + size 縮小 + xlabel/ylabel xshift/yshift の 3 段組合せ、 (2) outer top と data top の internal padding → subtitle を `title=` axis option 経由で内部統合、 (3) `node[pos=p, sloped]` の pos は path-length parametric で予測困難 → explicit `axis cs:` + 手動 `rotate=` に置換、 (4) TikZ `\foreach` で `\col` 等 color macro が undefined → 個別 node 展開 fallback、 (5) smooth functional curve は `\draw plot[smooth, samples=N]` (= Bezier 4-segment は angular)、 sub-section で Mexican hat / Higgs potential aesthetic (= central peak vs outer rim 比 1:5 で sombrero 様シルエット)、 (6) macOS Hiragino font は PostScript 名 (`HiraMinProN-W3` 等) 指定、 `fontTools.ttLib` で .ttc 内 face 名確認、 (7) TikZ matrix の `text=fgmute` と math mode color 干渉、 (8) **「compile 成功 ≠ visual 成功」 サイクル** (= render → PNG → 視覚確認の reflex 化、 3-step + 「user に Yes と言われるまで fix と書かない」 ルール)
