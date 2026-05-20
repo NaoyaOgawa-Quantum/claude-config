@@ -16,27 +16,42 @@ odakin の session で、 currentDate = 2026-05-20 だったが、 Claude (= 私
 
 これは odakin-prefs/CLAUDE.md inline §16「context 構築での単一情報源 null 結論飛躍」 trait family の **時刻 domain での現れ**: 「user 発話の『明日』」 という単一観察 (= 言語表現) を、 currentDate context を bypass して「会話流れ」 で解釈 (= cell 埋め)、 実際の時刻 anchor (= currentDate) を expose せず暗黙化。 「不確実性を expose か隠すか」 の問いで「隠す」 を選んだ assertion。
 
-## 設計史: 機械的 enforcement の試行と退役 (2026-05-20)
+## 設計史: 機械的 enforcement の段階的調整 (2026-05-20)
 
-本規律 §1-3 を wording で書いても reflex で skip される risk があるため (= `odakin-prefs/CLAUDE.md inline §15 axis 2` の aspirational instruction risk)、 一度 UserPromptSubmit + SessionStart hook (`hooks/currentdate-anchor.py`) で機械的 enforcement layer を試行した (`3c0e6f6` で導入)。 hook は user prompt に時刻 deictic 表現が含まれていたら currentDate + relative dates (= 今日 / 明日 / 昨日 / 明後日) を system reminder で inject する設計。
+本規律 §1-3 を wording で書いても reflex で skip される risk があるため (= `odakin-prefs/CLAUDE.md inline §15 axis 2` の aspirational instruction risk)、 機械的 enforcement layer の hook 化を試行。 同日に 3 段階で調整:
 
-**user 判断で同日中に退役 (`commit TBD`)**。 理由 (= odakin の指摘):
+### Stage 1: UserPromptSubmit + SessionStart 両 hook 試行 (3c0e6f6)
+`hooks/currentdate-anchor.py` で UserPromptSubmit + SessionStart の両 event を hook 化。 UserPromptSubmit は prompt に時刻 deictic 表現が含まれていたら currentDate + relative dates を inject する設計、 false positive 許容方針で広めの pattern。
+
+### Stage 2: 全 hook 退役 (e97eef6)
+user 指摘で全退役:
 - false positive 許容方針 (= 「明日香」 等の地名で偶発 hit でも実害低い) は **Claude 視点のみ評価で user 視点を欠いていた**
 - system reminder は **user の chat UI にも表示される** (= 私の発話「Claude が 1 回多く見るだけ」 は誤り、 user も毎回見る)
-- false positive のコスト分布: Claude 1 / user 1 で対称、 「Claude だけ」 は過小評価
+- false positive のコスト分布: Claude 1 / user 1 で対称
 - 毎回 inject されると「狼少年」 効果で機械的 enforcement の effectiveness 自体が劣化
 
-退役の意味: 規律 §1-3 は valid のまま (= Claude の reflex 規律として残す)、 機械的 enforcement layer のみ削除。 規律 + 規律忘れに依存しない別 mechanism (= pdf-read-fallback-nudge / google-url-guard 等) は別軸の問題対処。
+### Stage 3: SessionStart のみ復活 (commit TBD)
+user 判断 (= 「セッションのはじめに今がいつかを確認する、 というのは自動化しても良い気がする」)。 UserPromptSubmit と SessionStart の性質差で cost-benefit が逆転:
 
-将来の再考: 仮に「false positive を pattern level で抑制」 + 「inject content を 1 行圧縮」 + 「user UI 表示の design 改善」 等で cost 分布が変わる場合、 hook 再導入を検討してよい。 ただし single trigger (= time deictic) で injection を打つ design はそもそも user UI 汚染を伴うため、 別軸の enforcement (= Claude 自身が応答冒頭で currentDate を明示する self-discipline、 或いは tool 出力に currentDate を埋め込む等) のほうが筋。
+| | UserPromptSubmit | SessionStart |
+|---|---|---|
+| fire 頻度 | user prompt 毎 (多数回) | session 起動時 1 回 |
+| user UI 汚染 | 毎ターン累積 → 深刻 | 1 回、 起動 phase の期待情報 |
+| false positive コスト | 「明日香」 等で multiplier | trigger 不問 = false positive 概念なし |
+| 「狼少年」 効果 | 高 | 低 |
+| 救えるケース | session 内全時点 | new session 起動時のみ |
+| 救えないケース | (なし) | multi-day session 中の day change |
 
-## 失敗 / 規律のメタ規律
+SessionStart hook は session 起動時 1 回だけ fire、 user UI 汚染は許容範囲。 multi-day session 中の day change は救えないが、 これは規律 §3 (= user 発話読時に currentDate を明示的再参照する reflex) で対処。
 
-- `currentDate` が context にあっても reflex で skip される (= context 持っている ≠ 都度参照する)。 規律を **見出し level** (= chat 応答冒頭で「今日 = YYYY-MM-DD」 を明示する self-reminder) で運用する
+### メタ規律: 機械的 enforcement の cost 分布
+
 - 機械的 enforcement layer は cost 分布を確認しないと user 側に押し付けが発生する。 「false positive 許容 = 実害低い」 と評価する前に、 inject 内容が user の chat UI / context window に乗ることを意識する
+- 同じ hook でも fire 頻度が違えば cost-benefit が大きく変わる (= UserPromptSubmit vs SessionStart の差)。 fire 頻度を含めた設計判断が必要
 
 ## 関連
 
 - `~/Claude/odakin-prefs/CLAUDE.md inline §16` (= 単一情報源 null 結論飛躍、 時刻 domain への現れ)
+- `claude-config/hooks/currentdate-anchor.py` (= SessionStart 専用 hook、 現行運用)
 - `claude-config/hooks/pdf-read-fallback-nudge.sh` (= 別軸で機械的 enforcement が valid な前例、 PostToolUse Read で local error symptom にのみ反応するため user UI 汚染なし)
-- 退役 commit history: `git log --all -- hooks/currentdate-anchor.py conventions/time-context.md`
+- 設計史 commit history: `git log --all -- hooks/currentdate-anchor.py conventions/time-context.md`

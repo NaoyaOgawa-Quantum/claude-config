@@ -205,6 +205,17 @@ POST_TOOL_USE_ENTRIES='[
   }
 ]'
 
+# SessionStart hooks: run on session start (= 起動時 1 回のみ fire)。
+# currentdate-anchor.py: currentDate + 曜日 を inject (= multi-day session の
+# day change を early notice、 私 (Claude) の reflex anchor refresh)。
+# 詳細: conventions/time-context.md §「設計史」 参照。 UserPromptSubmit hook
+# は 2026-05-20 試行 → user UI 汚染で同日中に退役、 SessionStart のみ復活。
+SESSION_START_ENTRIES='[
+  {
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/currentdate-anchor.py"}]
+  }
+]'
+
 install_hooks() {
     if [ ! -d "$HOOKS_SRC" ]; then
         echo "  No hooks directory found. Skipping."
@@ -216,7 +227,7 @@ install_hooks() {
     # symlink 作成（Windows は cp にフォールバック）
     # 絶対パス使用: ~/.claude/hooks/ と <base>/claude-config/hooks/ は
     # 異なるディレクトリツリーのため、相対パスは脆弱
-    for HOOK in "$HOOKS_SRC"/*.sh; do
+    for HOOK in "$HOOKS_SRC"/*.sh "$HOOKS_SRC"/*.py; do
         [ -f "$HOOK" ] || continue
         HOOK_NAME="$(basename "$HOOK")"
         LINK="$HOOKS_DST/$HOOK_NAME"
@@ -245,15 +256,9 @@ install_hooks() {
         fi
     done
 
-    # Cleanup: remove obsolete hook symlinks (= 退役 hook の自動削除)
-    # currentdate-anchor.py: 2026-05-20 試行 → user 判断で disable (= false positive
-    # cost + user UI noise が enforcement 利益を上回る判断、 詳細 conventions/time-context.md)
-    for OBSOLETE in currentdate-anchor.py; do
-        if [ -L "$HOOKS_DST/$OBSOLETE" ] || [ -f "$HOOKS_DST/$OBSOLETE" ]; then
-            echo "  Removing obsolete hook: $OBSOLETE"
-            rm -f "$HOOKS_DST/$OBSOLETE"
-        fi
-    done
+    # (currentdate-anchor.py の symlink は上の for HOOK loop で install 済、
+    # 退役 hook の cleanup は現状なし — 過去の退役 hook が再発生したら
+    # 上の for OBSOLETE pattern で追加する)
 
     # settings.json に hooks 設定をマージ
     if ! command -v jq &> /dev/null; then
@@ -272,7 +277,8 @@ install_hooks() {
         mkdir -p "$(dirname "$SETTINGS")"
         jq -n --argjson pre "$HOOK_ENTRIES" \
               --argjson post "$POST_TOOL_USE_ENTRIES" \
-            '{hooks: {PreToolUse: $pre, PostToolUse: $post}}' > "$SETTINGS"
+              --argjson ss "$SESSION_START_ENTRIES" \
+            '{hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss}}' > "$SETTINGS"
         echo "  Created: $SETTINGS"
         return 0
     fi
@@ -283,7 +289,8 @@ install_hooks() {
         echo "  Adding hooks config to settings.json ..."
         jq --argjson pre "$HOOK_ENTRIES" \
            --argjson post "$POST_TOOL_USE_ENTRIES" \
-            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post}}' \
+           --argjson ss "$SESSION_START_ENTRIES" \
+            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss}}' \
             "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         echo "  Done."
     else
@@ -321,21 +328,40 @@ install_hooks() {
             fi
         fi
 
-        # Cleanup: remove obsolete currentdate-anchor.py hooks if present
-        # (退役 2026-05-20: false positive cost + user UI noise が enforcement 利益を
-        # 上回ると user 判断、 規律は conventions/time-context.md に文書のみで残置)
-        for EVENT in UserPromptSubmit SessionStart; do
-            if jq -e --arg ev "$EVENT" '.hooks[$ev]' "$SETTINGS" > /dev/null 2>&1; then
-                if jq -e --arg ev "$EVENT" '.hooks[$ev][] | select(.hooks[]?.command | contains("currentdate-anchor.py"))' \
-                   "$SETTINGS" > /dev/null 2>&1; then
-                    echo "  Removing obsolete $EVENT hook (currentdate-anchor.py)..."
-                    jq --arg ev "$EVENT" \
-                        '.hooks[$ev] |= map(select(.hooks[]?.command | contains("currentdate-anchor.py") | not))
-                         | if .hooks[$ev] == [] then del(.hooks[$ev]) else . end' \
+        # Cleanup: remove obsolete UserPromptSubmit currentdate-anchor.py hook
+        # (= 2026-05-20 試行 → 同日中に退役。 SessionStart は別途 install logic で
+        # keep、 SessionStart は session 起動時 1 回のみ fire = user UI 汚染問題なし)
+        # 詳細: conventions/time-context.md §「設計史」
+        if jq -e '.hooks.UserPromptSubmit' "$SETTINGS" > /dev/null 2>&1; then
+            if jq -e '.hooks.UserPromptSubmit[] | select(.hooks[]?.command | contains("currentdate-anchor.py"))' \
+               "$SETTINGS" > /dev/null 2>&1; then
+                echo "  Removing obsolete UserPromptSubmit hook (currentdate-anchor.py)..."
+                jq '.hooks.UserPromptSubmit |= map(select(.hooks[]?.command | contains("currentdate-anchor.py") | not))
+                    | if .hooks.UserPromptSubmit == [] then del(.hooks.UserPromptSubmit) else . end' \
+                    "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+            fi
+        fi
+
+        # SessionStart 処理 (= 2026-05-20 SessionStart のみ復活)
+        if ! jq -e '.hooks.SessionStart' "$SETTINGS" > /dev/null 2>&1; then
+            echo "  Adding SessionStart hooks ..."
+            jq --argjson entries "$SESSION_START_ENTRIES" \
+                '.hooks.SessionStart = $entries' \
+                "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+        else
+            for HOOK_CMD in "currentdate-anchor.py"; do
+                if ! jq -e --arg cmd "$HOOK_CMD" \
+                    '.hooks.SessionStart[] | select(.hooks[]?.command | contains($cmd))' \
+                    "$SETTINGS" > /dev/null 2>&1; then
+                    echo "  Adding missing SessionStart hook: $HOOK_CMD"
+                    ENTRY=$(echo "$SESSION_START_ENTRIES" | jq --arg cmd "$HOOK_CMD" \
+                        '[.[] | select(.hooks[]?.command | contains($cmd))][0]')
+                    jq --argjson entry "$ENTRY" \
+                        '.hooks.SessionStart += [$entry]' \
                         "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
                 fi
-            fi
-        done
+            done
+        fi
 
         # PostToolUse 処理
         if ! jq -e '.hooks.PostToolUse' "$SETTINGS" > /dev/null 2>&1; then
@@ -514,7 +540,7 @@ PARENT_DIR="$(dirname "$REPO_DIR")"
 HOOKS_SRC="$REPO_DIR/hooks"
 HOOKS_DST="$HOME/.claude/hooks"
 if [ -d "$HOOKS_SRC" ] && [ -d "$HOOKS_DST" ]; then
-    for HOOK in "$HOOKS_SRC"/*.sh; do
+    for HOOK in "$HOOKS_SRC"/*.sh "$HOOKS_SRC"/*.py; do
         [ -f "$HOOK" ] || continue
         HOOK_NAME="$(basename "$HOOK")"
         DEST="$HOOKS_DST/$HOOK_NAME"
