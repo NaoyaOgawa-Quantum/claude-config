@@ -47,4 +47,13 @@ elif [[ $rc -ge 2 ]]; then
     exit 1
 fi
 
+# Optional chain to layer-3 (= personal layer) custom hook.
+# odakin-prefs/scripts/pre-commit-yaml-scan.sh があれば呼ぶ。 他 user で本 file
+# 不在なら silent skip (= layer 3 不在の他 Claude Code user の env に影響なし)。
+# 詳細: ~/Claude/odakin-prefs/scripts/pre-commit-yaml-scan.sh
+CUSTOM_HOOK="$HOME/Claude/odakin-prefs/scripts/pre-commit-yaml-scan.sh"
+if [[ -x "$CUSTOM_HOOK" ]]; then
+    "$CUSTOM_HOOK"  # set -e で exit 1 propagate
+fi
+
 exit 0
