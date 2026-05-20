@@ -18,6 +18,7 @@
     - "alt1@example.com"
   inspire_id: null            # INSPIRE 著者ID（あれば）
   discord_id: null            # Discord 数値 ID（arxiv-digest 等で mention に使う、あれば）
+  github_handle: null         # GitHub username（共同編集リポで push 권があるなら必須）
   projects: [project-id]      # 関連プロジェクト（projects.yaml の id）
   notes: null                 # 備考
 ```
