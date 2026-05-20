@@ -166,7 +166,7 @@ surface しなかった場合: 残り 2 経路に依存している、 または
 - setup.sh の途中で fail → 直前まで完了した step は残るが後続 step が skip = partial state
 - 個人層 hook (= layer 3) を ad hoc に install → settings.json merge を忘れがち
 
-setup.sh の `install_hooks()` (= L286-300 の jq merge logic) は **symlink 配置 + settings.json merge を atomic な 2 step として扱う**。 これを分離して片方だけ実行すると partial state を produce する。
+setup.sh の `install_hooks()` 関数内の **「symlink 配置 → settings.json への jq merge」 dual-step は atomic な 1 unit として扱う** (= 関数内で逐次実行、 該当 logic の正本は `claude-config/setup.sh`)。 これを分離して片方だけ実行すると partial state を produce する。
 
 ### 防止策
 
