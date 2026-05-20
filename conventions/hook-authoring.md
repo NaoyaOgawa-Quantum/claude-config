@@ -67,19 +67,20 @@ pat = re.compile(r"<<-?\s*[\x22\x27]?([A-Z]+)[\x22\x27]?\s*")
 
 ---
 
-## §2. hook 配信正常性の 3 軸 audit (= 1 軸欠けて silent malfunction)
+## §2. hook 配信正常性の 4 軸 audit (= 1 軸欠けて silent malfunction)
 
 ### 問題
 
-claude-code が hook を起動するには **3 軸全てが揃う必要**:
+claude-code が hook を起動するには **4 軸全てが揃う必要**:
 
 | 軸 | 配信先 / 確認方法 | 失敗時の症状 |
 |---|---|---|
 | (a) **symlink target 健全性** | `~/.claude/hooks/<name>.sh` が存在し target も存在 (= `[ -e <path> ]` が true) | hook spawn 即 fail。 claude-code は exit code を log するが user 通常見ない |
 | (b) **settings.json entry** | `~/.claude/settings.json` の `hooks.PreToolUse[]` (または PostToolUse) に該当 command path が登録 | claude-code が hook を invoke しない。 stderr 不在で気付かない |
 | (c) **logic 健全性** | realistic JSON stdin で hook 起動 + 期待出力 (= ask JSON / warn 出力 / silent) 確認 | (a)(b) OK でも logic bug で空振り、 false negative |
+| (d) **harness invoke 経路の生死** | hook 先頭に trace block 投入 → 実 tool call → trace log 作成確認 | (a)(b)(c) 全 OK でも claude-code 側の bug で hook が起動しない silent failure。 既存 audit-hooks.sh script は (a)(b)(c) のみ check するので green でも (d) は fail し得る |
 
-3 軸全て silent failure mode を持つ。 「symlink 作った」 「settings.json 直した」 「テスト書いた」 のどれか 1 つで「fix 完了」 と claim するのは error。
+4 軸全て silent failure mode を持つ。 「symlink 作った」 「settings.json 直した」 「テスト書いた」 「invoke 経路も確認した」 のどれか 1〜3 つで「fix 完了」 と claim するのは error。
 
 ### 実例 (= 2026-05-20 retroactive 発覚)
 
@@ -88,6 +89,7 @@ claude-code が hook を起動するには **3 軸全てが揃う必要**:
 | (a) broken symlink | `~/.claude/hooks/google-url-guard.sh -> <non-existent path>` の状態 (= 過去の personal-layer hook 試行残骸、 target dir 不在) | **約 1 ヶ月** (link mtime から逆算)。 この間、 機械的 enforcement layer 不在 → user 規約違反の retroactive audit 対象に |
 | (b) settings.json entry 欠落 | `~/.claude/hooks/expensive-tmp-guard.sh` symlink は存在、 但し `settings.json` の PreToolUse list に未登録 | 不明 (= setup.sh 直近実行時に partial 完了した可能性) |
 | partial install (= §4 参照) | symlink だけ手動修復 + settings.json は手付かず → (a) 解消、 (b) は残存 | (b) 軸単独の silent malfunction が継続 |
+| **(d) harness invoke 死亡 (= 2026-05-21 追加)** | claude-code 2.1.x で **`PostToolUse[Bash]` + `PreToolUse[Bash]` 両 hook が harness invoke されない** silent failure。 (a)(b)(c) 全 green、 manual invoke で hook script が正しく動作するにもかかわらず実 Bash tool call で hook が fire しない (= 他 matcher 〔Write / Read / SessionStart 等〕 は同 session で fires fine、 Bash matcher 限定) | **少なくとも 2026-05-21 朝以降 (= 当 file 著者の家 MacBook M1 Pro / 職場 iMac Intel 両 machine + restart 後も persistent)**。 Anthropic 既存 issue [#52715](https://github.com/anthropics/claude-code/issues/52715) + [#59513](https://github.com/anthropics/claude-code/issues/59513) で同症状を CLI 2.1.53 → VSCode 拡張 2.1.145 の version range で報告済 (= 我々 +1 data point 提供済) |
 
 ### 防止策 / audit method
 
@@ -95,10 +97,28 @@ claude-code が hook を起動するには **3 軸全てが揃う必要**:
 1. `[ -e ~/.claude/hooks/<name>.sh ]` (= symlink target 健全?)
 2. `jq -e --arg c "<name>.sh" '.hooks.PreToolUse[] | select(.hooks[]?.command | contains($c))' ~/.claude/settings.json` (= entry 存在?)
 3. realistic JSON stdin で hook 起動 → 期待出力 確認 (= logic 健全?)
+4. **(d) trace technique** (= 後述): hook 先頭 (shebang+1) に trace block 投入 → 任意の matching tool call → trace log 作成確認 → trace revert (= harness invoke alive?)
 
-3 つとも yes でない限り「動く」 と claim しない。
+4 つとも yes でない限り「動く」 と claim しない。
 
-**audit script の design 推奨**: hook ごとに 3 軸 check して silent malfunction を expose する script を `claude-config/scripts/audit-hooks.sh` 等で実装するのが筋。 dashboard 統合候補。 本 file 作成時点 (= 2026-05-20) では未実装、 個別 hook の本気運用前に 1 度書く価値あり。
+#### (d) 軸の trace technique
+
+hook script の shebang 直下 (= line 2 推奨、 `set -e` / 全 logic より前で「process spawn 即」 の事実を捉える) に:
+
+```bash
+{ echo "$(date '+%H:%M:%S') pid=$$ ppid=$PPID cwd=$(pwd)"; } >> /tmp/hook-trace.log 2>/dev/null
+```
+
+を追加。 任意の matching tool call (= `PostToolUse[Bash]` 軸を audit するなら任意の Bash call で OK、 `PreToolUse[Edit]` なら任意の Edit) を 1 回打つ。 直後に:
+
+```sh
+ls -la /tmp/hook-trace.log    # 存在すれば harness invoke alive、 不在なら dead
+cat /tmp/hook-trace.log       # 起動時 cwd / pid も同時 audit
+```
+
+**必須 cleanup**: trace block を必ず revert (= 残置すると将来の session で /tmp に蓄積、 noise + log file 蓄積)。 manual edit を 2 段 (= 投入 → tool call → 確認 → revert) で扱う protocol が必要なので、 単発 script に閉じない。 atomic 化 (= 投入 + revert を 1 unit) する script の design plan あり (= odakin-prefs 側 plan、 layer 1 への将来 contribution として議論中、 Anthropic fix 完了後に implementation trigger)。
+
+**audit script の現状**: `claude-config/scripts/audit-hooks.sh` は (a)(b)(c) 3 軸の sweep を実装済 (= `setup.sh` Step 3 後の delivery 検証 + dashboard 統合)。 (d) 軸 は trace 投入 / revert の atomic 化が必要なので別段の implementation が要、 本 file (2026-05-21) では未実装で manual protocol のみ documented。
 
 **hook 配信 drift の根本因**: setup.sh が periodic 実行されないと、 claude-config に新 hook を commit / 既存 hook の symlink target を変更しても、 各マシンの `~/.claude/hooks/` への配信は遅延する。 対処の候補:
 - (i) setup.sh を post-merge git hook で auto-run (= 既存 Step 6 で claude-config 自身の post-merge は導入済、 hook install step もここで毎回 idempotent 再実行する余地)
