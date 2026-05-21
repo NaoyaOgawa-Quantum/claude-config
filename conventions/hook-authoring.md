@@ -22,6 +22,26 @@ claude-code hook は **3 つとも逆**:
 
 ---
 
+## §0. naming convention: suffix で behavior を区別
+
+hook script の filename suffix で **block するか否か** を機械的に区別する:
+
+| suffix | behavior | 終了経路 | 例 |
+|---|---|---|---|
+| `-nudge` | **non-blocking** (= informational injection only) | exit 0 + stdout に `<system-reminder>...` または `additionalContext` JSON | `pdf-read-fallback-nudge.sh`, `git-state-nudge.sh` |
+| `-guard` | **blocking via PreToolUse permissionDecision** (= ask / deny) | exit 0 + stdout に `{"permissionDecision": "ask"\|"deny"}` JSON | `memory-guard.sh`, `google-url-guard.sh`, `expensive-tmp-guard.sh`, `public-leak-guard.sh`, `commit-msg-leak-guard.sh` |
+| `-enforce` | **blocking via Stop / Pre*ToolUse 非 ask 経路** (= 別 phase での block) | exit 2 または stdout に `{"decision": "block"}` JSON | `pdf-open-enforce.sh` (Stop hook) |
+
+suffix と behavior の対応がずれている (= 例: `-nudge` 接尾辞だが実際は block する) hook は、 後の audit / 縮退判断 (= §6) で「nudge だから止めても安全」 「enforce だから drift しても catastrophic」 等の reflex 判断と整合が取れず事故の元。
+
+新 hook 命名時の判定:
+1. block (= 該当 flow を止める) する? → No なら `-nudge`、 Yes なら 2 へ
+2. block 経路は PreToolUse の `permissionDecision: ask|deny`? → Yes なら `-guard`、 No (= Stop / 他 phase / 直接 `decision: block`) なら `-enforce`
+
+既存 hook の rename は不要 (= 命名規約導入以前の hook は behavior が `-nudge` / `-guard` のいずれかで揃っており suffix と整合済)、 新規 hook からこの規約を follow する。 初出: `pdf-open-enforce.sh` (= 2026-05-21、 Stop hook で `{"decision": "block"}` を返す初の hook)。
+
+---
+
 ## §1. bash 3.2 の `$(...)` + heredoc body の quote escape parser bug
 
 ### 問題
