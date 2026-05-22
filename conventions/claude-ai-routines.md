@@ -106,9 +106,11 @@ one-time の場合は `cron_expression` を `run_once_at` (= RFC3339 UTC) に置
 - **prompt を「先回 session の続き」 と書く** (= remote agent は zero context、 必ず stand-alone に書く)
 - **`scheduled-tasks.md` の SKILL.md 同期 ルールを本 routine に適用** (= SKILL.md は別 mechanism で、 本 routine の prompt は API response 内に保存される。 git 同期 task 不要)
 
-## 過去事例
+## 反パターン一般化: skill capability の名前ベース評価
 
-- **2026-05-21 odakin の zemi-roster-sync routine**: schedule skill を「マシン依存しない ◎」 と reflex 評価 → skill 内容を確認したら「cloud 実行 = local file 触れない」 と判明 → hybrid pattern (= reminder file commit + local 手動 sync) に redesign。 詳細 RCA は `odakin-prefs/work-discipline.md §「単一情報源 null 結論飛躍」 事例 #4`
+未経験 skill / API の capability を skill 内容 (= help / docstring) を read せず名前 + memory 推測で評価する trap が再現性高い。 典型: `schedule` skill を「cloud で動く = マシン依存しない ◎」 と partial truth から ◎ 評価 → 実装直前に内容を read → 「local file 一切アクセス不可」 という critical 制約が発覚 → hybrid pattern (= 上記推奨設計 pattern) に redesign を強いられる。
+
+**規律**: 新 skill / tool / API の capability assertion をする前に必ず help / docstring を read + 結果を expose してから断言。 名前ベース推測は「安価な操作で expensive 操作 (= help read) を bypass する」 trait の典型現れ。
 
 ## 関連 doc
 
@@ -118,4 +120,4 @@ one-time の場合は `cron_expression` を `run_once_at` (= RFC3339 UTC) に置
 
 ## 由来
 
-2026-05-21 セッションで odakin が物理研究室メンバー名簿の sync 自動化を `schedule` skill で実装した際、 skill 内容を確認せず「マシン依存しない」 と reflex 評価 → 制約発覚で redesign → 一般則を本 file に集約。
+2026-05 確立。 claude.ai routines API を初めて運用した際に発見した制約 + 推奨設計 pattern を集約。
