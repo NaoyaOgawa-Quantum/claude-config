@@ -94,6 +94,7 @@ Get["my_package.wl"];
 
 - **`SetDirectory[NotebookDirectory[]]`**: notebook での慣用だが script では `NotebookDirectory[]` が undefined で fall through。 同 code を notebook / script 両方で使うときも `$InputFileName` fallback の方が portable
 - **try-catch で `SetDirectory::badfile` を握り潰す**: warning は出ないが `Get` が想定外の場所から load するので、 silent な misload になる
+- **`Get[FileNameJoin[{DirectoryName[$ScriptCommandLine[[1]]], "package.wl"}]]` で bare filename invocation の root path fail** (= 2026-05-25 RCA): wolframscript を script と同 dir から `wolframscript -file run_xxx.wl` で起動すると `$ScriptCommandLine[[1]] = "run_xxx.wl"` (= path prefix なし)、 `DirectoryName["run_xxx.wl"] = ""`、 `FileNameJoin[{"", "package.wl"}] = "/package.wl"` (= filesystem root 絶対パス) で `Get` が silent fail。 cascade で全 function 未定義、 後続呼び出しが unevaluated form のまま続行 (= `KeyExistsQ::invrl` 等の cryptic error 経由で発覚)。 解決: `SetDirectory[DirectoryName[...]] + Get["package.wl"]` pattern に統一 (= 上 §「解決策」 の form、 cwd 既に script dir なら `SetDirectory[""]` が badfile error 出しても Get は cwd で resolve して成功)。 `FileNameJoin` 形は path 拼接の保証なしに silent fail する点で `SetDirectory + Get` より fragile。 「`$InputFileName` 空 → `$ScriptCommandLine` fallback」 (= 上 §「解決策」) だけでは不十分、 「fallback して `DirectoryName` が空文字 でも `FileNameJoin` の左端 empty がルート扱いされる」 二重防衛が必要
 
 ---
 
