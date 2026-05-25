@@ -19,8 +19,11 @@
 #        hook 自体が staged file 判定で no-op skip するので全 repo に install）
 #   6b. JHEP.bst を texmf-local にインストール（全リポからグローバル利用）
 #   7.  Hammerspoon 設定をインストール（Claude Cmd+Q 誤終了防止、macOS のみ）
-#   8.  Public repo pre-commit stubs をインストール（`.claude/public-repo.marker`
-#        を持つ repo のみ、冪等）+ missing marker の警告
+#   8.  Public repo pre-commit + commit-msg stubs をインストール
+#        （`.claude/public-repo.marker` を持つ repo のみ、冪等）+ missing
+#        marker の警告。 commit-msg layer は 2026-05-26 追加 (= claude-code
+#        2.1.x harness invoke bug 修復 option B、 詳細は
+#        conventions/hook-authoring.md §2 (d))
 #
 # 使い方:
 #   mkdir -p <base> && cd <base>
@@ -1154,30 +1157,42 @@ else
 fi
 
 
-# --- 8. Install pre-commit stubs on public repos ---
-# claude-config/hooks/public-leak-guard.sh (PreToolUse) と組み合わせて
-# pre-commit 層で Tier A 構造制約 + Tier B literal (ephemeral) をかける。
-# `.claude/public-repo.marker` を持つ repo のみが対象で、installer が
-# 冪等 (既存 stub は refresh) かつ marker なしは refuse する。
+# --- 8. Install pre-commit + commit-msg stubs on public repos ---
+# 2 layer 防御:
+#   - pre-commit: claude-config/hooks/public-leak-guard.sh (PreToolUse)
+#     と組み合わせて file 本文 Tier A 構造制約 + Tier B literal (ephemeral)
+#     をかける
+#   - commit-msg: 2026-05-26 追加。 claude-code 2.1.x harness invoke bug
+#     (= Anthropic issues #52715 + #59513、 詳細 `conventions/hook-authoring.md
+#     §2 (d)`) で PreToolUse Bash hook が silent skip される件の修復 option B。
+#     git native commit-msg hook は harness を経由しないので bypass されない、
+#     commit message Tier A + B (= shared matcher library) を BLOCK mode で
+#     検出
+# どちらも `.claude/public-repo.marker` を持つ repo のみ対象、installer が
+# 冪等 (既存 stub は refresh) かつ marker なしは refuse。
 # `gh repo list --visibility public` と付き合わせて missing marker も
 # 警告する。
 echo ""
-echo "=== Step 8: Installing pre-commit stubs on public repos ==="
+echo "=== Step 8: Installing pre-commit + commit-msg stubs on public repos ==="
 
 INSTALLER="$SCRIPT_DIR/scripts/install-public-precommit.sh"
+INSTALLER_COMMITMSG="$SCRIPT_DIR/scripts/install-public-commit-msg.sh"
 if [ ! -x "$INSTALLER" ]; then
-    echo "  WARNING: installer not found or not executable: $INSTALLER"
+    echo "  WARNING: pre-commit installer not found or not executable: $INSTALLER"
+elif [ ! -x "$INSTALLER_COMMITMSG" ]; then
+    echo "  WARNING: commit-msg installer not found or not executable: $INSTALLER_COMMITMSG"
 else
-    # marker を持つ local repo に install
+    # marker を持つ local repo に install (= 両 hook を同時 install)
     INSTALLED_COUNT=0
     for d in "$CLAUDE_DIR"/*/; do
         [ -d "$d.git" ] || continue
         if [ -f "$d.claude/public-repo.marker" ]; then
             "$INSTALLER" "${d%/}" 2>&1 | sed 's/^/  /'
+            "$INSTALLER_COMMITMSG" "${d%/}" 2>&1 | sed 's/^/  /'
             INSTALLED_COUNT=$((INSTALLED_COUNT + 1))
         fi
     done
-    echo "  Installed pre-commit stubs in $INSTALLED_COUNT repo(s) with marker."
+    echo "  Installed pre-commit + commit-msg stubs in $INSTALLED_COUNT repo(s) with marker."
 
     # gh list と marker の diff で missing marker を警告
     if [ -n "$GH_USER" ] && command -v gh >/dev/null 2>&1; then

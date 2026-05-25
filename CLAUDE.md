@@ -73,11 +73,15 @@ claude-config/
 │   ├── pre-commit-bib                  # Git pre-commit hook（上記を呼ぶ）
 │   ├── public-precommit-runner.sh      # 公開リポ pre-commit gate（Tier A + sensitive-terms.txt ephemeral）
 │   ├── install-public-precommit.sh     # 各 public repo に pre-commit stub を冪等配置
+│   ├── commit-msg-leak-guard-runner.sh # 公開リポ commit-msg hook（BLOCK mode、 2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
+│   ├── commit-msg-leak-guard-runner.test.sh # 上記 runner の self-test（15 case、 BLOCK / PASS / merge skip 等）
+│   ├── install-public-commit-msg.sh    # 各 public repo に commit-msg stub を冪等配置（marker check + core.hooksPath cascade）
 │   ├── audit-public-repos.sh           # 全 public repo の leak 定期監査（週次 scheduled-task 対象）
 │   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
 │   ├── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
 │   └── lib/                            # sourceable helper (個人層検出の共通化)
-│       └── find-personal-layer.sh      # `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
+│       ├── find-personal-layer.sh      # `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
+│       └── commit-msg-leak-matcher.sh  # commit message leak matcher (= sensitive-terms.txt + repos.md private list - 6 allowlist の (a)(b)(c) check)、 claude-code hook + git-side runner の両方が source する DRY 実装
 ├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
 │   ├── root-CLAUDE.md.default          # 個人層なしのデフォルト ~/Claude/CLAUDE.md (setup.sh が配置)
 │   ├── personal-layer/                 # 個人層 (layer 3) bootstrap skeleton
