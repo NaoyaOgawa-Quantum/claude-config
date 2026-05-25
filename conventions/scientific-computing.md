@@ -211,6 +211,94 @@ Quiet の第 2 引数で **特定の message symbol だけ** を suppress (= 全
 
 ---
 
+## 4. 言語移植 verification: 副次 metric vs main metric の divergence は edge-of-stability boundary として documented で済む
+
+### 問題
+
+同一アルゴリズムを言語 A → 言語 B に移植した時、 implementation の **数値結果** が両者で一致するか? の verification で、 **複数 metric** (= main result + 副次 metric) を取って初めて divergence の **意味** が判明する。
+
+**典型 case (= 2026-05-25 Mathematica → Python migration、 Hierarchical Bayes posterior、 bayes-kai)**:
+- main metric = mu posterior (= per-μ 適応 quadrature + Trapz integral)
+- 副次 metric = τ² posterior moments (= analytic μ-marginalization → 1D quadrature)
+- main metric が一部 parameter 領域 (= 高 α) で divergent (Python μ vs Mathematica μ で Δ ~17 MeV at α=20)
+- **同 parameter 領域で副次 metric は byte exact 一致** (= 同 grid + 同 formula + 同 Trapz、 implementations 間で formula identical)
+
+→ divergence は **共通 formula** (= analytic μ-marginal) の implementation 差ではなく、 **adaptive quadrature 戦略差** (= per-μ NIntegrate vs scipy.integrate.quad の subdivision 選択) 由来。 既知の edge-of-stability behavior と整合。
+
+### 含意 (= 移植 verify の design pattern)
+
+副次 metric を併せて取ると、 divergence の **localizability** が向上:
+- 全 metric divergent → 形式 / algorithm の根本差 = bug 候補
+- 副次 byte exact + main divergent → adaptive 戦略 / 局所最適 差 = boundary-of-stability documented 化で済む (= bug ではない、 implementation 戦略の選択)
+- main exact + 副次 divergent → 副次 computation pipeline (= grid resolution / normalization) の差 = 別 issue
+
+### 実例
+
+bayes-kai/DESIGN §8 末尾 (= 「α ≤ 20 で実用」 boundary 注記) で documented:
+- W mass dataset で Python (scipy.integrate.quad) ≡ Mathematica (NIntegrate) が α=15, 20 で μ/SE 不一致
+- ただし τ² posterior (= analytic μ-marginal path) は byte exact
+- → 「α ≤ 20 で実用」 は **scale-dependent + implementation-dependent boundary**、 W mass で α=15-20 を引用する場合は implementation 名 明記推奨
+
+### How to apply
+
+- 移植 verify で **2 つ以上の独立 metric** を取る (= 同 algorithm の異なる aspect を probe)
+- main metric divergent でも副次 byte exact なら implementation 戦略差として documented で良し、 強制的に一致させる必要なし (= adaptive quad は inherent に不一致リスクあり)
+- documented する際は「副次 metric は byte exact = 共通 formula identical」 を明記 (= reader が 「これは bug か?」 と疑う余地を消す)
+- main divergent + 副次 divergent なら **bug 候補**、 source 直読 / regression test 追加で原因特定
+
+### 関連
+
+- DESIGN.md §10 LESSON (= scale-blind default) + §8 数値制限 boundary (bayes-kai 内)
+- bayes-kai/SESSION.md 2026-05-25 entry Phase 5.b verification narrative
+- 副次 metric を取らないと「両 implementations が正しい / どちらかが bug」 の判定不能、 sweep mode で「✓ pass」 と書く前に副次取得義務 (= `debugging-discipline.md §4 fix-time sibling sweep` の言語移植 verify domain への拡張)
+
+---
+
+## 5. archive / cutover の precondition: smoke (= exit 0) ではなく sample assertion (= 1 件以上 byte exact verify)
+
+### 問題
+
+migration / refactor で 旧 implementation を archive / removal する **不可逆 cutover** を実行する前に「新 implementation がちゃんと動く」 と判定するゲートを通すが、 「ちゃんと動く」 の定義が **`exit 0` のみ** (= smoke) だと:
+- script は走るが output が wrong number でも検出されない
+- regression test が無い領域は完全 unknown
+- 「全 script 走った ✓」 = cell 埋め assertion (= odakin-prefs `work-discipline.md §13` trait family の「安価な操作で expensive 操作を bypass」)
+
+### honest precondition (= 3 layer の verify を pass してから cutover)
+
+**Layer 1**: smoke (= 全 entry point が `exit 0`)
+- 必要だが不十分、 false sense of done を生む
+
+**Layer 2**: sample output assertion (= 各 entry point の output から **1 件以上** documented value と byte-or-percent exact verify)
+- 「該当 documented value どれか 1 つを assert」 で良い、 全 documented value を assert するのは scope 巨大
+- script-level regression test (= pytest 等) として fixed-time に embed すると future drift も catch
+
+**Layer 3**: cross-implementation diff (= 旧 implementation も別途実行、 stdout / output file で 3-way diff)
+- 「旧 vs 新 が独立に同 documented value を produce する」 verify
+- 旧 implementation が依然動く環境 (= 旧 binary / 旧 language runtime) が必要
+
+### 実例
+
+bayes-kai Phase 5.b (= `analyses/*.wl` → `analyses/archive/legacy-mathematica/`) の precondition:
+- Layer 1: 33 Python script invocation 全 `exit 0` (= 12 scripts × 主要 datasets)
+- Layer 2: 58 regression test pass (= 全 5 dataset × 6-8 method の documented numeric byte-or-percent exact)
+- Layer 3: Mathematica side で archive 後 path から再実行、 FE μ=878.4388/SE=0.2685 が Python と byte exact 再現
+- 3 layer 全 pass を確認してから git mv 実行
+
+### How to apply
+
+- 不可逆 cutover (= file removal / archive move / branch deletion / data migration) の前に **3 layer の verify** を明示的に通す
+- 「smoke のみ pass」 で cutover すると後で「あの数値 wrong だった」 が発覚した時 rollback コスト高 (= archive されたら 旧 implementation 探しに行く必要、 documented value drift の origin tracing 困難)
+- 「ちゃんと動く」 をユーザーから言われた時 / 自分で判断する時、 「**3 layer どこまで pass か?**」 を chat 本文で明示 (= silent assumption 防止)
+- regression test 体制が無い領域 (= 新規 migration の初期段階) では Layer 2 ↔ Layer 3 を組み合わせる (= 旧 implementation で sample run + 新 implementation で同 case run + diff、 = manual byte-or-percent exact verify)
+
+### 関連
+
+- `debugging-discipline.md` の sibling sweep + fix verification (= 同 trait の異 framing)
+- bayes-kai/SESSION.md Phase 5.b entry (= 3 layer pass 経験)
+- odakin-prefs `work-discipline.md §sweep の goal は error 発見であって report 生産ではない` の cutover domain 応用
+
+---
+
 ## 次に追加される予定 (placeholder)
 
 - 浮動小数点精度起因の silent failure パターン
