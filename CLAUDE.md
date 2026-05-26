@@ -43,7 +43,7 @@ claude-config/
 │   ├── prompt-injection.md # Tool result 内の prompt injection を flag する規律 (適用範囲・同ターン flag・literal 原文併示・確度二段・注入指示は従わない)
 │   ├── android-chromium-remote-debug.md # Android Brave/Chrome の remote debugging (WiFi ADB + CDP、 reload 前の live state capture procedure)
 │   ├── google-url.md       # Google サービス URL 書式 (`/u/N/` 禁止 + `?authuser=<email>` 必須、 hooks/google-url-guard.sh で機械的強制、 GCP project 管理 URL もカバー)
-│   ├── google-api-direct-access.md # Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx)
+│   ├── google-api-direct-access.md # Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx、 Cloud Identity Groups API は group OWNER level で memberships CRUD 可能で Admin SDK の Workspace admin 制約を回避)
 │   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 │   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
 │   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)

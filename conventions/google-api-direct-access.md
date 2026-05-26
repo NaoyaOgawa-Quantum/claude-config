@@ -154,3 +154,53 @@ GCP project に紐づく以下の情報は**個人層 (= layer 3) の secrets-re
 - **OAuth client 共有 status**: 同じ client を複数 directory (e.g. gmail-mcp + calendar + classroom + sheets) で使い回す pattern なら、 client rotate 時の影響範囲
 
 これがないと、 multi-account 持ち user / Claude が「どのアカウントで GCP コンソール開けばいいか」 で繰り返し混乱する。 owner email は public docs (= claude-config 等) では PII になるので、 個人層に書く。
+
+## Cloud Identity Groups API (= group owner level CRUD)
+
+Workspace 内の Google Groups (= ML) の購読者管理を **caller が Workspace admin でなくても group owner なら API 経由で実行できる**経路。 Admin SDK Directory API (= `admin.googleapis.com`) との分離を理解する。
+
+### 2 API の使い分け
+
+| API | endpoint | 権限要件 | 用途 |
+|---|---|---|---|
+| **Admin SDK Directory API** | `admin.googleapis.com` | **Workspace admin 必須** | 全 group / 全 user を横断管理 (= Workspace 全体) |
+| **Cloud Identity Groups API** | `cloudidentity.googleapis.com` | group OWNER role で OK (= Workspace admin 不要) | 自分の所有 group の memberships を CRUD |
+
+「Workspace admin 権限がない member が自分の所有 group を管理する」 use case では Admin SDK は使えないが、 Cloud Identity Groups API で代替できる。 **「Workspace admin = なし」 で諦めずに Cloud Identity 経路を試す**のが reflex。
+
+### OAuth scope
+
+- `https://www.googleapis.com/auth/cloud-identity.groups.readonly` — read only (= memberships.list 等)
+- `https://www.googleapis.com/auth/cloud-identity.groups` — full read + write (= memberships.create / delete 含む)
+
+owner level の write には `cloud-identity.groups` (= full) が必要だが、 caller の権限が「group OWNER」 なら scope は通る (= Workspace admin role は不要)。
+
+### 主要 method
+
+- `groups.lookup` (= email → group resource name): query param `groupKey.id` に group email を渡して `groups/{group_id}` 形式の resource name を取得
+- `groups.memberships.list` (parent=`groups/{id}`): membership 一覧
+- `groups.memberships.create` (parent=`groups/{id}`, body=`{preferredMemberKey: {id: <email>}, roles: [{name: "MEMBER"}]}`): add
+- `groups.memberships.delete` (name=`groups/{id}/memberships/{membership_id}`): delete
+
+### caveat
+
+- **`memberships.list` の default view では `createTime` が返らない** (= 簡略 view、 `(no time)` で出力)。 詳細 view (`view=FULL` query param) で取れる可能性、 当面未検証
+- **delivery 状態 (= 配信エラー有無) は API 経由では取得不能**: UI からの CSV export なら取れる。 audit には UI export を quarterly / yearly で取って diff 取る運用が推奨
+- **`nickname` field (= UI 表示名 hint) も API 経由では取得不能**: 同上 CSV 経由
+
+### 実証 / 動作確認パターン
+
+新規 setup の検証は read → write の 2 段:
+
+1. **read 実証**: `groups.lookup` + `memberships.list` で member 数が UI 表示と一致するか
+2. **write 実証**: 自分の別 alias (= 副作用最小、 add → list 確認 → delete → list 確認の cycle) で create + delete が success するか、 ML state 原状復帰確認
+
+caller permission が API server 側でどう扱われるか docs に明記されていない部分があるため、 試行で実証して確度を確定するのが効率的。 setup コスト ~30 分 vs UI 操作の生涯コストを比較すれば実証投資は ペイする。
+
+### Admin SDK 経路が NG と判明したときの reflex
+
+1. user 確認「Workspace admin か?」 → `admin.google.com` ログイン可否で判定 (= 「管理者アカウントでログインしてください」 表示なら admin なし)
+2. admin なし → **Admin SDK Directory API の前に Cloud Identity Groups API を試す** (= 「admin なし = 全 API NG」 と短絡しない)
+3. group の OWNER role を caller が持っていれば Cloud Identity 経路で write OK の可能性高、 試行で確定
+
+これは「**user 確認 = mechanism 確定と短絡しない**」 reflex の典型 application (= confidence escalation 防止、 user の claim level fact 〔= 「admin かどうか」〕 から mechanism level 〔= 「全 API NG かどうか」〕 への jump を避ける)。
