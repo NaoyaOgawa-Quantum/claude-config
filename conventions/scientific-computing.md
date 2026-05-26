@@ -350,7 +350,7 @@ assert abs(expectation - sigma/2) < 1e-9, "MISMATCH"
 
 ### 関連事故
 
-- **2026-05-26 lectures QM §4**: 板書写真から transcript した「{x/σ + ∂_x} φ_0 = 0」 を「{x/σ + σ ∂_x} φ_0 = 0」 と σ を勝手に補って notes.md / SESSION.md に書き、 commit ([1e7d097](https://github.com/odakin/lectures/commit/1e7d097))。 直後の 4 軸 sweep (= 多 commit 連打圧力 sweep) で sympy で `sp.simplify({x/σ + σ ∂_x} φ_0)` を試行 → (x/σ - x) φ_0 ≠ 0 (σ=1 以外) と expose、 fixup commit ([603366b](https://github.com/odakin/lectures/commit/603366b)) で訂正。 sympy verify 無しに「transcript した」 で確定していたら、 次年度の自分 / 学生に誤式を留学させる risk。
+- **2026-05-26 ある講義運営 repo の QM §4**: 板書写真から transcript した「{x/σ + ∂_x} φ_0 = 0」 を「{x/σ + σ ∂_x} φ_0 = 0」 と σ を勝手に補って notes.md / SESSION.md に書き、 commit `1e7d097`。 直後の 4 軸 sweep (= 多 commit 連打圧力 sweep) で sympy で `sp.simplify({x/σ + σ ∂_x} φ_0)` を試行 → (x/σ - x) φ_0 ≠ 0 (σ=1 以外) と expose、 fixup commit `603366b` で訂正。 sympy verify 無しに「transcript した」 で確定していたら、 後の自分 / 学生に誤式を留学させる risk。
 
 ### 関連
 
