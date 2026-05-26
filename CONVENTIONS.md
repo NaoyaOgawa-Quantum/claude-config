@@ -189,6 +189,67 @@ step 3 を省略すると、 1 修正で別 issue を作り、 user の次 turn 
 
 **実例 (= 2026-05-19 cosmology infographic、 [odakin/infographics](https://github.com/odakin/infographics) `cosmology-history/`)**: 20 turn の user iteration で、 私が「fix した」 と複数 turn 報告した直後に user が screenshot 添付で「ぜんぜん減ってなくない？空白」 と再指摘した事例多数。 build success / log clean を「✓ pass」 と扱った結果、 visual に残った gap / overflow / 重なりに私自身は気付かず、 user 確認のたびに新 issue が露見する loop が発生。 各 turn の cascade は `conventions/tikz-pgfplots.md §「サイクル: 『compile 成功』 ≠ 『visual 成功』」` で TikZ/pgfplots 特化の症例集として残置。
 
+### SESSION.md 棚卸し時の cross-repo anchor preservation
+
+SESSION.md の棚卸し (= trim / restructure / archive 切り出し / 専用 file 抽出) は section heading の rename / 削除 / 移動を伴うため、 **他リポからの cross-repo anchor refs が壊れる**。 「⌘+click でリンク先 section に飛ぶ」 reader experience が「path は valid だが anchor text が file 内に存在しない」 で broken 化、 archive 移動された content は forwarding pointer + 1 extra click が必要に。 棚卸しの **同 turn 内に cross-repo grep matrix を必ず回す** ことで expose + reroute:
+
+**実行手順** (= 棚卸し commit の直前に):
+
+```python
+# 全 ~/Claude/<repo>/*.md + *.yaml で <repo>/SESSION.md §「<anchor>」 pattern を grep
+# 各 hit について anchor が target SESSION.md / 関連 archive に存在するか verify
+# 不在なら fix path or anchor wording
+```
+
+簡易版 oneliner:
+
+```bash
+grep -rn '<target-repo>/SESSION.md §' --include='*.md' --include='*.yaml' ~/Claude/ | grep -v "<target-repo>/"
+# 各 hit に対し anchor が現在の SESSION.md に substring 存在するか目視確認
+```
+
+**3 種の broken ref pattern** (= 2026-05-26 SESSION 棚卸し sweep で全 expose、 fix 例 [odakin-prefs 99d7cbe](https://github.com/odakin/odakin-prefs/commit/99d7cbe) + [einstein-cartan 95ca281](https://github.com/odakin/einstein-cartan/commit/95ca281) + [email-office 37eb6fc](https://github.com/odakin/email-office/commit/37eb6fc)):
+
+| pattern | 例 | fix |
+|---|---|---|
+| **archive 移動 path drift** | ref = `email-office/SESSION.md §SPReAD` だが section は `SESSION-archive/2026-05-pre-20.md` に移動済 | path を archive に update + 「YYYY-MM-DD archive split で移動済」 marker を inline 付加 |
+| **wording rename drift** | ref = `gmail-mcp-config/SESSION.md §「2026-05-09 X ツール追加」` だが新 heading は `§「直近の変更 (2026-05-09) — X」` | ref を新 wording に揃える |
+| **duplicate header dedup 漏れ** | ref = `odakin-prefs/SESSION.md §「2026-05-20 (cross_ref...)」` だが私が duplicate header dedup で「2026-05-20 (cross_ref...)」 (no evening) 版を削除 + 「evening」 版のみ保持 | ref に「evening」 を付加 (= 残った版に合わせる) |
+
+**duplicate header dedup の事前 grep 義務**: SESSION.md 内に同 wording (or 近接 wording) の duplicate header が見つかった場合、 dedup する **前に**「どちらの wording が外部 ref に使われているか」 cross-repo grep。 ref が多い版を残す。 grep なしで「より informative な版」 を直感で選ぶと wording drift を量産する。
+
+**content extraction + cross-repo reroute セット規律**: SESSION.md から専用 file (= 例: `RETRACTIONS.md`、 `BUGS.md`、 `sessions/<date>.md` 等) に content を extract する時は、 SESSION.md に forwarding pointer 設置するだけ**では不十分**。 **同 turn 内に全 cross-repo + internal docs を grep + reroute** が必須。 forwarding pointer は「1-extra-click cost」 だけ救済 (= ref が逐次 forwarding を辿れば最終目的地に到達)、 「直接 ref」 復元には全 ref を rewrite する必要がある。
+
+> **実例 (2026-05-26 einstein-cartan)**: SESSION.md 冒頭 retraction blocks (3 件) を `RETRACTIONS.md` に extract、 SESSION.md に「🚨 必読: RETRACTIONS.md」 forwarding pointer 設置。 ただし internal docs 11 件 (= DESIGN.md / plans/ / notes/ の各 file) が「SESSION.md 冒頭 retraction block」 を verbatim ref していたため、 forwarding pointer 経由で 1-extra-click 化。 同 session 内に sed で全 11 件を `RETRACTIONS.md` 直 ref に reroute ([95ca281](https://github.com/odakin/einstein-cartan/commit/95ca281))。
+
+### 「別ファイル抽出 + 参照」 pattern の有効性 criterion
+
+SESSION.md の content を別 file に抽出する判断軸 (= 棚卸し時の「inline 維持 vs 抽出」 dispatch):
+
+**抽出が有効** (= valuable):
+
+| 軸 | 説明 |
+|---|---|
+| **lifecycle 独立性** | 抽出先 content が session sweep の churn cycle と異なる速度で evolve (= 撤回 record / 永続成果物 / 過去 session detail / 永続 bug ledger) |
+| **検索性 + 安定性** | 「X についての record」 と用途で findable (= `RETRACTIONS.md` を見れば全 retraction)、 file 名は session 中 stable anchor |
+| **責任明示** | 公的責任記録 (= retraction / 過去 leak event / 共著者通知履歴) は session 揮発性の中に埋めず専用 file で「ここに記録あり」 と explicit |
+| **drift 防止** | 既に元の専用 file (= `analyses/` / `compositions/` constants 等) が SoT なら、 SESSION.md inline mirror は drift 源 → SESSION 側を削除 |
+
+**抽出が無効 / harmful** (= valueless or worse):
+
+| 軸 | 説明 |
+|---|---|
+| **小規模** (= 10 行未満) | indirection cost > read cost、 inline 維持 |
+| **banner / 可視性必須 alert** | SESSION.md 冒頭にあることが意味 (= 「次回 iMac セッションでやるべし」 等の attention-magnet)、 抽出すると見つけにくくなる |
+| **session-scope active TODO** | 現在の作業 state そのもの、 SESSION.md の native content |
+
+**実例分類** (= 2026-05-26 SESSION 棚卸し):
+
+- ✅ 有効: `einstein-cartan/RETRACTIONS.md` (= 撤回 record、 lifecycle 独立 + 公的責任) / `<repo>/SESSION-archive/<date>.md` (= 過去 session detail、 lifecycle 「今日 → 先週 → 先々週」 で natural archive)
+- ❌ 無効: LorentzArena Bug ledger (= 5 entry で indirection cost 過剰) / gmail-mcp-config iMac reconciliation banner (= 可視性必須) / bayes-kai TODO (= session-scope active で SESSION.md native)
+
+**archive 切り出し時の line count sanity check**: `元 SESSION.md line count ≈ 新 SESSION.md + archive file + (5-15 lines for header overhead)` で expected。 大幅な loss / inflation は何かがおかしい sign (= sed escape failure / merge conflict 潜在 / 別 session の bundle)。
+
 ---
 
 ## 4. Git 規約
