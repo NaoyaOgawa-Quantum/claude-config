@@ -168,6 +168,7 @@ setup.sh が自動で行うこと:
 | `odakin-prefs` | personal layer (= L3 個人層) | 規約上の position name、 personal-layer.md で公開構造として説明済 |
 | `secrets-config` | 秘密情報の保管経路 | 機能カテゴリ名 |
 | `physics-research` | 物理研究 career DB | category 名、 odakin が物理学者であることは INSPIRE 等から公知 |
+| `conferences` | 研究会・workshop 参加 lifecycle ledger | 一般語、 研究者が学会に参加・発表することは public profile (= CV / talks list) から既知 |
 
 **criterion**: 名前が (1) category-level / function-level の一般語であり、 (2) 名前から推察される specifics が **既に public profile から得られる範囲を増やさない** なら例外 OK。 NG 例: `<institution-code>-<topic>` (= 所属 institution が public でも、 そこに紐付く具体 topic の組合せは更なる leak)、 `<project-codename-specific>` (= 個別 project codename)、 `<collaborator-name>-collab` (= 共著者名 leak)、 `<unpublished-result>-analysis` (= 未公開研究 leak)。
 

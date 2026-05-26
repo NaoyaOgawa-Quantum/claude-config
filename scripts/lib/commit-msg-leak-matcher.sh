@@ -14,11 +14,11 @@
 #       (.git/COMMIT_EDITMSG path) から読む)
 #
 # 2 caller で matcher logic を duplicate すると drift する (= sensitive-terms.txt
-# 参照方式 + allowlist 6 件 + repo 名抽出 regex の同期保証が破綻)、 そのため
+# 参照方式 + allowlist 7 件 + repo 名抽出 regex の同期保証が破綻)、 そのため
 # library 化して同じ logic を両方が source する DRY design。
 #
 # Layer placement: 本 file は layer 1 (claude-config public)。 algorithm 自体
-# (= regex pattern + 6 allowlist 名) は public-safe (= 6 allowlist 名は既に
+# (= regex pattern + 7 allowlist 名) は public-safe (= 7 allowlist 名は既に
 # claude-config/CLAUDE.md §例外 list で public 化済)。 layer 3 data
 # (= repos.md / sensitive-terms.txt) は find-personal-layer.sh の cascade で
 # 動的解決、 layer 1 source に literal は埋め込まない。
@@ -40,9 +40,9 @@
 # は本 library と同 dir (lib/) に存在 (= source 済前提)。
 #
 # 設計 notes:
-#   - 6 allowlist 名 (= gmail-mcp-config / research-collab / email-office /
-#     odakin-prefs / secrets-config / physics-research) は本 file に literal
-#     embed。 これらは既に claude-config/CLAUDE.md §例外 list で public、
+#   - 7 allowlist 名 (= gmail-mcp-config / research-collab / email-office /
+#     odakin-prefs / secrets-config / physics-research / conferences) は本 file
+#     に literal embed。 これらは既に claude-config/CLAUDE.md §例外 list で public、
 #     leak 軸の問題なし。 list 変更時は両方を sync (= §10 4 軸 sweep 義務)
 #   - repos.md 内 format: `| \`<repo>/\` | <desc> | private[ (...)] |` の
 #     table 行を grep。 future schema 変更時に regex 適用範囲が壊れる
@@ -51,7 +51,7 @@
 # ====================================================================
 # allowlist: claude-config/CLAUDE.md §例外 list と sync
 # ====================================================================
-LEAK_MATCHER_ALLOWLIST="gmail-mcp-config research-collab email-office odakin-prefs secrets-config physics-research"
+LEAK_MATCHER_ALLOWLIST="gmail-mcp-config research-collab email-office odakin-prefs secrets-config physics-research conferences"
 
 # ====================================================================
 # main entry point
