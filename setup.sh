@@ -205,6 +205,22 @@ POST_TOOL_USE_ENTRIES='[
   {
     "matcher": "Read",
     "hooks": [{"type": "command", "command": "~/.claude/hooks/pdf-read-fallback-nudge.sh"}]
+  },
+  {
+    "matcher": "Edit|Write|MultiEdit",
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/session-commit-nudge.sh track"}]
+  }
+]'
+
+# Stop hooks: run when Claude finishes a turn (= turn boundary)。
+# session-commit-nudge.sh nudge: 同 session で編集した repo に未 commit
+# 残がある場合に Stop で nudge を inject (= 並行 session 干渉防止、
+# CLAUDE.md §17 圧力 (4) の mechanical 強化、 2026-05-26 NHWG43 RCA から
+# 追加)。 他の Stop hook (= layer 3 の pdf-open-enforce.sh 等) は別 install
+# 経路 (= odakin-prefs/hooks/install.sh) で追加され併存する。
+STOP_ENTRIES='[
+  {
+    "hooks": [{"type": "command", "command": "~/.claude/hooks/session-commit-nudge.sh nudge"}]
   }
 ]'
 
@@ -281,7 +297,8 @@ install_hooks() {
         jq -n --argjson pre "$HOOK_ENTRIES" \
               --argjson post "$POST_TOOL_USE_ENTRIES" \
               --argjson ss "$SESSION_START_ENTRIES" \
-            '{hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss}}' > "$SETTINGS"
+              --argjson stop "$STOP_ENTRIES" \
+            '{hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss, Stop: $stop}}' > "$SETTINGS"
         echo "  Created: $SETTINGS"
         return 0
     fi
@@ -293,7 +310,8 @@ install_hooks() {
         jq --argjson pre "$HOOK_ENTRIES" \
            --argjson post "$POST_TOOL_USE_ENTRIES" \
            --argjson ss "$SESSION_START_ENTRIES" \
-            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss}}' \
+           --argjson stop "$STOP_ENTRIES" \
+            '. + {hooks: {PreToolUse: $pre, PostToolUse: $post, SessionStart: $ss, Stop: $stop}}' \
             "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         echo "  Done."
     else
@@ -373,7 +391,7 @@ install_hooks() {
                 '.hooks.PostToolUse = $entries' \
                 "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
         else
-            for HOOK_CMD in "git-state-nudge.sh" "pdf-read-fallback-nudge.sh"; do
+            for HOOK_CMD in "git-state-nudge.sh" "pdf-read-fallback-nudge.sh" "session-commit-nudge.sh track"; do
                 if ! jq -e --arg cmd "$HOOK_CMD" \
                     '.hooks.PostToolUse[] | select(.hooks[]?.command | contains($cmd))' \
                     "$SETTINGS" > /dev/null 2>&1; then
@@ -382,6 +400,29 @@ install_hooks() {
                         '[.[] | select(.hooks[]?.command | contains($cmd))][0]')
                     jq --argjson entry "$ENTRY" \
                         '.hooks.PostToolUse += [$entry]' \
+                        "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+                fi
+            done
+        fi
+
+        # Stop 処理 (= 2026-05-26 layer 1 統合、 session-commit-nudge.sh nudge
+        # を install。 layer 3 hooks/install.sh が別 entry (= pdf-open-enforce.sh
+        # 等) を append する、 両者は同 array 内で共存する)
+        if ! jq -e '.hooks.Stop' "$SETTINGS" > /dev/null 2>&1; then
+            echo "  Adding Stop hooks ..."
+            jq --argjson entries "$STOP_ENTRIES" \
+                '.hooks.Stop = $entries' \
+                "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
+        else
+            for HOOK_CMD in "session-commit-nudge.sh nudge"; do
+                if ! jq -e --arg cmd "$HOOK_CMD" \
+                    '.hooks.Stop[] | select(.hooks[]?.command | contains($cmd))' \
+                    "$SETTINGS" > /dev/null 2>&1; then
+                    echo "  Adding missing Stop hook: $HOOK_CMD"
+                    ENTRY=$(echo "$STOP_ENTRIES" | jq --arg cmd "$HOOK_CMD" \
+                        '[.[] | select(.hooks[]?.command | contains($cmd))][0]')
+                    jq --argjson entry "$ENTRY" \
+                        '.hooks.Stop += [$entry]' \
                         "$SETTINGS" > "$SETTINGS.tmp" && mv "$SETTINGS.tmp" "$SETTINGS"
                 fi
             done
