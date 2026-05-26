@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-05-26 afternoon (macOS Claude Code TCC App Management 再 prompt の構造原因を `conventions/macos-claude-code-tcc-recurring-prompt.md` に新規 documents)**: user 観察「"claude.app がほかのアプリからのデータへのアクセスを求めています" dialog が毎回出る、 許可を押し続けていた」 から診断。 根因 = Claude Code が `~/Library/Application Support/Claude/claude-code/<version>/claude.app` の versioned subdir に bundle を install しているため、 App Management TCC entry が `(path, signature)` キーで auto-update 毎に invalidate される構造。 sibling `macos-claude-app-pty-leak.md` と同じ Anthropic side fix 待ち category の macOS 構造的摩擦として layer 1 に外出し、 root 対策案 (= stable launcher path 化 / current symlink) も併記。 CLAUDE.md structure tree も同 entry 追記。
+
+---
+
 **2026-05-26 morning (commit-msg leak guard: git-side hook BLOCK mode、 option B 実装 SHIPPED)** ([4f4e636](https://github.com/odakin/claude-config/commit/4f4e636) + [c7a9144](https://github.com/odakin/claude-config/commit/c7a9144)): claude-code 2.1.x harness invoke bug (= Anthropic issues #52715/#59513、 詳細 `conventions/hook-authoring.md §2 (d)`) で PreToolUse Bash hook が silent skip される件の mitigation。 git native commit-msg hook は harness を経由しないので bypass されない。
 
 新規:
