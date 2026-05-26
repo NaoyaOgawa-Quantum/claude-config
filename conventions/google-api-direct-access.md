@@ -129,18 +129,37 @@ elif mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 実装パターン:
 ```python
+import datetime as dt
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+
+# token file の expiry_date (ms epoch UTC) を naive UTC datetime に変換
+expiry = None
+if tok.get("expiry_date"):
+    expiry = dt.datetime.fromtimestamp(
+        tok["expiry_date"] / 1000, tz=dt.timezone.utc
+    ).replace(tzinfo=None)
 
 creds = Credentials(
     token=tok["access_token"], refresh_token=tok["refresh_token"],
     token_uri=oauth["token_uri"], client_id=oauth["client_id"],
     client_secret=oauth["client_secret"], scopes=tok["scope"].split(" "),
+    expiry=expiry,  # ← 必須。 渡さないと creds.valid が永久 True 扱いとなり refresh 起動しない
 )
 if not creds.valid:
     creds.refresh(Request())
 # 必要なら更新後の creds.token / creds.expiry を file に書き戻す
 ```
+
+### ⚠️ Pitfall: `expiry` kwarg 不在 → refresh path が dead code
+
+`Credentials()` 構築時に `expiry` を渡し忘れると、 内部の `self.expiry = None` 状態となり `creds.expired` が False を返す (= None 比較が False)。 結果 `creds.valid = (not creds.expired) and (token is not None)` が **常に True**、 「if not creds.valid: creds.refresh(...)」 の refresh path が永久 dead code となる。 token file 内に `expiry_date` (ms epoch) を保存していても、 Credentials object に渡されなければ意味がない。
+
+**症状**: stale token (= 数日〜数週経過) で API 呼び出しが `401 Unauthorized` で fail、 script 内の「自動 refresh」 は無動作、 手動 `creds.refresh(Request())` を独立 1-liner で呼ぶと復旧する。 手動 refresh で復旧するため「token が rotate された」 と誤診しがちだが、 root は expiry kwarg 不在で refresh path が起動していないだけ。
+
+**実証** (= 2026-05-26、 `fetch-board-photos.py` で観察): 11 日経過の token で Picker session create が 401、 手動 `creds.refresh(Request())` で正常復帰 → root は load_credentials() の `Credentials()` 構築で expiry を渡していなかった。 expiry kwarg を追加した修正後、 21:11 JST に stale token (= expiry 13:11 UTC = 22:11 JST 前) で load を呼ぶと expired 判定 → refresh trigger → 新 expiry が token に書き戻される動作を smoke test で確認。
+
+**確認手段**: 既存 google-auth 利用 script の `Credentials(` 呼び出しを grep、 `expiry=` kwarg が指定されているか sweep。 大量にある場合は wrapper 関数化を検討。
 
 MCP server と Python script の同時実行で refresh が競合する可能性は理論上ある (= 両方が同時に refresh を試みて、 Google が新 refresh_token を rotate した瞬間に片方が古い token をファイルに書き戻す)。 実害は希だが、 long-running script 中は MCP 経由の同 account 操作を避けるのが安全。
 
