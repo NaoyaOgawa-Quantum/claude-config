@@ -215,8 +215,7 @@ Google API 経由で create された Calendar event / Classroom coursework / Dr
 「期限後に提出を締め切る」 toggle を ON にできない**ことが判明。 第一段では Discovery
 doc + 8 field name experimental 投稿で API field 不存在を確認、 第二段では DRAFT で
 create + UI で開く検証で associatedWithDeveloper 永続フラグによる UI grayout も確認
-→ API ルート完全 close。 詳細: `gmail-mcp-config/SESSION.md §「2026-05-09
-classroom_create_coursework ツール追加 + dogfood 失敗」`、 メタ教訓は
+→ API ルート完全 close。 詳細: `gmail-mcp-config/SESSION.md §「直近の変更 (2026-05-09) — classroom_create_coursework ツール追加 + dogfood 失敗」`、 メタ教訓は
 `odakin-prefs/work-discipline.md §広い指示を受けたら... §失敗例 (Classroom
 短答課題の自動 publish) §追加発見`。
 
