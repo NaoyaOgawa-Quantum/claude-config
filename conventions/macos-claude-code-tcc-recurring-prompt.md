@@ -44,11 +44,13 @@ codesign -dv /Applications/Claude.app 2>&1 | grep Identifier
 
 ## Workaround
 
-### 1. 「許可しない」 を押して観察 (= 最有力候補)
+### 1. 一貫してどちらかを押して sticky 化
 
-「許可」 / 「許可しない」 どちらを押しても **当該 version path に対する TCC 決定としては記録される** ので、 一旦どちらかで sticky 化する。 機能影響を user が観察してないなら **「許可しない」 を選んで再 prompt 頻度を最小化** するのが軽い。
+「許可」 を一度押すと **同一 version path に対しては** sticky 化する (= 同 version 中は再 prompt されなくなる) ことは実証済 (2026-05-26 odakin 観察)。 「許可しない」 側の sticky 化は TCC 仕様上同様に期待されるが本 doc 時点では未実証 — 試すなら機能影響 (= 何が壊れるか) を観察すること。
 
-ただし **次の Claude Code 更新で新 path が出てまた prompt される** のは同じ (= 構造原因が同じ)。 単に「同 version 中の repeat を止める」 効果だけ。
+機能影響が無い (= 拒否で実害なし) と確認できれば、 user が press する手間を減らす意味では「拒否」 で sticky 化するのが軽い。 不明なら「許可」 で sticky 化が安全側。
+
+ただしどちらにせよ **次の Claude Code 更新で新 path が出てまた prompt される** のは同じ (= 構造原因が同じ)。 単に「同 version 中の repeat を止める」 効果だけ。
 
 ### 2. System Settings で明示的に整理
 
