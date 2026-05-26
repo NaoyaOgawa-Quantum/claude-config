@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-05-26 evening (leak-guard allowlist 6 → 7 件拡張: `conferences` 追加)** ([352b992](https://github.com/odakin/claude-config/commit/352b992)): odakin の personal layer 配下に新設された research event-axis ledger 用 private リポ `conferences` を mention 例外 list に user 判断で追加。 criterion (= `CLAUDE.md §例外 list と criterion` 2 条件) 適合: (1) category-level / function-level の一般語 ✓ + (2) public profile (= CV / talks list) から推察される specifics を増やさない ✓。 sync 2 file: `scripts/lib/commit-msg-leak-matcher.sh` の `LEAK_MATCHER_ALLOWLIST` + comment "6 件" → "7 件" 3 箇所 + `CLAUDE.md §例外 list` 7 行目 row 追加。 layer 3 hook test (`odakin-prefs/hooks/commit-msg-leak-guard.test.sh`) も `allowlist-conferences` ケース追加で sync、 27 PASS / 0 FAIL 確認済。
+
+---
+
 **2026-05-26 afternoon (macOS Claude Code TCC App Management 再 prompt の構造原因を `conventions/macos-claude-code-tcc-recurring-prompt.md` に新規 documents)**: user 観察「"claude.app がほかのアプリからのデータへのアクセスを求めています" dialog が毎回出る、 許可を押し続けていた」 から診断。 根因 = Claude Code が `~/Library/Application Support/Claude/claude-code/<version>/claude.app` の versioned subdir に bundle を install しているため、 App Management TCC entry が `(path, signature)` キーで auto-update 毎に invalidate される構造。 sibling `macos-claude-app-pty-leak.md` と同じ Anthropic side fix 待ち category の macOS 構造的摩擦として layer 1 に外出し、 root 対策案 (= stable launcher path 化 / current symlink) も併記。 CLAUDE.md structure tree も同 entry 追記。
 
 ---
