@@ -4,6 +4,66 @@
 
 ---
 
+## 2026-05-26: commit-msg leak guard option B (= git native BLOCK mode) を harness invoke bug の mitigation として投入
+
+### 起点
+
+2026-05-25 evening の言語移植 session で claude-config 公開リポに連続 leak 発生 (= 詳細は `odakin-prefs/leak-incidents.md` 5/25 entry)。 既存 layer 3 hook (= `commit-msg-leak-guard.sh`、 2026-05-20 MVP shipped、 PreToolUse Bash matcher、 warn mode) が **本 leak を捕まえなかった**。 5/26 follow-up session で root cause 究明、 仮説 5 件 verify → **真因 = claude-code 2.1.x の `PreToolUse[Bash]` matcher harness invoke bug** (= 既存 `conventions/hook-authoring.md §2 (d)` entry、 Anthropic issues [#52715](https://github.com/anthropics/claude-code/issues/52715) + [#59513](https://github.com/anthropics/claude-code/issues/59513)) と確定。 hook script + 配信 (a)(b)(c) は全 healthy、 harness が invoke しない silent failure で、 (a)(b)(c) audit だけでは expose できない。
+
+### 修復 candidate 4 案 evaluation
+
+| 案 | 概要 | reliability | 投入コスト | 副作用 |
+|---|---|---|---|---|
+| A: Anthropic fix 待ち | issue #52715/#59513 修復を待つ | 不明 (release date 未公開) | ゼロ | leak window 無期限 open |
+| **B: git-side commit-msg hook** | git native hook で harness を bypass、 同 logic を BLOCK mode で適用 | 高 (= git 自身が起動、 harness bug 影響なし) | 中 | 一部 `--no-verify` で bypass 可 |
+| C: dashboard post-hoc detect | 過去 commits を retrospective scan | 低 (= 検出は事後、 leak は既に焼き付き) | 既投入 | 予防 layer ではない |
+| D: workflow 強制 | Claude が commit 前に手動 invoke 規律 | 低 (= reflex に依存) | ゼロ | attention budget 圧迫 + skip で破綻 |
+
+### Resolution: 案 B (= git-side commit-msg BLOCK mode)
+
+新規 components:
+- `scripts/lib/commit-msg-leak-matcher.sh` — sourceable matcher library (= layer 3 claude-code hook + 本 runner の両方が source、 DRY)
+- `scripts/commit-msg-leak-guard-runner.sh` — git commit-msg hook 本体 (BLOCK = exit 1 on hit)、 `.claude/public-repo.marker` 確認 + comment 行 strip + merge/squash skip
+- `scripts/commit-msg-leak-guard-runner.test.sh` — 17 case、 mock personal layer pattern (= `CLAUDE_PERSONAL_LAYER` env で temp dir 注入、 layer 3 data を public test file に embed しない)
+- `scripts/install-public-commit-msg.sh` — installer (= `install-public-precommit.sh` と同 pattern: marker check + `core.hooksPath` cascade + 既存 hook backup + 冪等)
+
+統合:
+- `setup.sh` Step 8 を pre-commit + commit-msg 同時 install loop に拡張
+- 既存 layer 3 hook を shared library を source する形に refactor、 26 test 全 pass 維持
+
+### なぜ BLOCK mode を選ぶか
+
+claude-code hook は warn mode (= MVP 仕様で「dry-run 観察期間」 を経由する想定)、 但し git-side で再び warn にすると **同じ single-viewpoint trap** が再現する (= 規律 §13 + `hook-authoring.md §5.1` の「生成 stream 内で自己 gate できない」 問題)。 git 層で BLOCK にすることで:
+
+- claude-code harness が dead でも commit が止まる (= 本件の元 bug 症状を bypass)
+- Claude session の自己 reflex に依存しない (= 「読んだか」 が不問になる)
+- `--no-verify` は git 標準の escape hatch、 意図的 bypass は personal layer の leak-incidents 記録推奨
+
+既存 `public-precommit-runner.sh` も BLOCK mode で統一済、 design 整合。
+
+### なぜ matcher を layer 1 に置くか
+
+(a) algorithm 自体は public-safe (= 6 allowlist 名は既に `CLAUDE.md §例外 list` で public)、 (b) 2 caller (= layer 3 hook + layer 1 runner) が同 logic を共有する DRY、 (c) layer 3 data (= `repos.md` / `sensitive-terms.txt`) は `find-personal-layer.sh` cascade で動的解決、 layer 1 source に literal embed しない、 (d) foreign user は personal layer 不在で fail-open (= 既存 `public-precommit-runner.sh` Tier B と同 pattern)。
+
+### 影響範囲
+
+- 13 public repo に `.git/hooks/commit-msg` stub 配信完了 (= 2026-05-26 時点 marker 保有 repo 全件)
+- 新規 public repo は `.claude/public-repo.marker` 作成後の `setup.sh` 実行 (= 既存 missing-marker 警告は同 Step 8 内で出力) で自動 cover
+- 2-layer 防御: 既存 `public-precommit-runner.sh` (= file 本文 Tier A + Tier B) と本 hook (= commit message Tier A + B) が独立に gate、 過去 leak 事例の「file 本文 OK だが commit message に leak」 死角を埋める
+
+### 反省 (= meta)
+
+実装 commit `4f4e636` 自体で **self-leak が発生** (= `commit-msg-leak-guard-runner.test.sh` の test case literal に 非例外 private repo 名 4 種を embed、 hook 自身が file body を scope 外として通過した)。 同 session の §10 4 軸 sweep 安全性軸で発覚、 `c7a9144` で mock personal layer pattern に refactor。 git history `4f4e636` の leak は force push せず documented (= personal layer の leak-incidents 記録)。
+
+教訓: 「**leak 防御を実装する commit で自分の防御 scope の死角を踏む**」 trait family の同 session 内再演。 layer 1 test file は最初から mock pattern で書く reflex が要 (= 別 task: 個人層側の作業規律で追加候補)。
+
+### 残務
+
+- Anthropic fix (= 案 A) を background monitor、 fix released かつ 1 ヶ月安定 → claude-code hook の縮退判定 (= `hook-authoring.md §6` framework 適用)。 git-side BLOCK は継続維持 (= §5.1 trap 回避優先)
+- 既存 `public-precommit-runner.sh` Tier A を「private repo name list 由来 regex」 で拡張する case (= file body leak の死角を埋める structural 対応 candidate、 別 task)
+
+---
+
 ## 2026-05-19: 4 層 model の Core rule に「依存 vs 名指し」 区別を明示
 
 ### 起点

@@ -2,6 +2,27 @@
 
 ## 現在の状態
 
+**2026-05-26 morning (commit-msg leak guard: git-side hook BLOCK mode、 option B 実装 SHIPPED)** ([4f4e636](https://github.com/odakin/claude-config/commit/4f4e636) + [c7a9144](https://github.com/odakin/claude-config/commit/c7a9144)): claude-code 2.1.x harness invoke bug (= Anthropic issues #52715/#59513、 詳細 `conventions/hook-authoring.md §2 (d)`) で PreToolUse Bash hook が silent skip される件の mitigation。 git native commit-msg hook は harness を経由しないので bypass されない。
+
+新規:
+- `scripts/lib/commit-msg-leak-matcher.sh` — (a)(b)(c) matcher の sourceable library (= layer-3 hook + git-side runner の両方が source、 DRY)
+- `scripts/commit-msg-leak-guard-runner.sh` — git commit-msg hook 本体 (BLOCK mode)、 `.claude/public-repo.marker` gating
+- `scripts/commit-msg-leak-guard-runner.test.sh` — 17 case (BLOCK/PASS/merge skip)、 mock personal layer pattern
+- `scripts/install-public-commit-msg.sh` — 各 public repo に stub 冪等配信 (= `install-public-precommit.sh` と同 pattern)
+
+統合:
+- `setup.sh` Step 8 を pre-commit + commit-msg 同時 install loop に拡張
+- `CLAUDE.md` 構造 tree + `conventions/hook-authoring.md §2 (d)` の harness invoke 死亡 entry に option B mitigation 追記
+
+verification:
+- 13 public repo に install 確認
+- 実 git commit で leak BLOCK / clean PASS / `--no-verify` bypass / private repo silent pass の 4 scenario 動作
+- 17 case test full pass、 layer 3 側 hook 26 case も refactor 後維持
+
+self-leak 事案: `c7a9144` 直前 commit `4f4e636` の test file 本文に test case literal として 非例外 private repo 名 4 種を embed する self-recursive leak、 同 session 4 軸 sweep 安全性軸で発覚、 mock personal layer pattern に refactor (= `c7a9144`)。 git history `4f4e636` は force push せず documented (= `odakin-prefs/leak-incidents.md` 6 件目 entry 参照)。
+
+---
+
 **2026-05-20 evening (pre-commit-bib に layer-3 custom hook の optional chain logic 追加)** ([3dc0a0f](https://github.com/odakin/claude-config/commit/3dc0a0f)): 既存 LaTeX file 自動修正 hook の挙動を不変保持しつつ、 末尾に `$HOME/Claude/odakin-prefs/scripts/pre-commit-yaml-scan.sh` が executable なら chain で呼ぶ optional block を追加。 他 user 環境では custom hook 不在で silent skip (= 影響なし)、 odakin 環境では layer 3 の yaml silent corruption scan が commit 前に走り、 corruption あれば commit reject。
 
 設計動機: odakin-prefs/scripts/scan-yaml-corruption.py で expose した 5 件の yaml silent corruption (= same-id duplicate / same-field duplicate / silent entry merge) を **commit 前に物理 block** する pre-commit hook chain の実現。 odakin-prefs 側で `.git/hooks/pre-commit` を直接 install しようとして symlink target (= 本 file 自身) を destroy する事故が同 session 内で発生、 git restore で復元 + layer 1 generic 拡張で chain logic を持つ設計に切り替えた。

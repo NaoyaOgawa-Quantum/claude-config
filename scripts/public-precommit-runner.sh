@@ -35,6 +35,17 @@
 #   隔離) の構造分離** で回避する。本 script source には literal も特定の
 #   個人層名も埋め込まれない (= 個人層は lib/find-personal-layer.sh で動的解決)。
 #   詳細は claude-config/DESIGN.md §公開リポ leak 防止。
+#
+# Sibling (= 2-layer 防御):
+#   本 script は **file 本文** (= stage 済 file の追加行) を Tier A/B で scan する。
+#   commit message + subject は別 hook `commit-msg-leak-guard-runner.sh` (BLOCK)
+#   が cover (= 2026-05-26 追加、 claude-code 2.1.x harness invoke bug の
+#   mitigation option B、 詳細 conventions/hook-authoring.md §2 (d) + DESIGN.md
+#   §2026-05-26)。 install は `install-public-precommit.sh` (= 本 stub) +
+#   `install-public-commit-msg.sh` (= sibling stub) で setup.sh Step 8 内 1 loop
+#   で同時 install。 2 hook の matcher logic は分離 (= Tier A regex vs commit-msg
+#   shared library)、 cover 範囲も file body vs commit message で disjoint で
+#   相補的 (= 過去 leak の 「file 本文 OK + commit message に leak」 死角を埋める)。
 
 set -uo pipefail
 

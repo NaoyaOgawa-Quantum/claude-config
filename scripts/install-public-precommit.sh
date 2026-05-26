@@ -17,6 +17,14 @@
 #   stub は 1 行 exec のみ。本体は claude-config/scripts/public-precommit-runner.sh
 #   の absolute path を参照。これにより各 public repo の hook 側に
 #   logic が散らず、更新は runner を edit するだけで全 repo に波及する。
+#
+# Sibling installer:
+#   本 script は `.git/hooks/pre-commit` (= file 本文 Tier A/B scan) のみ install。
+#   commit message + subject scan は別 installer `install-public-commit-msg.sh`
+#   が `.git/hooks/commit-msg` を担当 (= 2026-05-26 追加、 claude-code 2.1.x
+#   harness invoke bug の mitigation option B、 詳細 conventions/hook-authoring.md
+#   §2 (d) + DESIGN.md §2026-05-26)。 setup.sh Step 8 は両 installer を同 loop
+#   で同時呼出、 marker 持つ repo に 2 hook を bundle install する設計。
 
 set -euo pipefail
 
