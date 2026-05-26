@@ -28,6 +28,16 @@
 #     含まれる。 他 org の public repo (= 共同研究 org 等) は owner=current
 #     user では出てこないので、 local checkout に marker を持つ repo を
 #     追加で scan する方式で補完する。
+#
+# 現 scope の限界 (= 2026-05-26 noted):
+#   - 本 audit は **file 本文** (= working tree の `git grep`) のみ scan。
+#     commit message + subject の leak (= `git log --format=%B` 経由検出) は
+#     現 scope 外。 後者は 2-layer 防御の commit 時 gate (=
+#     `commit-msg-leak-guard-runner.sh`、 BLOCK mode) で予防、 過去 commit の
+#     retrospective surface は `odakin-prefs/scripts/unified-dashboard.py` の
+#     `check_leak_repair_commits()` (= leak repair commit trend monitor) が
+#     partial cover。 message 本文の literal scan を本 audit に追加する case は
+#     future enhancement (= shared matcher library を git log 出力に適用)。
 
 set -uo pipefail
 
@@ -226,7 +236,8 @@ $(printf '%s\n' "$literal_files")
     {
       printf '  → Missing `.claude/public-repo.marker`. Recommend:\n'
       printf '%s\n' '    1. create marker (see templates or copy from another public repo)'
-      printf '%s %s\n\n' '    2. run `install-public-precommit.sh`' "$repo"
+      printf '%s %s\n' '    2. run `install-public-precommit.sh`' "$repo"
+      printf '%s %s\n\n' '    3. run `install-public-commit-msg.sh`' "$repo"
     } >> "$REPORT"
   fi
 done < "$TARGETS_FILE"
