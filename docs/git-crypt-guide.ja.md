@@ -212,3 +212,24 @@ Step 5b は以下の両方が揃った場合のみ実行される：
 - `~/.secrets/git-crypt.key` が存在する
 
 どちらか一方でも欠けていればサイレントスキップされる。
+
+### `git diff --stat` が encrypted file を「Bin N -> 0 bytes」 と誤解させる表示
+
+git-crypt 暗号化対象 file (= `.gitattributes` で filter=git-crypt 指定) が working tree clean 状態でも `git diff --stat` で「`Bin 22 -> 0 bytes`」 等の差分があるように表示されることがある (= 特に `.gitkeep` 等の空 plain content を持つ file)。
+
+**真因**: git-crypt の clean/smudge filter は encrypt 時に header + IV を付与するため、 plaintext 0 byte の `.gitkeep` は encrypted 22 bytes になる。 `git diff --stat` は表示時に **HEAD stored size (= encrypted 22) と working tree decrypted size (= 0) を mix 比較** する UI 挙動で、 あたかも差分があるように見える。
+
+**確認方法**:
+```bash
+git status                                    # ← clean (= 実態は stage 差分なし)
+ls -la <file>                                 # ← 0 byte (= working tree 実体)
+git cat-file -p HEAD:<file> | wc -c           # ← 22 (= HEAD stored encrypted size)
+git-crypt status <file>                       # ← encrypted ✓
+git add <file> && git status                  # ← stage されない (= SHA 同一)
+```
+
+**実害**: なし。 `git status` clean + `git add` で stage されない = git は content 同一性を SHA で正しく判定している、 `--stat` の表示 UI のみが mix 表示で誤解を招く。
+
+**RCA reflex**: sweep / audit で「想定外の bin diff」 を観察したら、 まず上記 5 step で「git-crypt encrypted file の表示挙動」 を rule out。 「leak / corruption / 別 session の touch」 と reflex 結論しない (= [`conventions/debugging-discipline.md §9`](../conventions/debugging-discipline.md) 「count return 0 reflex」 と同 trait family の git-diff display domain での現れ)。
+
+**実例 (= 2026-05-26 観察)**: ある講義運営 repo の 12 file の `.gitkeep` (= 各 `exams/`, `grades/` 配下) が複数の sweep で「`Bin 22 -> 0 bytes`」 と一斉に表示、 working tree clean + git-crypt encrypted の状態だった。 上記 5 step で transient = leak / bug でなく git-crypt 表示挙動と判明。
