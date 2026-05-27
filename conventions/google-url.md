@@ -9,6 +9,8 @@ Gmail / Drive / Photos / Classroom / Calendar / Docs / Sheets / Slides 等の Go
 1. **`/u/N/` 書式 (account slot index) を生成しない** — ブラウザの account 追加順依存で壊れる
 2. **Account-sensitive な URL には `?authuser=<email>` を付ける** — ブラウザに複数 Google アカウントがログインしている場合、 stable ID だけでは active account 依存で壊れる (権限なし → 404 / 別 view が開く)
 
+**scope**: 規律 2 (= `authuser=` 必須) は **自分 (= 規約 owner = URL の生成者) が click する URL** が対象。 他人 (= メール受信者 / chat 相手 / 共有 doc / Discord 投稿 等) が click する URL では `authuser=` の意味が逆転して壊れる (= 詳細は §How to apply (d))。
+
 NG 例:
 
 - `https://mail.google.com/mail/u/0/#inbox` ← `/u/N/` 違反
@@ -106,6 +108,31 @@ https://mail.google.com/mail/u/?authuser=<email>#inbox
 
 ブラウザは current active account で開く。 決定論性は無い。
 
+### (d) 他人に渡す URL では `authuser=` を削除する
+
+メール本文 / chat 投稿 / 共有 doc 内のリンク / Discord 投稿 等、 **受信者が click する URL** では `?authuser=<self_email>` を**付けない**。 受信者のブラウザに「自分 (= 規約 owner) の account に切替えて開け」 と指示が飛ぶが、 受信者はその account を持たないため 401 / 403 / access denied で破綻する。
+
+| URL の用途 | `authuser=` の扱い |
+|---|---|
+| 自分のメモ / chat で自分が click 用 | `?authuser=<self_email>` 必須 (= 上記 (a)) |
+| メール本文 / chat / 共有 doc 等、 **他人**が click 用 | `authuser=` パラメータを**削除** (= 受信者の active account で開く、 標準的メール慣習) |
+| 他人で、 かつ特定 account 強制が必要 (= recipient が複数 account 持ち + 特定 account からのみ permission あり) | `?authuser=<recipient_email>` (= 受信者の email、 自分のではない) |
+
+`/u/N/` 禁止は他人視点でも継続適用 (= account slot は誰の視点でも壊れる)。
+
+NG 例 (= 他人宛 URL に自分視点の authuser= が混入):
+```
+受信者 (= 同僚): メールで Drive folder URL を受け取り click
+→ https://drive.google.com/drive/folders/{folderId}?authuser=<self_email>
+→ 受信者ブラウザが <self_email> account への切替を試みる → 持っていない → access denied
+```
+
+OK 例:
+```
+https://drive.google.com/drive/folders/{folderId}
+(= authuser= 削除、 受信者の active account で開く)
+```
+
 ## 例
 
 **NG** (account-dependent、 壊れる):
@@ -143,4 +170,5 @@ Classroom: https://classroom.google.com/c/{classId}?authuser=<email>
 ## 失敗履歴
 
 - **2026-04-16**: `/u/N/` パターンが 2 回再発。 規約と CLAUDE.md inline ルールが両方あったが Claude が読まず、 機械的ブロック (`/u/N/` 検出 hook) を導入
-- **2026-05-09**: Classroom URL `https://classroom.google.com/c/{id}` を `?authuser=` 抜きで chat 出力。 active account 依存で壊れる risk を踏んでいた。 hook の検出範囲を「(B) account-sensitive な URL の authuser= 抜け」 まで拡張 + 本 convention に「stable ID だけでは不十分」 を明示 (本 commit)
+- **2026-05-09**: Classroom URL `https://classroom.google.com/c/{id}` を `?authuser=` 抜きで chat 出力。 active account 依存で壊れる risk を踏んでいた。 hook の検出範囲を「(B) account-sensitive な URL の authuser= 抜け」 まで拡張 + 本 convention に「stable ID だけでは不十分」 を明示
+- **2026-05-27**: 同僚教員宛メール draft で Drive folder URL に `?authuser=<self_email>` を付けて提示 → user 「受信者が読めないじゃん」 指摘で削除版に修正して送信。 旧規約 (= 「stable ID + authuser= 必須」) が **自分視点** で書かれていて、 「他人視点では `authuser=<self>` が破綻」 の場合分けが明示されていなかったため発生。 本 commit で核となる規則に scope 明示 + §How to apply に (d) 新設 + 本 entry 追加
