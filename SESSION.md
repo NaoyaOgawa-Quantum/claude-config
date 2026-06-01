@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-06-01 (xlsx→PDF helper を layer 1 へ移設: cross-platform `scripts/xlsx-to-pdf.sh`)** ([fe0fad7](https://github.com/odakin/claude-config/commit/fe0fad7)): personal layer (`odakin-prefs/dev-environment.md`) にあった xlsx→PDF 変換 script を office-automation 系の汎用ツールとして layer 1 へ移設。 macOS+Excel osascript 専用だったのを **LibreOffice (`soffice --headless --convert-to pdf`) 優先 → macOS Excel fallback** の engine 自動判定に拡張 (= cross-platform 化、 sheet 指定は Excel engine 専用で soffice では warning を出し全 book 出力)。 `conventions/office-automation.md` §2-1 を script reference + engine 選択表 + Automation 権限機構 + sheet caveat に書換 + §1-8b 新設 (= datetime を narrow cell に入れると "###"、 cell 値検証で catch 不可・PDF でのみ可視の一般 Excel 事実)。 CLAUDE.md scripts/ tree に office 系 3 script (diff-form-xlsx / scan-form-instructions / xlsx-to-pdf) を列挙 (= 既存 2 件の listing 欠落も補修)。 layer 3 側 (`odakin-prefs` 711d5aa + 38c87d5) は machine 別 Automation 権限状態のみ残し layer 1 へ上向き参照 (= layer1→layer3 参照禁止を遵守)。 stub-engine 機能テストで soffice branch 全分岐 PASS (Excel osascript branch は GUI 起動のため未検証)。
+
+---
+
 **2026-05-26 evening (leak-guard allowlist 6 → 7 件拡張: `conferences` 追加)** ([352b992](https://github.com/odakin/claude-config/commit/352b992)): odakin の personal layer 配下に新設された research event-axis ledger 用 private リポ `conferences` を mention 例外 list に user 判断で追加。 criterion (= `CLAUDE.md §例外 list と criterion` 2 条件) 適合: (1) category-level / function-level の一般語 ✓ + (2) public profile (= CV / talks list) から推察される specifics を増やさない ✓。 sync 2 file: `scripts/lib/commit-msg-leak-matcher.sh` の `LEAK_MATCHER_ALLOWLIST` + comment "6 件" → "7 件" 3 箇所 + `CLAUDE.md §例外 list` 7 行目 row 追加。 layer 3 hook test (`odakin-prefs/hooks/commit-msg-leak-guard.test.sh`) も `allowlist-conferences` ケース追加で sync、 27 PASS / 0 FAIL 確認済。
 
 ---
