@@ -78,6 +78,9 @@ claude-config/
 │   ├── commit-msg-leak-guard-runner.test.sh # 上記 runner の self-test（15 case、 BLOCK / PASS / merge skip 等）
 │   ├── install-public-commit-msg.sh    # 各 public repo に commit-msg stub を冪等配置（marker check + core.hooksPath cascade）
 │   ├── audit-public-repos.sh           # 全 public repo の leak 定期監査（週次 scheduled-task 対象）
+│   ├── diff-form-xlsx.py               # 様式 xlsx の label 上書き (= 様式改変) を雛形 diff で検出（office-automation.md §5-3）
+│   ├── scan-form-instructions.py       # 様式 xlsx の label 内 embedded instruction を category 別に抽出（office-automation.md §5-5）
+│   ├── xlsx-to-pdf.sh                   # spreadsheet → PDF 変換（LibreOffice soffice 優先 → macOS Excel osascript fallback、office-automation.md §2-1）
 │   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
 │   ├── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
 │   └── lib/                            # sourceable helper (個人層検出の共通化)
