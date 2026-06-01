@@ -664,11 +664,38 @@ else
     REPOS=$(gh repo list "$GH_USER" --limit 100 --json name --jq '.[].name')
     CLONED=0
     SKIPPED=0
+    RENAMED_SKIP=0
+
+    # Build a list of "owner/repo" remotes already present locally, so a repo
+    # whose local directory was renamed (e.g. to a non-ASCII display name) is
+    # NOT re-cloned under its GitHub name on every setup run. Without this, a
+    # renamed clone yields a silent duplicate of the same remote that then drifts
+    # behind independently. bash 3.2 / Windows safe (no associative arrays; uses
+    # `git config` which predates `git remote get-url`).
+    _norm_remote() {  # arg: a git remote URL -> stdout: lowercased owner/repo
+        printf '%s' "$1" \
+          | sed -E 's#^[a-zA-Z]+://[^/]+/##; s#^[^@]+@[^:]+:##; s#\.git/?$##; s#/$##' \
+          | tr 'A-Z' 'a-z'
+    }
+    EXISTING_REMOTES=""
+    for _d in "$CLAUDE_DIR"/*/.git; do
+        [ -e "$_d" ] || continue
+        _rdir="${_d%/.git}"
+        _rurl="$(git -C "$_rdir" config --get remote.origin.url 2>/dev/null)" || continue
+        [ -n "$_rurl" ] || continue
+        EXISTING_REMOTES="$EXISTING_REMOTES$(_norm_remote "$_rurl")
+"
+    done
 
     for REPO in $REPOS; do
         TARGET_DIR="$CLAUDE_DIR/$REPO"
+        EXPECT_REMOTE="$(printf '%s/%s' "$GH_USER" "$REPO" | tr 'A-Z' 'a-z')"
         if [ -d "$TARGET_DIR" ]; then
             SKIPPED=$((SKIPPED + 1))
+        elif printf '%s' "$EXISTING_REMOTES" | grep -qxF "$EXPECT_REMOTE"; then
+            # Already cloned under a different (renamed) local dir — don't duplicate.
+            RENAMED_SKIP=$((RENAMED_SKIP + 1))
+            echo "  Skipped (remote already present under a renamed local dir): $GH_USER/$REPO"
         else
             echo "  Cloning $GH_USER/$REPO ..."
             gh repo clone "$GH_USER/$REPO" "$TARGET_DIR" 2>&1 | sed 's/^/    /'
@@ -678,6 +705,7 @@ else
 
     echo "  Cloned: $CLONED repos"
     echo "  Skipped (already exist): $SKIPPED repos"
+    [ "$RENAMED_SKIP" -gt 0 ] && echo "  Skipped (renamed local dir, remote already present): $RENAMED_SKIP repos"
 fi
 
 # --- 5a. Personal home symlink (four-layer architecture, layer 2) ---

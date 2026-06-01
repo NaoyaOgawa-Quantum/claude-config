@@ -4,6 +4,22 @@
 
 ---
 
+## 2026-06-01: setup.sh の clone step — local dir rename による重複 clone を防ぐ
+
+### 問題
+
+Step 7 (= 認証ユーザーの全 repo を clone) は GitHub repo 名で `$CLAUDE_DIR/$REPO` に clone し、 同名 dir が無ければ clone する。 ところが local clone の **ディレクトリ名を GitHub 名と別名に rename** している場合 (= 表示名を非 ASCII 名にする等)、 setup.sh は rename 後の dir を「未取得」 と誤認し、 **毎回 GitHub 名で重複 clone を生成**してしまう。 同一 remote の 2 clone は独立に drift し、 片方が push すると他方が silent に behind 化する (= cross-clone drift の温床)。
+
+### 修復
+
+clone loop の前に、 既存の `$CLAUDE_DIR/*/.git` 各 dir の `remote.origin.url` を正規化 (= `owner/repo` に統一、 https / ssh / `.git` suffix / 大小文字を吸収) して集合化。 clone 判定で従来の「dir 名一致で既存 → skip」 に加え「**同一 remote を持つ dir が別名で既存なら skip**」 を追加。 これで rename された clone は再生成されない。 bash 3.2 / Windows 互換 (= 連想配列不使用、 `git config --get` 使用 [`git remote get-url` より移植性が高い]、 集合判定は `grep -qxF`)。 純粋に「clone する件数を減らす」 方向の変更なので後方互換 (= 既に同一 remote が手元にある = repo は既に存在する、 skip は安全)。
+
+### 発見経緯
+
+odakin の私的環境で同一 remote の二重 clone が session 間で drift し、 片方が session 開始時の sync 規律から漏れて behind 累積していた (= 詳細は個人層の SESSION 記録)。 個人層の SessionStart 全 repo sync sweep hook が症状を session 境界で機械回収する一方、 本 setup.sh 修正は **重複生成の根本**を断つ (= 症状回収と根本断ちの 2 層)。
+
+---
+
 ## 2026-05-26: commit-msg leak guard option B (= git native BLOCK mode) を harness invoke bug の mitigation として投入
 
 ### 起点
