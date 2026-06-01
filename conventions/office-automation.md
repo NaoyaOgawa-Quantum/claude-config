@@ -967,7 +967,132 @@ for row_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=ws.max_row), 1):
 
 ---
 
-## 10. 関連リポ
+## 10. 学外団体主催出張の用務証明書類 forward flow
+
+公的研究費 (= 科研費等) 規程で **学外団体主催出張 = 用務証明書類添付必須** (= 国内旅費規程典型 第 5 条 3 「学外団体主催の会合に出張する場合は、 このことを証明し得る書類の写しを日程表に代えて出張届に添付しなければならない」)。 紙の印刷物添付以外に、 **公式 announcement mail を事務窓口 ML 宛 forward** が代替 method。
+
+### 10-1. forward mail 構造 (= template)
+
+```
+{事務窓口} 御中
+
+{出張概要 1 文} の出張にあたり、 用務証明書類として公式案内のメールを
+転送いたします。
+
+科研費は {grant 課題名 + 課題番号} から支出予定です。
+
+{(optional) 同研究会には {同行者 list} も参加します。}
+
+よろしくお願いいたします。
+
+{送信者名}
+
+---------- Forwarded message ----------
+From: {original sender}
+Date: {original date}
+Subject: {original subject}
+To: {original to}
+
+{original body — full retain、 truncate しない}
+```
+
+### 10-2. 構成要素
+
+- **宛名**: 事務窓口 ML (= 個人姓不明) なら「**御中**」、 個人なら「**姓 + 様**」 (= 一般 email 慣行)
+- **用務概要 1 文**: 「{日付} {event 名} ({場所}) の出張」 で identifying info を contain
+- **grant source note**: 「{grant 課題名}」 + 「課題番号 {番号}」 を明示 (= 出張支出 source の事務 verification 用)
+- **同行者 list (= optional)**: 同 organization から複数名参加なら 1 行 list、 事務窓口で bulk 処理しやすくなる
+- **Subject**: `Fwd: {original subject} — 出張用務証明書類` 等で **目的明示** (= 単純 `Fwd:` だけだと用途不明)
+
+### 10-3. 内部 record の同 turn 同期
+
+forward mail send 後、 同 turn で:
+1. `inbox/{月}.yaml` に entry (= category=送信済、 messageId、 cross_ref で全関連 entry 双方向接続)
+2. `<project-thread-repo>/threads/<project>.yaml` に同型 thread entry
+3. 関連 grant / event repo の cross_ref も update
+4. 全 repo commit + push (= §17 圧力 4 同 session 完結)
+
+「mail send + yaml 記録 → 完了」 ではなく「mail send + yaml 記録 + commit + push → 完了」 を 1 unit として扱う (= 別 session の救済に依存しない)。
+
+---
+
+## 11. 学外者 form vs 学内者 form の構造差認識
+
+機関ごとに「**学内者 (= 教育職員) 用**」 と「**学外者 (= 大学院生 / 共同研究者) 用**」 で別 form template あり。 **印鑑構造 / 承認 chain が根本的に異なる**:
+
+### 11-1. 典型的 構造差 (= 機関別 form 設計の一般 pattern)
+
+| | 学内者 (= 教育職員) 用 | 学外者 (= 大学院生 / 共同研究者) 用 |
+|---|---|---|
+| 申請者 | 教員本人 | 出張依頼者 (= 研究代表者・分担者) |
+| 承認 chain | 学長宛 + 学科主任 + 部局長 + 経理 / 人事 / 学務課 | 出張依頼者印 + 出張者印 のみで完結 |
+| 提出物 | 出張願 + 日程表 + 旅費請求書 + 出張報告書 | 依頼書 + 承諾書 + 旅費請求書 + 日程表 |
+| 出張先機関の印 | **不要** (= 機関ごとに異なる運用、 source 機関側完結が一般) | 同左 (= form 設計上 source 機関側で完結) |
+
+### 11-2. user 質問への verify method (= 印欄存在問合せ reflex)
+
+user 「{役職} 印欄ない?」 「{機関名} の承認印は?」 等の質問は、 **推測で回答せず即 grep verify**:
+
+```python
+import openpyxl
+keywords = ['印', '殿', '承認', '検印', '押印', '署名', '判',
+            '主任', '専攻長', '研究科長', '学長', '機関の長', '部局長']
+for label, path in [('TPL', template_path), ('EDIT', edited_path)]:
+    wb = openpyxl.load_workbook(path, data_only=False)
+    for sn in wb.sheetnames:
+        ws = wb[sn]
+        # ⚠️ hidden sheet も scan (= sheet_state == 'hidden' continue で skip すると false positive)
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value and any(k in str(cell.value) for k in keywords):
+                    hidden = ' [HIDDEN]' if ws.sheet_state == 'hidden' else ''
+                    print(f'[{label}] [{sn}{hidden}] {cell.coordinate}: {cell.value!r}')
+```
+
+diff method で「**消えた** (= TPL のみ存在)」 vs 「**元から無い** (= TPL + EDIT 両方 hit 0)」 vs 「**追加した** (= EDIT のみ存在)」 を判別。 user 質問への絶対回答 method。
+
+### 11-3. 「TPL のみ存在」 = false positive trap (= hidden sheet 関連)
+
+私 (Claude) が hidden 化した sheet は「TPL では visible で grep hit」 「EDIT では hidden で grep skip」 で false positive 「私が消した」 風に見える。 grep 時に `ws.sheet_state == 'hidden'` continue を入れない (= 全 sheet scan)、 もしくは hidden marker を出力に併記して user judgment に渡す。
+
+---
+
+## 12. 印鑑欄 / 承認 chain の機械的 sweep
+
+§11-2 の reflex を一般化: form 提出前に **全 sheet で印鑑欄 + 承認 chain の機械 sweep** を 1 回回す。
+
+### 12-1. sweep keyword set (= 漏れなし list)
+
+```python
+INKAN_KEYWORDS = [
+    '印', '殿',                           # 基本
+    '承認', '検印', '押印', '署名', '判',  # 認証 action
+    '主任', '専攻長', '部局長', '科長',     # 内部承認 chain
+    '研究科長', '学長', '機関の長',        # 上位承認
+    '部長', '課長',                       # 部署長
+]
+```
+
+### 12-2. diff with template (= 提出前 verify)
+
+```python
+# template と編集後 file の印鑑欄を grep + diff
+tpl_inkan = grep_inkan(template_path)
+edit_inkan = grep_inkan(edited_path)
+print('TPL のみ (= 消えた candidate):', tpl_inkan - edit_inkan)
+print('EDIT のみ (= 追加):', edit_inkan - tpl_inkan)
+print('value 変更:', [k for k in tpl_inkan & edit_inkan if values[k]['TPL'] != values[k]['EDIT']])
+```
+
+### 12-3. user 質問への reflex 統合
+
+「~~~ 印欄ない?」 「~~~ 承認印は?」 等の form 構造に関する質問は **即 §12-2 sweep 実行 + 結果 expose**。 推測 / memory base で「無いと思います」 と回答しない (= §16 「不確実性を expose」 reflex の form structure domain 適用)。
+
+加えて、 「無い」 と確認できた場合も **sweep range + keyword + confidence** を明示 (= 「全 sheet (visible + hidden) で keyword N 種類 grep、 0 hit、 confidence high」 等)。
+
+---
+
+## 13. 関連リポ
 
 - 実例: ある grant 申請 repo の specific 助成事業 dir 内の `fill_xlsx.py` (= 様式 1 xlsx 自動 fill)
 - docx 自動 fill 実例: 同 dir の `fill_forms.py` (= 様式 0 + 様式 2 docx fill、 §2-5 のリファレンス実装)
