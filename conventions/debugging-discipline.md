@@ -316,7 +316,7 @@ python3 -u scripts/fetch-with-picker.py
 
 ---
 
-## 9. MCP / API の count return「0」 を reflex で「想定外」 と結論しない (= §16 trait family の MCP domain)
+## 9. MCP / API の count return「0」 / 「期待と違う検索結果」 を reflex で「想定外」 と結論しない (= §16 trait family の MCP / tool 健全性 domain)
 
 **ルール**: MCP tool / API 呼び出しの count-style return (= `added=0`、 `affected_rows=0`、 `total: 0`、 list が空、 etc.) や「期待と違う検索結果」 を見て即座に「想定外」 「未発生」 「未登録」 「存在しない」 と reflex 結論しない。 その 0 / 結果が「true な空」 か「正常 dedup / filter による empty」 か「**tool が間違った接続先 (account / endpoint) を見ている**」 かを **別 query で 1 path 必ず cross-check** する。 特に user が「絶対あるはず」 と確信を示したら、 source 不在より先に tool 健全性を疑う。
 
