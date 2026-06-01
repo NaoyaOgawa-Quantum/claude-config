@@ -318,13 +318,14 @@ python3 -u scripts/fetch-with-picker.py
 
 ## 9. MCP / API の count return「0」 を reflex で「想定外」 と結論しない (= §16 trait family の MCP domain)
 
-**ルール**: MCP tool / API 呼び出しの count-style return (= `added=0`、 `affected_rows=0`、 `total: 0`、 list が空、 etc.) を見て即座に「想定外」 「未発生」 「未登録」 と reflex 結論しない。 0 が「true な空」 か「正常 dedup / filter による empty」 かを **別 query で 1 path 必ず cross-check** する。
+**ルール**: MCP tool / API 呼び出しの count-style return (= `added=0`、 `affected_rows=0`、 `total: 0`、 list が空、 etc.) や「期待と違う検索結果」 を見て即座に「想定外」 「未発生」 「未登録」 「存在しない」 と reflex 結論しない。 その 0 / 結果が「true な空」 か「正常 dedup / filter による empty」 か「**tool が間違った接続先 (account / endpoint) を見ている**」 かを **別 query で 1 path 必ず cross-check** する。 特に user が「絶対あるはず」 と確信を示したら、 source 不在より先に tool 健全性を疑う。
 
 ### Why
 
-count return「0」 は 2 つの distinct な状態を同じ表面値で返す:
+count return「0」 / 「期待と違う中身」 は 3 つの distinct な状態を同じ表面値で返す:
 - (a) **真の不在**: source 側に entry がない (= 学生が提出していない、 entry が作られていない)
 - (b) **正常 filter 結果**: source 側に entry がある + script の dedup / filter / state 判定で既知 / 対象外と判定された結果 (= 既に sync 済で重複 add なし、 filter 条件に hit しない、 state 不適合で skip)
+- (c) **tool が間違った接続先 (account / endpoint / dataset) を見ている**: MCP / API token が期待と別の account を指している、 endpoint が別 dataset を返している等。 0 だけでなく「らしくない中身」 (= 期待と違う account の data ばかり返る) のが signal。 (a)(b) と違い **tool 自体の健全性の問題**で、 source 側をいくら調べても解決しない。 user が「絶対ある」 と確信を示す場合の典型 root cause
 
 (a) で reflex 結論 → (b) で誤判定の 2 重 cost: (1) user に「想定外」 を伝えて余計な調査を発生させる、 (2) 真の dedup 判定を error と誤認して fix を試み 健全な script を壊す。
 
@@ -332,14 +333,16 @@ count return「0」 は 2 つの distinct な状態を同じ表面値で返す:
 
 ### How to apply
 
-1. count-style return「0」 / 「added=0」 / 「empty list」 を観察した瞬間に「これは (a) true 不在か (b) dedup 等正常結果か?」 を必ず問う
+1. count-style return「0」 / 「added=0」 / 「empty list」 / 「期待と違う中身」 を観察した瞬間に「これは (a) true 不在か (b) dedup 等正常結果か (c) tool が間違った接続先を見ているか?」 を必ず問う
 2. 即座に **より低 level な query** で cross-check (= MCP 経由なら raw API 直接 query、 sync script なら DB 内 entry count 直接 grep、 etc.)
-3. cross-check で (b) と判明したら「想定外」 narrative を即訂正、 不確実性を expose した path として記録 (= §13 alignment)
-4. 「想定外」 を user に伝える前に最低 1 cross-check を通す reflex を hardcode
+3. **(c) の cross-check は tool の接続先確認**: MCP / OAuth token なら `getProfile` 系で「今どの account を見ているか」 を直接確認 (= 検索結果の中身が「らしくない」 = 別 account の data ばかり、 が強い signal)。 期待と一致しなければ tool 故障 → reauth / 接続修復が先で、 source 調査は無意味
+4. cross-check で (b)/(c) と判明したら「想定外」 narrative を即訂正、 不確実性を expose した path として記録 (= §13 alignment)
+5. 「想定外」 「存在しない」 を user に伝える前に最低 1 cross-check を通す reflex を hardcode。 **user が確信を示したら tool 健全性を最優先で疑う** (= source 不在の結論より tool の (c) を先に潰す)
 
 ### 関連事故
 
 - **2026-05-26 fetch_comments.mjs added=0 reflex 結論**: 3 科目 sync で EM/QM 第5回 (締切 5/20 14:59 経過済) の `added=0` を見て「提出 0 件 = 想定外」 と reflex 結論しかけた。 `classroom_list_submissions` で raw query → EM L5: 17 RETURNED + 9 CREATED+late = 計 26 (= 履修者全数で正常提出あり)、 既存 `comments.yaml` に L5 20 entry → 別 session が 5/18-5/20 に既 sync 済 → dedup の (b) 正常結果と判明。 reflex を 1 cross-check で訂正できた、 もし user に「想定外」 を伝えていたら余計な調査 trigger。
+- **2026-06-01 MCP account すり替わり = (c) tool 接続先誤りの実証**: ある account の受信メールを 4 つの MCP account で検索 → 1 つで 0 hit → Claude が「全 account 検索したが該当メール存在しない」 と user に結論。 user 「絶対来ている」 push で再調査 → 当該 MCP の検索結果が個人購読 newsletter ばかり = 「らしくない中身」 と気付き、 Python 直接で `getProfile` → **その MCP token が別 account (= 業務用のはずが個人用) を指していた** と判明 (= 過去の reauth でアカウント誤選択 + 当時 token に検証 step なし、 約35日間すり替わり)。 検索は全部別 account を見ていたため無効で、 修復後に本来の account で埋もれていた student メールが surface (= 課題提出が21日埋もれていた)。 教訓: 「らしくない検索結果」 + 「user の確信」 = (c) tool 健全性 (account/endpoint) を疑う 2 大 signal、 source 不在の結論より先に潰す。 reauth フローには login_hint + 認証後 getProfile 検証 (不一致なら token 破棄) を入れて silent すり替わりを構造的に防ぐ。 具体経緯は personal layer 運用記録 + 該当 MCP 設定リポの DESIGN を参照。
 
 ---
 

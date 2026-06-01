@@ -163,6 +163,19 @@ if not creds.valid:
 
 MCP server と Python script の同時実行で refresh が競合する可能性は理論上ある (= 両方が同時に refresh を試みて、 Google が新 refresh_token を rotate した瞬間に片方が古い token をファイルに書き戻す)。 実害は希だが、 long-running script 中は MCP 経由の同 account 操作を避けるのが安全。
 
+## OAuth token のアカウント検証 (= account 取り違えの silent 化を防ぐ)
+
+OAuth token JSON (= credentials.json) には **どの account の token か** が記録されない (= access_token / refresh_token / scope のみ)。 そのため reauth フローで consent 画面のアカウント選択を誤ると、 alias と中身の乖離 (= 「業務用」 dir に「個人用」 token が入る) が **silent に残り**、 後から file を見ても判別できない。 実害: その alias を使う検索・送信が全部別 account に対して実行され、 「検索しても 0 件」 (= 別 account を見ているから当然) を「source 不在」 と誤結論する。
+
+### 防止策 (2 段)
+
+1. **reauth 時に login_hint で正しい account を事前選択**: consent URL に `&login_hint=<email>` を付けると Google が該当 account を事前選択し、 手動選択ミスを減らす (= email は平文 git に hardcode せず、 暗号化済 config から実行時取得)。
+2. **token 取得後に getProfile で account 検証**: 保存した token で `users().getProfile(userId='me')` (gmail) / userinfo (他 API) を叩き、 emailAddress を期待値と照合。 不一致なら token を削除して fail させる (= silent 保存を構造的に防ぐ)。 token JSON に email が無いので、 この 1 query が唯一の判別手段。
+
+### 検索結果が「らしくない」 時の reflex
+
+MCP / API の検索結果が期待と違う account の中身ばかり返る (= 業務 account のはずが個人購読 newsletter ばかり) なら、 token が別 account を指している疑い。 `getProfile` で接続先 account を直接確認する。 一般原則は [debugging-discipline.md §9](debugging-discipline.md) 状態 (c) tool 接続先誤り。 reauth フローの login_hint + getProfile 検証の実装は各 MCP 設定リポ側 (= personal layer)。
+
 ## documentation の義務
 
 GCP project に紐づく以下の情報は**個人層 (= layer 3) の secrets-related docs に明記**しておく:
