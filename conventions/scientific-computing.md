@@ -22,12 +22,22 @@
 
 **根本因 (= 2026-04-20 fix の narrow scope)**: 2026-04-20 の §1 fix は flagged された `TauSqMax` のみ scale-adaptive 化したが、 同 file 同 function の **同形式 default (= `MuRange`)** を sweep しなかった。 同 trait family の sibling defect を残置 → 13 ヶ月後に別 unit system (= S₈ dimensionless) で symptom 顕在化。
 
+### 実例 (2026-06-01、 scale-adaptive default 自体が「非 robust 統計量 + outlier」で破綻 = 3 例目、 §1 framing を 2 方向に拡張)
+
+2026-04-20 fix で `TauSqMax` (= τ² 積分上端) は **scale-adaptive 化されていた** (= `Max[(10·maxσ)², (5·data spread)²]`) のに、 ある heterogeneous dataset (= 同 unit 内、 49 点、 σ range 0.94〜**50.5**、 σ=50.5 の outlier 1 点を含む) でまた silently 破綻。 `10·maxσ = 505 → TauSqMax ≈ 2.5×10⁵` と真の τ² integrand peak (~5) の **5 万倍**に膨張、 各 μ 点の τ² 積分の peak-finder coarse grid (= **linear** 50 点、 spacing ~5100) が幅 ~10 の真の peak を踏み越え、 quad が peak を盲目積分で取り逃して `res≈0 → density = -∞ → 0` に truncate → posterior の片側が完全欠落 (= 共著者が「右側が突然 0 に落ちる」と発見、 修正前は wrong な単峰として report されていた)。
+
+この 3 例目は §1 の従来 framing (= 「unit system 変更で破綻」) を **2 方向に拡張**する:
+
+1. **trigger は unit 変更ではなく単一 outlier**: 同一 unit system 内でも、 scale-adaptive default が `Max[]` / `Min[]` 系の **非 robust 統計量**を使っていると、 たった 1 点の outlier がそれを膨張させて破綻する。 **「scale-adaptive 化すれば安全」 (= 2026-04-20 防止策) は、 中身が非 robust 統計量だと不十分**。
+2. **根治は default の robust 化ではなく downstream consumer の scale-free 化**: bound を robust 化 (= `Max` → median 等) しても `(5·data spread)²` 項が依然 peak の数千倍残り不十分。 真の根治は **bound を消費する側 (= 積分 peak-finder grid) を geometric (log) 間隔にする**こと — そうすれば bound が何桁であれ任意 scale の peak を解像でき、 bound の exact 値に依存しなくなる。 **consumer の scale-invariance が bound の fragility を無効化する** (= この grid-only fix は bound 非変更ゆえ既存の別 unit 検証値を byte-exact で保つ、 という追加利点もある)。 詳細 RCA は該当リポの `DESIGN.md`。
+
 ### 防止策
 
 **code 側**:
 - Numerical hyperparameter (integration upper bound, grid bracket, bin size, step size 等) の default を**定数で書かない**。`xs`, `sigmas`, data range から計算する scale-adaptive な式にする
 - どうしても定数を置くなら、関数先頭で data scale を assert して範囲外なら fail loudly にする
 - **sibling sweep at fix time** (= 2026-05-25 RCA 追加、 関連: [`debugging-discipline.md §4` の fix-time sibling sweep](debugging-discipline.md)): scale-blind default を 1 件 fix する際、 **同 file / 同 function / 同 関数族**を grep で sweep して `Max[xs] - 10` 系 (= 中性子寿命用) や `1000` 系 (= s² 想定) の literal を全 enumerate、 同 fix を全 sibling に同時適用する。 「flagged された 1 件を fix」 で止めると残存 sibling が将来 silently symptom を出す (= 上 2026-05-25 case)
+- **scale-adaptive default が非 robust 統計量を使うと outlier で破綻** (= 2026-06-01 RCA 追加): `Max[σ]` / `Min[]` ベースの adaptive 式は 1 点の outlier がそれを数桁膨張させて破綻しうる (= scale-adaptive 化は「定数を避ける」 の必要条件だが十分条件ではない)。 対処の優先順位: (1) **bound を消費する grid / integrator を scale-free にする** (= geometric/log 間隔、 適応分割) — bound の exact 値に依存しなくなり最も根治的 (+ bound 非変更ゆえ既存検証値を保てる)、 (2) それが無理なら bound 自体に robust 統計量 (median / percentile) を使う、 (3) どちらも無理なら data scale assert で fail loudly。 ただし robust 統計量だけでは `(5·data spread)²` のような second term が残ると不十分なことがある (= 上 2026-06-01 case) ので (1) を先に検討
 
 **discipline 側**:
 
