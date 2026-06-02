@@ -369,6 +369,36 @@ assert abs(expectation - sigma/2) < 1e-9, "MISMATCH"
 
 ---
 
+## 7. 検証は source からの独立導出 — 一致合わせは検証でない; 公表式の係数も数値 verify
+
+### 問題
+
+disputed な量 (vertex 係数・規格化・符号) を「相手の結果に一致するよう自分の parameter を tune して『一致した』」 とするのは **検証ではない (= circular)**。 相手が正しいと仮定して fit しただけで、 どちらが正しいかを決めていない。 検証は **source (= 作用 / 定義 / 第一原理) からの独立導出** でのみ成立する。 さらに、 source とした **公表論文の式自体に係数 misprint** があり得る (= peer-reviewed / co-authored でも)。 literal-copy した式を信頼の base にすると誤りを継承する。
+
+### 実例 (= 場の理論の vertex 係数が disputed なケース、 2026-06)
+
+- ある vertex の係数 (= mass:kinetic weight) が co-author 間で disputed。 初手で「相手の値に一致するよう自分の parameter を tune」 して相手の値を得た = **循環論法** (user 指摘で発覚)。
+- 正しい検証 = 作用からの汎関数微分 (= finite-difference、 inverse は行列 inverse で厳密) で独立導出 → 自分の元の値が正しいと確定。 **4 経路独立確認** (手導出 / finite-diff / 記号 CAS / 先行文献の正しい恒等式) で cross-check。
+- 相手の値の source = 公表論文 (peer-reviewed) の densitised-tensor 恒等式の **係数 misprint** (= 反対称化の 1/k! 欠落、 例: 1/2 vs 正 1/(2!·2!)=1/4)。 同 group の先行論文には正しく載っていた → 公表式でも独立に数値 verify (= 恒等式に成分代入して LHS=RHS check) すべきだった (= peer-reviewed でも misprint はある)。 〔詳細 narrative は当該 private research project の RETRACTIONS.md に記録〕
+
+### 防止策
+
+1. **disputed な量は必ず source から独立導出**。 「相手の数値に合う parameter」 を探す行為が出たら fit であって検証でないと自覚 (= sweep の §「cell 埋めか error expose か」 の verification domain 版)。
+2. **source の異なる複数経路で cross-check** (= 手導出 / 数値 / 記号 CAS / 別文献)。 1 経路一致は弱い。
+3. **公表式・引用式の係数も数値 verify** (= 恒等式は成分代入、 closed form は sympy)。 「published だから正しい」 は不成立。 §6 (transcript hallucination) の sibling = source 自体の error。
+4. literal-copy した式を「source of truth」 化しない。
+
+### Anti-pattern
+
+- 相手の結果に一致する parameter を見つけて「検証完了」 と報告 (= circular)
+- 公表論文の式を成分 verify せず信頼の base にし、 misprint を継承
+
+### 関連
+
+- §6 — transcript hallucination の sympy verify (= 本 § は「source 自体の error」 への拡張)
+- [`debugging-discipline.md §1`](debugging-discipline.md) — 「conceptually clean」 主張の verify 義務 (= 同 trait)
+- 同 trait family = 「安価な操作 (= 一致合わせ / memory recall / literal-copy) で expensive 操作 (= 独立導出 / 数値 verify) を bypass する」。 review / sweep / context 構築 domain にも同型に現れる
+
 ## 次に追加される予定 (placeholder)
 
 - 浮動小数点精度起因の silent failure パターン
