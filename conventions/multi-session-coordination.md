@@ -143,6 +143,27 @@ This change was intentional, so make sure to take it into account as you proceed
 
 ---
 
+## 5. 並列 session が共有 tmpdir を埋め、 Bash 出力が ENOSPC で消える
+
+### 問題
+
+Claude Code は各 Bash 呼び出しの stdout/stderr を per-session tmp dir (= macOS では `/private/tmp/claude-<uid>/.../tasks/*.output`) に書く。 同 user が **複数 session を並列運用**すると、 共有 tmpfs (= 小容量) が他 session の蓄積 output (= 特に PDF render PNG 等の大物) で満杯になり、 自 session の Bash が `temp filesystem ... is full (0MB free)` / `writes failed with ENOSPC` で **出力を失う** (= command 自体は実行されるが結果が読めない)。 file 系 tool (Edit/Write/Read) は別経路で影響を受けにくい。
+
+### 対処
+
+- **掃除**: `find /private/tmp/claude-* -name '*.output' -delete 2>/dev/null` (+ `-name '*.png'`) で旧 session task output を削除して空き回復。 ⚠️ 自 session の current output も消す race があるので、 削除と本命 command を 1 行に併記 + 本命は出力最小化 (`... >/dev/null 2>&1; echo rc=$?`)。
+- **回避**: bash grep の代わりに **Read / Edit / Grep tool を使う** (= ENOSPC の影響小)。 git は `... 2>&1 | tail -1` 等で小出力化。
+- **根治 (harness 側)**: `CLAUDE_CODE_TMPDIR` を空きのある FS に向けると安定 (= session 起動前の環境変数)。
+
+### 実例 (2026-06-02)
+
+ドキュメント整備 session 中、 別 Claude session が同 project で並行稼働し共有 tmpfs を埋め、 grep/git の Bash 出力が断続的に ENOSPC 消失。 旧 session output 削除で回復 → 以降 git は小出力 + file 系は Read/Edit に切替えて継続。
+
+### 関連 (本 §)
+- §1-§3 の並列 session race family の shared-resource 版 (= file race でなく tmpdir race)
+
+---
+
 ## 関連
 
 - collaborator (= 他 user) との Git race / branching: [`shared-repo.md`](shared-repo.md)
