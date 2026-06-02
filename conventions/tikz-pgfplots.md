@@ -2,7 +2,7 @@
 
 TikZ や pgfplots を含む LaTeX project で適用。 一般 LaTeX 規約は [`conventions/latex.md`](latex.md)、 PDF 視覚検証規律は同 latex.md §「PDF 視覚検証 reflex」 を併読。
 
-本 file の知見は **2026-05-19 の cosmology infographic 制作 (= [odakin/infographics](https://github.com/odakin/infographics) `cosmology-history/`) で 20 iteration を user feedback 駆動で回した記録**。 大半は「公式 doc 通りには動かない / 動くが直感に反する」 系の罠で、 1 度踏むと原因特定に 1-2 turn 浪費する。
+本 file の知見は **cosmology infographic 制作 (= [odakin/infographics](https://github.com/odakin/infographics) `cosmology-history/`) で多数 iteration を user feedback 駆動で回した記録** (= 2026-05-19 初版 20 iteration + 2026-06-02 に密度プロット再設計で更に多数、 後者で「床塗り closedcycle」「named anchor の scope 非追従」「中央寄せ＝平行移動」「aspect 変更時の回転再計算」 を追加)。 大半は「公式 doc 通りには動かない / 動くが直感に反する」 系の罠で、 1 度踏むと原因特定に 1-2 turn 浪費する。
 
 ## pgfplots `width` / `height` は axis title / xlabel を含めて bounding しない
 
@@ -84,6 +84,8 @@ TikZ や pgfplots を含む LaTeX project で適用。 一般 LaTeX 規約は [`
 2. **`samples at`** で log spacing を作り、 そこに pos= で attach。 ただし `samples at` の指定は煩雑
 
 **Why**: `samples=80` は默认 linear spacing。 log-log plot 上で「線の中央」 は log-uniform で測るのが直感的だが、 pgfplots の pos は path-length 基準。 両者がズレる。
+
+**★ aspect を変えたら回転角を都度再計算する (reflex)**: 手動 `rotate=` で線ラベルを線と平行にした後、 **`ymax` / `xmax` / `xmin` / `ymin` / `width` / `height` のどれか 1 つでも変えると** Dx/Dy (= decade 数比) または H/W (= data area 縦横比) が変わり、 線の visual slope が変わる → 回転角がズレる。 角度 = `atan(n × (H/W) × Dx/Dy)` (n = 冪の絶対値、 例 ρ∝a⁻⁴ なら 4)。 H/W は data area の縦横比で、 1 度 visual 一致させた角度から逆算 calibration するのが速い (= cosmology infographic では H/W≈0.49)。 これを怠ると「軸を広げたら線とラベルがズレた」 が必ず起きる (= 本 session で `ymax` を 1e16→1e20→1e30→1e35、 `xmax` を 2→10 と変える度に放射ラベルを -41→-36→-28→-25 と再補正した)。
 
 ## TikZ `\foreach` で多変数 + 色名引数は `\col` 等 expansion で失敗
 
@@ -181,6 +183,49 @@ macOS 標準で使える Hiragino face の PostScript 名 (W3/W4/W5/W6/W7 等):
 ```
 
 ただし math fragment color 設定は font / glyph によっては部分的にしか効かない。 visual check 必須。
+
+## `\addplot {f} \closedcycle` は端点を結ぶだけで「床まで」 塗らない
+
+**症状**: 曲線の下を ymin (= axis 床) まで塗りたくて `\addplot[fill=...] {f(x)} \closedcycle;` と書くと「線の下全部」 にならない。 特に **水平線** (= `{1}` のような const) では `\closedcycle` が始点↔終点を結ぶだけ → **面積ゼロで全く塗られない**。 斜め線でも「曲線と〔端点を結ぶ弦〕で囲む三角形」 が塗られ、 「床まで」 ではない。
+
+**原因**: `\closedcycle` は plot path の **最終点を最初点へ直線で結ぶ** だけで、 axis 床 (ymin) へは下りない。
+
+**対処**: 床の 2 隅を明示的に経由して閉じる:
+```latex
+\addplot[fill=plotrad, fill opacity=0.16, draw=none, domain=1e-9:10, samples=80]
+  {1.22e-4 * x^(-4)} -- (axis cs:10,1e-5) -- (axis cs:1e-9,1e-5) -- cycle;
+```
+const (= 水平線) は `\addplot` を諦めて矩形 `\fill[...] (axis cs:xmin,ymin) rectangle (axis cs:xmax,1);` で塗る。
+
+**実害例**: cosmology infographic で DE (= ρ_Λ=const 水平線) だけ塗られず、 放射/物質も「線の下」 ではなく三角形を塗っていた。 床まで閉じる形に直して 3 成分とも「線の下を重ね塗り (= 下ほど多色が重なる)」 が揃った。
+
+## `current axis.south west` 等の anchor は `\end{axis}` 後・scope shift 下で **追従しない**
+
+**症状**: `\begin{scope}[shift={(x,y)}]` 内で axis を描き、 `\end{axis}` の後に軸外要素 (= 例: off-scale バッジ) を `at ([xshift=-14mm]current axis.south west)` で配置。 ところが **scope の shift を変えても、 軸本体は動くのにこの要素だけ取り残される** (= 元位置に固定される)。
+
+**原因**: scope の `shift` (= canvas transformation) は axis の **描画** には効くが、 `current axis.south west` が返す座標は shift 適用前の値。 named anchor を後から参照すると pre-shift 座標 + 個別 xshift で配置され、 scope shift に連動しない。
+
+**対処**: 連動させたい軸外要素は **軸内の named node** を基準にする。 軸内のバッジ等に名前を付け、 軸外要素をそれ基準に置くと、 基準が軸と一緒に動くので追従する:
+```latex
+\node[circle, ...] (b4) at (axis cs:3e-9, 4e-5) {4};   % 軸内、 named
+...
+\end{axis}
+\node[circle, ...] at ([xshift=-12mm]b4) {3};          % 軸外、 b4 基準 → 追従する
+```
+
+**実害例**: plot を card 中央に寄せようと scope を動かしたら、 off-scale ①②③ バッジだけが card 左端に取り残された (= 軸は動いた)。 ④ を named node 化し ①②③ を④基準に変えて解決。
+
+## plot を card 内で中央寄せ = 単なる平行移動 (= アスペクト比の問題ではない)
+
+**罠**: 「余白を四方均等に」 と言われて **アスペクト比** (= 軸と card の縦横比一致) を持ち出すと話がこじれる。 **「左右均等 ∧ 上下均等」 は単に内容を card 中央に置くだけ** (= 平行移動 = scope shift)、 アスペクト比は無関係。 アスペクト比一致が要るのは **「四辺すべて同じ値」** の場合だけ (= 実用上ほぼ不要)。
+
+**手順** (= 実測 → 平行移動):
+1. render PNG から **内容の bounding box を実測** — ink ピクセル (= 彩度 `max-min>45` or 暗さ `max<200`) の min/max を取る。 card border (= 低彩度・明色) は ink 判定に掛からず閾値で自然に除外される
+2. 内容 center と card center の差を計算
+3. axis scope の `shift` をその差だけ動かす (= **size 不変なので回転や aspect に影響なし**)
+4. 再 render → 再実測で左右差・上下差が ~0 か確認 (= 本 session で 0.04mm まで追い込んだ)
+
+§「width/height は label を bound しない」 + §「outer top と data top の internal padding」 で見たように pgfplots の内部 geometry は直感と違う。 **モデルで推論せず実測する** のが速い (= 本 session で誤った geometry モデルから推論して数 turn 浪費した。 既存の本 file を読めば width/height の挙動は書いてあったのに、 読まず再導出した反省)。
 
 ## サイクル: 「compile 成功」 ≠ 「visual 成功」
 
