@@ -761,6 +761,27 @@ print(f"  {c.coordinate} (...): {v}{label_marker}")
 
 dump 時点で label が浮き上がる → fill 対象から自動的に除外する判断が容易になる。
 
+### 5-7. 選択肢ラベルの選択マーク (= 専用 input cell がない選択)
+
+§5-1 の「label 行 + 空 input 行」 とは**別構造**として、 **複数の選択肢が pre-printed label として並び、 選択用の専用 cell が無い** form がある (= 例: 旅費様式の支給方法欄 `本学教員立替` / `出張者立替` が merged label cell のみで checkbox 列を持たない)。 この選択をどう mark するか:
+
+- ⭕ **OK = ラベル文字を保持してマークを前置き**: `cell = "○" + 元ラベル` (例: `"○出張者立替"`)。 元の label text が substring として残るので「項目が消えた」 改変にならない。
+- 🚫 **NG = ラベル文字を mark で置換 (= 破壊)**: `cell = "☑"` 単体で `"出張者立替"` を消す → 審査機関から「項目が消えた / 様式の改変」 で差戻し (= §5-2 と同じ harm)。
+- **境界線は「破壊か保持か」**。 「label cell に一切触るな」 ではない (= prohibition を過度一般化すると有効な選択マークまで禁じてしまう)。 harm の本体は **pre-printed text の消失**であって「cell に触ること」 ではない。
+- **対比**: 専用の `☐` checkbox cell を持つ form (= 教育職員用様式等) は `☐ → ☑` の toggle で mark する (= input cell があるので §5-1 通り)。 ○前置きは checkbox cell が無い form 限定の手段。
+- **機械検証の補助**: ○前置きなら filled value が template label を **substring として含む**。 含まない短い mark (= `☑` 単体) への置換は §9 の検出漏れ pattern に該当 → `diff-form-xlsx.py` の `VALUE_CHANGED` を §9-2 通り逐一 expose し「label を mark で潰していないか」 を手 review。
+- ⚠️ 審査機関が「印刷済み cell への文字追加」 自体を改変とみなす可能性は form/機関依存で未確定。 厳格なら fill 段階では label を素のまま残し、 **印刷後に手書き○囲み** (= デジタル無改変) に切替。
+
+origin: 2026-06 学外者旅費様式 (`3_…`) 支給方法選択。 前 session が `☑` で label を上書き → 審査機関差戻し → ○前置き (= label 保持) に修正。
+
+### 5-8. multi-sheet form の数式伝播 + literal の帰属区別
+
+出張者の属性 (所属 / 職名 / 氏名) を**主 sheet に書き、 従 sheet が `=主sheet!セル` の数式で参照**する form がある (= 学外者旅費様式の 依頼書 / 承諾書 / 報告書 が請求書 sheet を参照)。
+
+- **fix は主 sheet の source cell のみ**で足りる (= 従 sheet は数式で自動伝播)。 各 sheet を個別に手入力すると二重管理 + 不整合の元。
+- 同じ文字列が複数 sheet に literal で現れても **帰属が違うことがある** (= 出張者本人の所属 vs 依頼者/所属機関の名称)。 全件一括置換せず、 §0 dump で「どの cell が誰の属性か」 を特定してから直す。
+- free-text cell で審査機関が表記を**直接指定**してきたら、 form の `マスタ` / 記載例の略語より **審査機関の指定をそのまま使う** (= form 内蔵の例示語に寄せない)。
+
 ---
 
 ## 6. xlsx visual rendering の Claude 観察不可 と PDF 視認義務

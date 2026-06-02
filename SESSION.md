@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-06-02 (office-automation.md §5-7 / §5-8 新設: 選択肢ラベルの選択マーク + multi-sheet 数式伝播)**: 学外者旅費様式 fill の差戻し事例から 2 つの一般則を §5 に追加。 §5-7 = **選択肢が pre-printed label として並び専用 input cell が無い form** での選択マーク: ○を**前置き** (`"○出張者立替"` = label 保持) は OK、 `☑` 単体で label を**置換** (= 破壊) は NG。 境界線は「破壊か保持か」 であって「label cell に触るな」 ではない (= prohibition を過度一般化すると有効な選択マークまで禁じる)。 ☐ checkbox cell を持つ form は `☐→☑` toggle で別扱い。 ○前置きは filled value が template label を substring 包含するので §9 の検出漏れ pattern を手 review で補完。 §5-8 = multi-sheet form の **数式伝播** (= 主 sheet source cell のみ fix で従 sheet 自動反映、 二重入力しない) + **literal の帰属区別** (= 同一文字列でも 出張者 vs 依頼者/機関 で帰属違い、 一括置換禁止) + **審査機関の明示指定 > form 内蔵の例示語**。 layer 1 public のため人名 / 機関名 / 個別 form data は排し汎用フォーム用語のみ。 origin = 2026-06 学外者旅費様式 ☑ 上書き差戻し → ○前置き修正 (= 既存 §9 の「短い header label 上書き検出漏れ」 と同 form・補完関係)。 layer 2 (= 事務 repo) 側に form 固有手順 + worked example を別途記録済 (= layer1→layer3/2 参照せず汎用則のみ layer 1 化)。
+
+---
+
 **2026-06-01 (xlsx→PDF helper を layer 1 へ移設: cross-platform `scripts/xlsx-to-pdf.sh`)** ([fe0fad7](https://github.com/odakin/claude-config/commit/fe0fad7)): personal layer (`odakin-prefs/dev-environment.md`) にあった xlsx→PDF 変換 script を office-automation 系の汎用ツールとして layer 1 へ移設。 macOS+Excel osascript 専用だったのを **LibreOffice (`soffice --headless --convert-to pdf`) 優先 → macOS Excel fallback** の engine 自動判定に拡張 (= cross-platform 化、 sheet 指定は Excel engine 専用で soffice では warning を出し全 book 出力)。 `conventions/office-automation.md` §2-1 を script reference + engine 選択表 + Automation 権限機構 + sheet caveat に書換 + §1-8b 新設 (= datetime を narrow cell に入れると "###"、 cell 値検証で catch 不可・PDF でのみ可視の一般 Excel 事実)。 CLAUDE.md scripts/ tree に office 系 3 script (diff-form-xlsx / scan-form-instructions / xlsx-to-pdf) を列挙 (= 既存 2 件の listing 欠落も補修)。 layer 3 側 (`odakin-prefs` 711d5aa + 38c87d5) は machine 別 Automation 権限状態のみ残し layer 1 へ上向き参照 (= layer1→layer3 参照禁止を遵守)。 stub-engine 機能テストで soffice branch 全分岐 PASS (Excel osascript branch は GUI 起動のため未検証)。
 
 ---
