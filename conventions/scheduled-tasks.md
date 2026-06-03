@@ -4,15 +4,17 @@ Claude Code scheduled tasks を使うリポで適用。CLAUDE.md から参照: `
 
 ## 0. 実行 locus で機構を選ぶ (= scheduled task が正しい道具か先に問う)
 
-定期/自動ジョブを組む前に、 **「このジョブは何にアクセスする必要があるか」** で実行機構を選ぶ。 scheduled task を reflex で選ぶと、 local file 非依存という制約に後で衝突する。
+定期/自動ジョブを組む前に、 **(1) run-time に Claude の judgment が要るか** + **(2) 何にアクセスするか** で実行機構を選ぶ。 「定期 = scheduled task」 と reflex で選ぶと、 deterministic job に Claude を毎回起こす過剰や、 cloud routine の local-access 不在に後で衝突する。
 
 | ジョブの要件 | 機構 | 理由 |
 |---|---|---|
-| local file / repo / OAuth token / local CLI (sips, npm, git push) に依存 | **launchd / cron (該当マシンで local 実行)** | scheduled task / schedule skill の routine は **backend (remote) で実行**され local file に**アクセスできない** (= 下記 §アーキテクチャ + 過去 RCA、 schedule skill help「remote agent が cloud 起動、 local file 一切不可」)。 local 依存ジョブはこれ一択 |
+| **deterministic** な機械処理 (= run-time に Claude judgment 不要) で local file/repo/CLI (sips, npm, git push) に依存 | **launchd / cron (該当マシンで local 実行)** | local 実行・token cost ゼロ・LLM 非依存・Claude runtime 不要。 純粋な script はこれが最適 |
+| **Claude の judgment / draft** が run-time に要る (+ PushNotification を使いたい) | **Claude Code scheduled task (SKILL.md)** | **local の fresh Claude session で実行され local file/cred に アクセスできる** (= 実例: daily-mail-triage-check が `~/Claude/.../*.py` を local OAuth `~/.gmail-mcp/` で実行)。 「backend」 は **prompt の保存先**であって実行 locus ではない (下記 §アーキテクチャ) |
 | 職場/組織 NW から API が block される (例: campus から Discord API が Cloudflare 1010) | **GitHub Actions (cloud cron)** | 別 network egress から実行 + secret で credential 供給 |
-| Claude の judgment / draft が要る ∧ local file 非依存 ∧ PushNotification を使いたい | **Claude Code scheduled task** | 下記 §以降の SKILL.md 構造 |
 
-**reflex**: 「定期実行 = scheduled task」 ではない。 **local 依存があるか**を最初に問い、 あれば launchd/cron (= 該当マシンで走る、 token cost ゼロ、 決定的)。 「local 完結 script を schedule skill で trigger」 は backend remote 実行のため**根本的に動かない** (= 実際に着手直前まで気付かず redesign した前例あり)。 実行 locus が不確かなら、 依存する機構に頼る前に locus を検証する。
+⚠️ **`schedule` skill の「remote agent / routine」 は上記 scheduled task とは別物**: これは **cloud で起動し local file に一切アクセスできない** (= 過去に「local 完結 script を schedule skill で trigger」 が cloud 実行で根本的に動かず redesign した RCA)。 local 依存ジョブを cloud routine に載せない。 **scheduled task (= local) と混同しない** (= 「scheduled task は local 不可」 は誤り、 上記の通り local access あり)。
+
+**reflex**: 「定期実行 = scheduled task」 ではない。 まず **(1) run-time に Claude judgment が要るか** — 不要 (= 純粋 script) なら launchd/cron (= Claude を毎回起こさない、 決定的、 無料)。 要るなら scheduled task (= local access あり)。 次に **(2) cloud に出す必要があるか** — NW block 回避なら GitHub Actions、 それ以外で local 依存があるなら cloud routine (schedule skill) を避ける。 実行 locus が不確かな機構は、 local access を前提にする前に locus を検証する (= 機構名から「remote だろう」 と推測せず実証する)。
 
 machine-local job を「どのマシンに登録するか / 登録漏れをどう surface するか」 は [multi-machine-state.md](multi-machine-state.md)。 無人 publish の安全 gate は [data-pipeline-automation.md](data-pipeline-automation.md) §7。
 
@@ -34,6 +36,7 @@ Claude バックエンド（リモート）    ← 実際に実行される prom
 - **SKILL.md をリポに置く理由**: git で差分追跡・コードレビューができる。複数端末間で `git pull` で内容を共有できる
 - **バックエンドが SKILL.md を読まない理由**: scheduled task の実行 prompt は `create_scheduled_task` / `update_scheduled_task` 呼び出し時にバックエンドに保存され、以後ローカルファイルは参照されない（Claude Code の仕様）
 - **symlink の役割**: ローカルで `~/.claude/scheduled-tasks/` を見たとき、SKILL.md の内容をリポ側で一元管理するための便宜。実行には影響しない
+- **「バックエンド（リモート）」 の正確な意味**: これは **prompt の保存先**を指す (= prompt 本文が backend に保存される)。 **agent の実行自体は該当マシンの local fresh session** で、 **local file / OAuth token / CLI に access できる** (= 実例: daily-mail-triage-check の SKILL.md は `~/Claude/.../*.py` を local OAuth `~/.gmail-mcp/` で実行する前提で書かれ、 §15 メール防御の一部として依存されている)。 ⚠️ 「backend remote 保存」 を「remote 実行 = local file 不可」 と誤読しないこと (= §0 の機構選択で「scheduled task は local 不可」 と誤判定する原因になる)。 cloud で実行され local file に触れないのは別物の **`schedule` skill の routine** の方 (§0 参照)
 
 ### 制約
 
