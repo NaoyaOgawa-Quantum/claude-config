@@ -166,7 +166,7 @@ local build (= PDF/.tex 生成) と external publish (= 別リポへ mirror、 P
 
 ### 規律
 
-**pipeline を cron/launchd 等で無人実行し、 結果を不可逆/外部な行き先 (= 共有・公開 repo への commit+push、 送信、 publish) に自動反映するなら、 §3 の「user が手で埋める / review する」 という run-time の人間 in-loop が無い。 そこで自動反映してよいのは「出力が入力の純粋な関数 = 推測ゼロ」 の変換だけ。 導出不能な field は (a) 人間が SoT に事前入力する (= その入力が「その item を publish してよい」 という per-item 認可になる) か、 (b) surface して人手に委ねる。 placeholder や推測を外部/公開 state に push しない。**
+**pipeline を cron/launchd 等で無人実行し、 結果を不可逆/外部な行き先 (= 共有・公開 repo への commit+push、 送信、 publish) に自動反映するなら、 §3 の「user が手で埋める / review する」 という run-time の人間 in-loop が無い。 そこで自動反映してよいのは「出力が入力の純粋な関数 = 推測ゼロ」 の変換だけ。 導出不能な field は (a) 人間が SoT に事前入力する (= その入力が「その item を publish してよい」 という per-item 認可になる) か、 (b) surface して人手に委ねる、 または (c) LLM-in-loop が **grounded に**自動完成する (= 翻訳 / 出典つき retrieval、 下記 subsection)。 いずれにせよ placeholder や **推測 (guess)** を外部/公開 state に push しない (= grounded な自動完成は guess ではない)。**
 
 run-time に人間が居る半自動 (§3) では placeholder を出力に残して後で埋めればよい。 無人実行ではその猶予が無く、 placeholder/推測がそのまま公開面に焼き付く。 だから「武装 (armed)」 ゲートを設ける: **導出不能 field が SoT に揃った item だけ自動 publish、 揃わない item は surface のみ。**
 
@@ -183,6 +183,23 @@ run-time に人間が居る半自動 (§3) では placeholder を出力に残し
 - armed でない item は surface (= 「この 1 field を埋めれば次回自動 publish」 と hint)、 **絶対に推測で埋めない**
 - 「全 item を強制 armed 化する kill switch を false に」 等の全面手動 fallback も用意 (= 異常時の退避)
 - 自動 publish した内容は事後に必ず通知 / log / git log で可視化 (= 無人でも誤 publish に早く気付ける)
+
+### Pattern: LLM-in-loop での SoT 自動完成 (= 境界は「機械 vs 人間」 ではなく「grounded vs guessed」)
+
+「導出不能 field は人間が埋める」 (上記 (a)) は唯一の道ではない。 **LLM を run-time に噛ませれば、 一部の「導出不能」 field は人間なしで autonomously 完成できる — ただし完成が grounded である限り**。 境界は「機械が触るか」 ではなく「**根拠があるか (grounded) / 推測か (guessed)**」:
+
+- **翻訳 (= 与えられた content の ja→en 等)**: faithful な翻訳は「事実の推測」 ではなく「与えられた content の変換」。 LLM が SoT に自動充填してよい (+ review marker)。
+- **固有名詞 / 外部事実 (= 所属の公式英語名 等)**: 翻訳すると誤る (= 直訳 ≠ 公式名) が、 真の値は **retrievable** (= その機関の公式サイトを web-search)。 **出典つきの grounded retrieval は guess ではない** → LLM が web-search で実在値を取り SoT に充填 (+ 出典 URL + review marker)。
+- **content も出典も無い純粋な事実** → やはり surface / 人手 (= blind-guess は禁止)。
+
+つまり「推測で埋めない」 (= §16) は守ったまま、 **grounded な自動完成 (翻訳 + retrieval) を LLM 層に足す**ことで人間 pre-fill すら不要にできる。 これで「全 item 自動 publish」 が成立する (= armed ゲートが「人間が 1 field 埋めた item」 から「LLM が grounded に埋めた item」 に広がる)。
+
+適用上の規律:
+- **run-time に LLM が要る** → 機構は LLM-in-loop な定期実行 (= [scheduled-tasks.md](scheduled-tasks.md) §0「Claude judgment 要 → scheduled task」)。 純 deterministic 層 (= mirror) と LLM 層 (= 翻訳/retrieval で SoT 完成) を分離し、 LLM 層は SoT を埋めるだけ・公開生成は deterministic 層が行う (= テスト可能性 + 翻訳/retrieval を SoT に残してレビュー可能)
+- **人間提供値を最優先**: 既に人間が入れた値 (= 非 TBA) は LLM で上書きしない
+- **auto-completed には review marker を付け、 即ライブ + 早期レビュー** (= 公開を止めない代わりに、 通知 + drift 検出器で「自動生成・要目視」 を surface し人間が数日内に微修正)
+- **retrieved fact には出典を残す** (= 後で検証可能、 grounded であることの証跡)
+- それでも grounded に解決できない field は TBA で ja-first 公開 + flag (= block より degrade、 §16 の「不確実性を expose」)
 
 ### Pattern: 無人 commit も対話 session と同じ git 同期規律を mechanize する
 
