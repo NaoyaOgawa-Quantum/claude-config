@@ -416,12 +416,14 @@ disputed な量 (vertex 係数・規格化・符号) を「相手の結果に一
 2. **数値が第一原理と矛盾したら数値を疑え** (= 数値はバグり得るが第一原理は不変)。 「数値が出たから正しい」 は §13「cell 埋め」 の数値 domain 形態。
 3. **verify は疑わしい機構を共有しない独立な方法で**: バグった関数を使った再計算は同じバグを継承する。 独立経路 (= 別定義・別積分法・解析的手計算・第一原理) で。 実例では seagull を頂点 Feynman 則から独立に再構成して確認。
 4. **特殊値 (m=1 等) だけで検証しない** (= バグが特殊値で縮退して隠れる)。 一般値 (= 一般 m, 一般運動量) で sweep。
+5. **verify 方法それ自体もバグり得る (= 隠れた仮定)**: reconstruction / back-solve が既検証 (= established) record と矛盾したら、 即「record が誤り」 と結論せず、 まず reconstruction の隠れた仮定を疑い ground truth (= 実コード・実データ) で確認。 防止策 3「独立な方法で verify」 の**独立性も暗黙の仮定に依存すれば誤る** (= 例: 係数を m 非依存と仮定した back-solve が m 依存の真値を見逃す)。 ground truth は reconstruction でなく source 自身。
 
 ### Anti-pattern
 
 - 自前の数値が次元解析・対称性・WI と矛盾するのに、 数値を信じて第一原理形を「混合次元」 等に歪める
 - 特殊値 (m=1) のみで検証し、 一般値での縮退バグを見逃す
 - バグった関数を使った再計算を「独立検証」 と称する
+- 自分の verify reconstruction が既検証 record と矛盾 → reconstruction の隠れた仮定を疑わず record を即 falsify
 
 ### 関連
 
