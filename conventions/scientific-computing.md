@@ -431,6 +431,36 @@ disputed な量 (vertex 係数・規格化・符号) を「相手の結果に一
 - §6 — transcript hallucination の sympy verify (= 同 trait family)
 - 同 trait family = 「安価な操作 (= 数値の盲信) で expensive 操作 (= 第一原理 cross-check) を bypass」。 個人層の RCA は `odakin-prefs/work-discipline.md §「自前の数値が第一原理と矛盾したら数値を疑う」`、 詳細物理 narrative は当該 private research project の DESIGN.md / RETRACTIONS.md
 
+## 9. Ratio/構造 check は overall scale を fix しない; 既知量で calibrate し、 magnitude と sign を分ける
+
+### 問題
+
+Ward 恒等式・対称性・内部無矛盾性・projector 代数 等の check は全て **ratio / 構造** で、 結果の **overall normalization (絶対 scale)** を constrain しない。 これらが全て pass しても、 全 coefficient が共通因子で間違っている可能性は残る。 「全 check pass」 を「結果は absolute に正しい」 と読むと、 この死角を見落とす。 外部の既知量と比較するときも、 magnitude と sign を一緒に「match」 と言うと符号規約の罠に落ちる。
+
+### 防止策
+
+1. **overall scale は『同じ機構で既知量を計算』 して calibrate**: 自分の loop / 数値機構 (= 積分 measure・trace・pole 抽出・単位) で、 textbook 値が分かっている量を計算し、 一致を確認。 例: 場の理論の loop 機構なら QED vacuum polarization (= 1 Dirac fermion で発散 |Π|=4/3、 units 1/(16π²ε)、 transverse も同時 check)。 これが ratio check では届かない絶対 scale の唯一の anchor。
+2. **外部比較は magnitude と sign を分けて述べる**: 絶対値は calibrate 可能だが、 符号は規約依存 (= Euclidean vs Minkowski、 self-energy の overall sign 定義 等) のことが多い。 「match」 と一括りにせず「magnitude 一致 (calibrate 済) / sign は規約依存」 と分けて記す。
+3. **doc の数値 claim には実 check を紐付ける**: 「~を 1e-16 で満たす」 等と書いたら、 それを実際に検証する script が存在するか確認。 無ければ claim は未検証 — check を足す (= §13 の「cell 埋めでなく error expose」 の claim-vs-check 版)。
+
+### 実例 (2026-06、 場の理論の 1-loop 2 点関数)
+
+- 内部 check (diff WI / LL WI / projector 代数 / massless 極限) は全て ratio で overall normalization を constrain せず。 外部 conformal-anomaly 照合 (= form factor vs central charge c) が初の絶対 anchor だったが、 それ自体「自分の値が標準単位」 前提に**循環依存**していた。 → QED vacuum polarization を同機構で計算し |Π|=4/3 (textbook 一致) で scale を独立 calibrate、 magnitude match が solid 化。
+- 一方 QED は +4/3 (textbook −4/3) で **符号が規約依存** と判明 → 「magnitude 一致 + sign 規約依存」 と分けて記載 (= 当初 sign 込みで一括 match を主張していたのを訂正)。
+- projector 代数を「note は 1e-16 で満たすと主張」 していたが regression が未検証だった → 検証 script を追加 (= 防止策 3)。
+
+### Anti-pattern
+
+- 全 ratio/構造 check pass を「結果は absolute に正しい」 と読み、 overall scale の死角を見落とす
+- 外部既知量との「match」 を magnitude と sign 一括で主張 (= 符号規約の罠)
+- doc に「verified」 と書くが実 check の script が無い
+
+### 関連
+
+- §8 — 数値は第一原理で cross-check (= 本 § は「第一原理 check も ratio なら scale を fix しない」 の補完、 絶対 scale には別 anchor 要)
+- §7 — source からの独立導出
+- 同 trait family = 「verify したつもり」 の死角 (= scale / sign / claim-vs-check の 3 つ)。 個人層 reflex は `odakin-prefs/work-discipline.md`、 詳細物理 narrative は当該 private research project の DESIGN.md §5.5
+
 ## 次に追加される予定 (placeholder)
 
 - 浮動小数点精度起因の silent failure パターン
