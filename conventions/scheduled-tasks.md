@@ -2,6 +2,20 @@
 
 Claude Code scheduled tasks を使うリポで適用。CLAUDE.md から参照: `~/Claude/claude-config/conventions/scheduled-tasks.md`
 
+## 0. 実行 locus で機構を選ぶ (= scheduled task が正しい道具か先に問う)
+
+定期/自動ジョブを組む前に、 **「このジョブは何にアクセスする必要があるか」** で実行機構を選ぶ。 scheduled task を reflex で選ぶと、 local file 非依存という制約に後で衝突する。
+
+| ジョブの要件 | 機構 | 理由 |
+|---|---|---|
+| local file / repo / OAuth token / local CLI (sips, npm, git push) に依存 | **launchd / cron (該当マシンで local 実行)** | scheduled task / schedule skill の routine は **backend (remote) で実行**され local file に**アクセスできない** (= 下記 §アーキテクチャ + 過去 RCA、 schedule skill help「remote agent が cloud 起動、 local file 一切不可」)。 local 依存ジョブはこれ一択 |
+| 職場/組織 NW から API が block される (例: campus から Discord API が Cloudflare 1010) | **GitHub Actions (cloud cron)** | 別 network egress から実行 + secret で credential 供給 |
+| Claude の judgment / draft が要る ∧ local file 非依存 ∧ PushNotification を使いたい | **Claude Code scheduled task** | 下記 §以降の SKILL.md 構造 |
+
+**reflex**: 「定期実行 = scheduled task」 ではない。 **local 依存があるか**を最初に問い、 あれば launchd/cron (= 該当マシンで走る、 token cost ゼロ、 決定的)。 「local 完結 script を schedule skill で trigger」 は backend remote 実行のため**根本的に動かない** (= 実際に着手直前まで気付かず redesign した前例あり)。 実行 locus が不確かなら、 依存する機構に頼る前に locus を検証する。
+
+machine-local job を「どのマシンに登録するか / 登録漏れをどう surface するか」 は [multi-machine-state.md](multi-machine-state.md)。 無人 publish の安全 gate は [data-pipeline-automation.md](data-pipeline-automation.md) §7。
+
 ## アーキテクチャ: SKILL.md とバックエンドの二重構造
 
 ### 構造

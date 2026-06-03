@@ -162,6 +162,49 @@ local build (= PDF/.tex 生成) と external publish (= 別リポへ mirror、 P
 
 ---
 
+## 7. 無人実行 (autonomous / scheduled) の gate
+
+### 規律
+
+**pipeline を cron/launchd 等で無人実行し、 結果を不可逆/外部な行き先 (= 共有・公開 repo への commit+push、 送信、 publish) に自動反映するなら、 §3 の「user が手で埋める / review する」 という run-time の人間 in-loop が無い。 そこで自動反映してよいのは「出力が入力の純粋な関数 = 推測ゼロ」 の変換だけ。 導出不能な field は (a) 人間が SoT に事前入力する (= その入力が「その item を publish してよい」 という per-item 認可になる) か、 (b) surface して人手に委ねる。 placeholder や推測を外部/公開 state に push しない。**
+
+run-time に人間が居る半自動 (§3) では placeholder を出力に残して後で埋めればよい。 無人実行ではその猶予が無く、 placeholder/推測がそのまま公開面に焼き付く。 だから「武装 (armed)」 ゲートを設ける: **導出不能 field が SoT に揃った item だけ自動 publish、 揃わない item は surface のみ。**
+
+### Why
+
+- 無人実行 = 出力を誰も run-time に見ない → 誤りが公開面に直行する
+- 「推測で埋める」 は不確実性を隠す assertion (= 出力が「確定情報」 に見えてしまう)。 機械翻訳した固有名詞 (例: 所属の英語表記) は典型的に誤る (= 公式名 vs 直訳)
+- 人間が「導出不能な 1 field」 を埋める行為を per-item authorization に転用すると、 judgment は人間に残しつつ機械的組立ては自動化できる (= §3 の半自動を無人文脈に持ち込む橋)
+
+### How to apply
+
+- field を「導出可能 (= SoT の純関数)」 と「導出不能 (= 判断/翻訳/外部知識が要る)」 に分類
+- 導出可能 field だけで full に組み立てられ、 かつ導出不能 field が SoT に**明示済**の item を「armed」 と判定 → 自動 publish
+- armed でない item は surface (= 「この 1 field を埋めれば次回自動 publish」 と hint)、 **絶対に推測で埋めない**
+- 「全 item を強制 armed 化する kill switch を false に」 等の全面手動 fallback も用意 (= 異常時の退避)
+- 自動 publish した内容は事後に必ず通知 / log / git log で可視化 (= 無人でも誤 publish に早く気付ける)
+
+### Pattern: 無人 commit も対話 session と同じ git 同期規律を mechanize する
+
+無人 commit は「作業前に pull、 障害なら止める」 (= shared-repo / push-workflow の規律) を reflex でなく code で強制する。 公開 repo への非 fast-forward push / conflict / 壊れた build の流出を構造的に防ぐ:
+
+1. `git fetch` → working tree が **clean ∧ fast-forward 可能**でなければ apply 中止 (= dirty/diverge は人手に surface、 無人で merge しない)
+2. mutate (= 生成 / copy)
+3. **build / validate** (= 生成物が壊れていないか。 失敗なら `git checkout` + `git clean` で全 revert + push 中止 → 壊れた state を push しない)
+4. commit (= 識別 prefix 付き、 例 `[<job>]`、 後で git log で grep 可能に)
+5. push → race で reject されたら fetch + ff-pull + retry 1 回、 それでも駄目なら local commit を残して surface
+
+clean 前提を preflight で保証してから `git clean -fd <dirs>` する設計なら、 clean は「自分が今作った untracked だけ」 を消す (= 既存 untracked を巻き込まない) ことが保証される。
+
+### 関連
+
+- §3 (judgment-required placeholder) = run-time 人間あり版、 本 §7 = 無人版。 同じ「機械は推測しない」 思想の対話/無人の両極
+- §5 (過去手書き出力を script で reproduce) は無人 publish 前の validity 確認に必須 (= 生成物が手書き正本と同形式かを事前検証してから arm)
+- 実行 locus の選択 (= そもそも無人 job を launchd / cron / scheduled task / GitHub Actions のどれで回すか) は [scheduled-tasks.md](scheduled-tasks.md) §「実行 locus で機構を選ぶ」
+- 無人 job を「どのマシンで」 走らせるかの判定 + install 未済の surface は [multi-machine-state.md](multi-machine-state.md)
+
+---
+
 ## まとめ: 自動化 pipeline 設計の checklist
 
 新規自動化 script を書く前に以下を確認:
@@ -173,6 +216,8 @@ local build (= PDF/.tex 生成) と external publish (= 別リポへ mirror、 P
 - [ ] 必須 field 欠落は explicit error?
 - [ ] 過去 user 承認済出力で reproduce 検証した? (= validity 確認)
 - [ ] yaml の自動 edit を避けて print reminder にした?
+- [ ] **無人実行なら**: 自動 publish は推測ゼロの変換だけ? 導出不能 field は事前入力 (armed) or surface? (§7)
+- [ ] **無人 commit なら**: clean∧ff-only-or-abort → build 検証 → 失敗 revert → commit → push retry を mechanize した? (§7)
 
 ### 関連 convention
 
