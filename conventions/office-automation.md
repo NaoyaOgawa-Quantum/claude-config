@@ -782,6 +782,18 @@ origin: 2026-06 学外者旅費様式 (`3_…`) 支給方法選択。 前 sessio
 - 同じ文字列が複数 sheet に literal で現れても **帰属が違うことがある** (= 出張者本人の所属 vs 依頼者/所属機関の名称)。 全件一括置換せず、 §0 dump で「どの cell が誰の属性か」 を特定してから直す。
 - free-text cell で審査機関が表記を**直接指定**してきたら、 form の `マスタ` / 記載例の略語より **審査機関の指定をそのまま使う** (= form 内蔵の例示語に寄せない)。
 
+### 5-9. 事務が黄色マークした入力 cell は fill 後に「白に戻す」 (= 黄色残置 = 様式改変扱い)
+
+事務 (= 教研支援課 等) が修正版様式を返すとき、 **記入してほしい cell を黄色 fill でマーク + コメント**して送ることがある。 指示は典型的に「黄色セルに追記 → **セルを白に戻して** → 押印 → 提出」。 値を入れただけで黄色を残すと「標題等が黄色のまま = 様式の改変」 扱いになりうる (= §5-2 の label overwrite とは別経路の 改変リスク)。
+
+- **fill 後に該当 cell の fill をクリア**する: `cell.fill = PatternFill(fill_type=None)` (= openpyxl、 merged は top-left cell に set)。
+- ⚠️ **`diff-form-xlsx.py` (§5-3) は cell 値の diff のみで fill 色を見ない** → 黄色残置を catch できない。 **§6-4 PDF visual confirmation でのみ可視化**される。
+- 黄色 cell の機械走査: `cell.fill.patternType == 'solid' and getattr(cell.fill.fgColor, 'rgb', None) == 'FFFFFF00'`。
+
+同じ §6-4 PDF visual で**同時に捕捉される他の落とし穴** (= いずれも cell 値検証では見えない。 2026-06-03 教研支援課様式⑭-1 fill で 3 件同時発見):
+- **文字 clipping**: center 配置の長い文字列 (= 例「東京大学大学院工学系研究科」) が cell 幅超過で**両端が clip** (= left 配置なら右のみ clip)。 fix = `cell.alignment = Alignment(horizontal=a.horizontal, vertical=a.vertical, ..., shrink_to_fit=True)` (= 既存 alignment 属性を保持して shrink_to_fit だけ足す)。
+- **multi-sheet workbook → PDF 全ページ出力**: `xlsx-to-pdf.sh` (§2-1) に sheet 名を渡しても Excel engine が **workbook 全 sheet を各ページ出力**することがある (= 例 様式⑭-1/⑭-2/⑭-3/領収書/dropdown の 5 sheet → 5 ページ PDF)。 提出は目的 sheet のみなので **PyMuPDF で目的ページを抽出**: `import fitz; src=fitz.open(big); out=fitz.open(); out.insert_pdf(src, from_page=0, to_page=0); out.save(submit)`。 §7 の多 sheet 注意と併読。
+
 ---
 
 ## 6. xlsx visual rendering の Claude 観察不可 と PDF 視認義務
@@ -1131,6 +1143,14 @@ print('value 変更:', [k for k in tpl_inkan & edit_inkan if values[k]['TPL'] !=
 「~~~ 印欄ない?」 「~~~ 承認印は?」 等の form 構造に関する質問は **即 §12-2 sweep 実行 + 結果 expose**。 推測 / memory base で「無いと思います」 と回答しない (= §16 「不確実性を expose」 reflex の form structure domain 適用)。
 
 加えて、 「無い」 と確認できた場合も **sweep range + keyword + confidence** を明示 (= 「全 sheet (visible + hidden) で keyword N 種類 grep、 0 hit、 confidence high」 等)。
+
+### 12-4. 認印画像の生成 + xlsx 埋め込み (= 印影が必要な認印レベル様式)
+
+押印済み原本を電子提出する運用で、 **物理 朱肉でなく認印画像を印影として埋める**ことがある (= 認印が許される内部様式向け。 実印・登録印には使わない、 leak 時 偽造リスクあり。 本人/委任の認可下で運用)。
+
+- **認印 PNG 生成** (= PIL): 朱色 `(202,48,38)` 等の outer ring (= `ImageDraw.ellipse(outline=red, width=24)`) + 縦書き氏名 (= 2 char なら上 char を `y≒0.30*S`、 下 char を `0.70*S` に centering) を CJK font で描画。 macOS の CJK font path: `/System/Library/Fonts/Hiragino Sans GB.ttc` / `PingFang.ttc` (= 篆書はないので Gothic で代替)。 透過 RGBA、 500×500 程度。
+- **xlsx 埋め込み** (= openpyxl): `from openpyxl.drawing.image import Image as XLImage; xi=XLImage(png); xi.width=46; xi.height=46; xi.anchor='AH10'; ws.add_image(xi)` (= 46px ≒ 1.2cm、 anchor は氏名 cell の右端)。
+- ⚠️ **openpyxl は reload で `img.width/height` を読むと PNG ネイティブ size (= 500) を返す**ので表示 size の verify には使えない (= 誤判定 trap)。 **実表示 size は drawing XML の `<ext cx cy>` (= EMU 単位、 9525 EMU = 1px)** で確認: `zipfile` で `xl/drawings/drawing1.xml` を読み `cx/9525` px 換算。 最終 verify は §6-4 PDF visual で印影の位置・はみ出しを目視 (= 認印が氏名に重なる / 右余白からはみ出していないか)。
 
 ---
 
