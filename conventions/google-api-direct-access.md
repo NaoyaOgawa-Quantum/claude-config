@@ -163,6 +163,44 @@ if not creds.valid:
 
 MCP server と Python script の同時実行で refresh が競合する可能性は理論上ある (= 両方が同時に refresh を試みて、 Google が新 refresh_token を rotate した瞬間に片方が古い token をファイルに書き戻す)。 実害は希だが、 long-running script 中は MCP 経由の同 account 操作を避けるのが安全。
 
+## Batch request で round-trip 削減 + 429 rate-limit handling
+
+多数の id を 1 件ずつ `service.users().messages().get()` (等) で逐次取得すると **HTTP round-trip 数がそのまま律速**になる (= 特に LibreSSL 等で TLS handshake が遅い環境では 1 件 ~200ms、 数百件 × 複数 account で分単位。 実例: dashboard が 540s timeout)。 `service.new_batch_http_request()` で **1 batch 最大 100 件**を 1 HTTP にまとめると round-trip を ~50-100 分の 1 にできる。
+
+```python
+def batch_get(service, ids, headers, batch_size=50):
+    results, pending, attempt = {}, list(range(len(ids))), 0
+    while pending and attempt <= 6:
+        retry = []
+        def cb(rid, resp, exc, _r=retry):
+            i = int(rid)
+            if exc is None: results[i] = resp
+            else:
+                st = getattr(getattr(exc, "resp", None), "status", None)
+                if st in (429, 500, 502, 503, 504) or st is None: _r.append(i)
+        for s in range(0, len(pending), batch_size):
+            chunk = pending[s:s + batch_size]
+            b = service.new_batch_http_request(callback=cb)
+            for i in chunk:
+                b.add(service.users().messages().get(userId="me", id=ids[i],
+                      format="metadata", metadataHeaders=headers), request_id=str(i))
+            try: b.execute()
+            except Exception: retry.extend(chunk)   # batch 全体の transport 失敗 → chunk 丸ごと
+        pending = retry; attempt += 1
+        if pending: time.sleep(min(0.5 * 2 ** attempt, 4.0))
+    return [results[i] for i in range(len(ids)) if i in results]   # 入力順を保つ
+```
+
+### ⚠️ 核心の pitfall: 429 で **半分が silent drop** → retry 必須
+
+Gmail API は **per-user 250 quota units/sec**、 `messages.get` = 5 units。 batch 100 件 = 500 units を一度に投げると **超過分 (= 約半分) が `429 rateLimitExceeded` で個別失敗**する (= 実測 288 件中 112 件)。 `new_batch_http_request` の callback は失敗を **例外として渡すだけで自動 retry しない**ため、 素朴に書くと**出力件数が黙って減る** (= 「逐次版と一致」 が壊れる)。 → 429 / 5xx / transport 失敗を callback で集めて**指数 backoff で retry** し全件取得を保証 (実測 retry で 288/288 収束)。
+
+- **batch_size は 100 ではなく 50** が良い: 単発 batch を 250 units 以下に抑えると初回 429 が減り retry round が減って **wall-time はむしろ速い** (実測 50: 5.7s/3round < 100: 9.8s/4round)。
+- **入力順保持**: callback は順不同発火なので `request_id` に入力 index を渡し最後に index 順で reassemble。
+- **fail-open**: retry 上限超過の未取得 id は drop (= 逐次版の get 例外 drop と同等)。 1 batch ≤ 100 を超えると batch 全体が HTTP 400。
+- **fmt 使い分け**: header 不要で id↔threadId 解決だけなら `format="minimal"` (= metadataHeaders 不要)、 header 要なら `format="metadata"` + metadataHeaders。
+- **検証の落とし穴**: live data を触る refactor なので「変更前 run の出力 vs 変更後 run の出力」 の件数 diff は新着 mail / slide する date 窓 / 並行 session の triage で揺れ、 真の regression と churn を区別できない。 → **同一 id 集合を逐次版と batch 版で fetch して正規化 record を同一プロセス内で比較**するのが drift-free (= message の threadId は不変なので churn 非依存)。
+
 ## OAuth token のアカウント検証 (= account 取り違えの silent 化を防ぐ)
 
 OAuth token JSON (= credentials.json) には **どの account の token か** が記録されない (= access_token / refresh_token / scope のみ)。 そのため reauth フローで consent 画面のアカウント選択を誤ると、 alias と中身の乖離 (= 「業務用」 dir に「個人用」 token が入る) が **silent に残り**、 後から file を見ても判別できない。 実害: その alias を使う検索・送信が全部別 account に対して実行され、 「検索しても 0 件」 (= 別 account を見ているから当然) を「source 不在」 と誤結論する。
