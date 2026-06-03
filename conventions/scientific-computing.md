@@ -399,6 +399,36 @@ disputed な量 (vertex 係数・規格化・符号) を「相手の結果に一
 - [`debugging-discipline.md §1`](debugging-discipline.md) — 「conceptually clean」 主張の verify 義務 (= 同 trait)
 - 同 trait family = 「安価な操作 (= 一致合わせ / memory recall / literal-copy) で expensive 操作 (= 独立導出 / 数値 verify) を bypass する」。 review / sweep / context 構築 domain にも同型に現れる
 
+## 8. 数値結果は第一原理 (次元解析・対称性・Ward 恒等式・既知極限) で cross-check; 自前の数値がバグり得る
+
+### 問題
+
+自前の数値計算 (script) は **バグり得る**。 数値が第一原理 (次元解析・対称性・ゲージ/Ward 恒等式・既知の極限・文献値) と矛盾したとき、 **数値を信じて第一原理を曲げる** のは誤り。 第一原理は不変だが数値はバグる。 §7 が「相手 (外部) の結果に合わせる circular」 を戒めたのに対し、 本 § は「**自分の数値が正しいと仮定して第一原理を上書きする**」 inverse の trap。
+
+### 実例 (2026-06、 場の理論の 1-loop 2 点関数発散部の一般質量 m 形)
+
+- 1-loop 2 点関数の 1/ε 極の係数を一般質量 m で求めた。 **次元解析**: 4D 2 点関数の 1/ε 極は質量次元 4 の同次 (= m⁴, m²q², q⁴ のみ; 純 m² や定数項は counterterm 構造上あり得ない — Λ~m⁴ / R~m²q² / C²~q⁴)。 ところが script は質量非依存テンソルの係数を **混合次元** (= m⁴−4m²+2) で返した。 私は **script の数値を次元解析より優先**し混合次元形を成果物に記載 → user「次元解析からして質量の色んな冪が足されてるのは明らかに誤り」 で発覚。
+- 真因 = seagull/tadpole 関数が single-propagator dim-reg 積分を **m=1 値に hard-code** (= I_{0,1}, I_{1,1} を −1, +1 固定; 正しくは I_{0,1}=−m², I_{1,1}=m⁴)。 **m=1 で偶然一致するため m=1 検証では露見しなかった**。 修正後は同次 dim-4 に。 別の主積分 (= bubble) は常に正しく、 バグは特殊値で縮退する 1 関数に局在。
+
+### 防止策
+
+1. **数値出力を第一原理で必ず cross-check**: (a) 次元解析 (= 同次性)、 (b) 対称性 (= Bose / 離散対称)、 (c) ゲージ/Ward 恒等式 (= 数値結果が満たすべき identity)、 (d) 既知極限 (= 質量ゼロ・運動量ゼロ・共形点)、 (e) 文献値。
+2. **数値が第一原理と矛盾したら数値を疑え** (= 数値はバグり得るが第一原理は不変)。 「数値が出たから正しい」 は §13「cell 埋め」 の数値 domain 形態。
+3. **verify は疑わしい機構を共有しない独立な方法で**: バグった関数を使った再計算は同じバグを継承する。 独立経路 (= 別定義・別積分法・解析的手計算・第一原理) で。 実例では seagull を頂点 Feynman 則から独立に再構成して確認。
+4. **特殊値 (m=1 等) だけで検証しない** (= バグが特殊値で縮退して隠れる)。 一般値 (= 一般 m, 一般運動量) で sweep。
+
+### Anti-pattern
+
+- 自前の数値が次元解析・対称性・WI と矛盾するのに、 数値を信じて第一原理形を「混合次元」 等に歪める
+- 特殊値 (m=1) のみで検証し、 一般値での縮退バグを見逃す
+- バグった関数を使った再計算を「独立検証」 と称する
+
+### 関連
+
+- §7 — source からの独立導出 (= 本 § は「自分の数値を第一原理より優先する」 inverse trap、 §7 は「相手の数値に合わせる circular」)
+- §6 — transcript hallucination の sympy verify (= 同 trait family)
+- 同 trait family = 「安価な操作 (= 数値の盲信) で expensive 操作 (= 第一原理 cross-check) を bypass」。 個人層の RCA は `odakin-prefs/work-discipline.md §「自前の数値が第一原理と矛盾したら数値を疑う」`、 詳細物理 narrative は当該 private research project の DESIGN.md / RETRACTIONS.md
+
 ## 次に追加される予定 (placeholder)
 
 - 浮動小数点精度起因の silent failure パターン
