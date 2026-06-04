@@ -485,6 +485,8 @@ with zipfile.ZipFile(template_docx) as z:
 xml = files['word/document.xml'].decode('utf-8')
 
 # ☐ → ☑ (= 全置換、 または位置で選択置換)
+# ⚠️ この素朴な文字置換が安全なのは ☐ が「プレーンテキスト」 の時だけ。
+#    コンテンツコントロール checkbox (<w:sdt><w14:checkbox>) では Word 破損判定の罠 → §2-5b 必読
 # 例: 19 個の ☐ のうち、 ある領域 (= 学生用 2 個) は ☐ 保持
 boundary_start = xml.find('学生が研究代表者として応募')
 boundary_end = xml.find('提出形式の確認')
@@ -510,6 +512,36 @@ with zipfile.ZipFile(dest_docx, 'w', zipfile.ZIP_DEFLATED) as z:
 ```
 
 **事前 dump 必須**: docx の XML 構造を必ず最初に `unzip -p form.docx word/document.xml | python3 -c "..."` で grep して確認。 placeholder が `＿` 何文字か、 ラベルと placeholder が同じ run か分かれた run かを事前に把握。
+
+### 2-5b. ☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける (= Word「破損」判定の罠)
+
+`☐ → ☑` の置換は **2 種類の ☐** で扱いが違う。 取り違えると **zip も XML も well-formed なのに Word だけが「このファイルは破損しています。 開いて修復しますか?」 を開くたびに出す** (= 2026-06-05 JST LOTUS 様式の RCA)。
+
+| ☐ の種類 | 構造 | グリフだけ置換して良いか |
+|---|---|---|
+| **プレーンテキスト** | `<w:t>☐ ○○する</w:t>` のように `<w:t>` 内の素の文字 | ✅ OK (= §2-5 の `xml.replace('☐','☑')` でよい) |
+| **コンテンツコントロール checkbox** | `<w:sdt><w:sdtPr>…<w14:checkbox><w14:checked w14:val="0"/>…</w14:checkbox></w:sdtPr><w:sdtContent><w:r><w:t>☐</w:t>…` | ❌ **NG** — グリフだけ ☑ にすると `<w14:checked val="0">`(未チェック状態) と表示(☑)が**不整合**になり Word が破損判定 |
+
+**症状**: 行政・学術の正式様式 (= Word で作られたテンプレ) は checkbox を **コンテンツコントロール**で実装していることが多い。 `w:t` 内の ☐ を文字置換しただけだと、 zip 整合・全 XML well-formed・関係参照 OK で構造監査を全部通過するのに Word の修復ダイアログだけが出続ける (xmllint では検出不能なスキーマ/コンテンツモデル層)。
+
+**正しい fill** = グリフと一緒に親 `<w:sdt>` の `<w14:checked>` 状態も同期する:
+
+```python
+# python-docx で element-level に置換する場合
+W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
+def sync_sdt_checked(tnode, val="1"):           # tnode = 該当 <w:t> element
+    sdt = tnode.getparent()
+    while sdt is not None and not sdt.tag.endswith('}sdt'):
+        sdt = sdt.getparent()
+    if sdt is not None:
+        for chk in sdt.iter(f'{{{W14}}}checked'):
+            chk.set(f'{{{W14}}}val', val)        # ☑ なら "1"、☐ なら "0"
+# tnode.text = tnode.text.replace("☐","☑"); sync_sdt_checked(tnode, "1")
+```
+
+**出荷前 gate**: `~/Claude/claude-config/scripts/check-docx-integrity.py FILE.docx …` で checkbox 状態↔グリフ不整合 + bookmark 不均衡 + table grid 不一致 + 空 run + dangling r:id 等を **Word 不要・決定論的**に検出 (終了コード 1 で fail)。 fill pipeline の末尾に組み込むと「Word で開いて初めて破損が判明」 を防げる。
+
+**既存の破損ファイルの確実な復旧**: Word 自身に修復させるのが bullet-proof — 修復ダイアログで「はい(開いて修復)」 → 内容が復元されて開く → そのまま保存し直すと正規の OOXML に書き直されてダイアログが消える (= 自作 pipeline 産で内容健全なら修復はロスレス)。 ⚠️ Word の「破損」判定/修復を **AppleScript で自動化するのは不安定** (= alerts-off auto-repair は復元 doc が generic 名で元パスに紐付かず save 困難、 修復ダイアログ検出も session state でブレる)。 自動検証に頼らず上記 gate (決定論) + 実機 1 回 open で確認する。
 
 ### 2-6. e-Rad の使用禁止文字 (= 入力フィールド charset 制限)
 
