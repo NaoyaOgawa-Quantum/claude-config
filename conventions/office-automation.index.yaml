@@ -1,0 +1,381 @@
+# Stable slug index for office-automation.md (Phase 1 slug migration).
+# id = canonical identity (cross-refs use it). legacy = pre-migration §-number,
+# kept ONLY here so dated/historical inbound refs (§2-5b etc.) stay resolvable.
+# related = slugs this section cross-references. Validated by
+# scripts/check-office-automation-index.py (dangling=0 / orphan=0).
+sections:
+  - id: form-dump-first
+    legacy: "0"
+    level: 2
+    title: "開始前に form を **必ず dump する** (= 推測で書かない)"
+  - id: form-filename-convention
+    legacy: "0.5"
+    level: 2
+    title: "ファイル命名規約 (form 別 registry)"
+  - id: openpyxl-xlsx-fill
+    legacy: "1"
+    level: 2
+    title: "openpyxl xlsx fill の落とし穴"
+  - id: xlimage-size-silent-fail
+    legacy: "1-1"
+    level: 3
+    title: "`XLImage.width` / `.height` setter は silent fail する"
+  - id: sheet-by-name-not-index
+    legacy: "1-1b"
+    level: 3
+    title: "画像挿入は `wb[シート名]` で参照、 `wb.sheetnames[N]` の数値 index は罠"
+    related: [dump-cell-structure-first]
+  - id: image-anchor-onecellanchor
+    legacy: "1-2"
+    level: 3
+    title: "画像 anchor は `OneCellAnchor` + `ext` で完全制御"
+  - id: column-width-units
+    legacy: "1-3"
+    level: 3
+    title: "列幅の単位は Excel \"0-glyph\" units (= 不直感)"
+  - id: wrap-text-needs-row-height
+    legacy: "1-4"
+    level: 3
+    title: "`wrap_text=True` だけでは Excel は行高 auto-fit しない"
+  - id: data-validation-not-enforced
+    legacy: "1-5"
+    level: 3
+    title: "Excel data validation の auto-resize は外部信号で発動しない"
+  - id: xlsx-locked-by-excel
+    legacy: "1-6"
+    level: 3
+    title: "xlsx は Excel に open されている間は openpyxl から save できない"
+  - id: merged-cell-write-topleft
+    legacy: "1-7"
+    level: 3
+    title: "Merged cells への write は top-left のみ有効"
+    related: [form-dump-first]
+  - id: bool-cell-hash-overflow
+    legacy: "1-8"
+    level: 3
+    title: "Boolean checkbox cell は narrow column で `###` 表示"
+  - id: datetime-cell-hash-overflow
+    legacy: "1-8b"
+    level: 3
+    title: "日付 (datetime) を narrow / merged cell に入れると「###」 表示"
+    related: [bool-cell-hash-overflow, diff-form-xlsx-detection, pdf-visual-confirm, xlsx-to-pdf-script]
+  - id: int-vs-str-by-spec
+    legacy: "1-9"
+    level: 3
+    title: "値の型 (`int` vs `str`) は form の仕様で決まる"
+    related: [form-dump-first]
+  - id: print-area-one-page
+    legacy: "1-10"
+    level: 3
+    title: "Print area / page setup を設定して PDF を 1 ページ化"
+    related: [xlsx-to-pdf-script]
+  - id: row-height-409pt-limit
+    legacy: "1-11"
+    level: 3
+    title: "Excel の行高さ上限は 409pt — これを超えると視覚的に「非表示」 化する"
+    origin: "2026-05"
+    related: [wrap-text-needs-row-height]
+  - id: topleftcell-scroll-persist
+    legacy: "1-12"
+    level: 3
+    title: "sheetView.topLeftCell の scroll 位置 persistence"
+    origin: "2026-05"
+    related: [row-height-409pt-limit]
+  - id: xlsx-rich-text-underline
+    legacy: "1-13"
+    level: 3
+    title: "xlsx rich text formatting (= 部分 underline / bold / italic)"
+    origin: "2026-05"
+  - id: xlsx-md-to-pdf
+    legacy: "2"
+    level: 2
+    title: "xlsx / md → PDF 変換 (macOS)"
+  - id: xlsx-to-pdf-script
+    legacy: "2-1"
+    level: 3
+    title: "xlsx → PDF: `xlsx-to-pdf.sh` (LibreOffice → Excel fallback)"
+    related: [print-area-one-page, pdf-snapshot-xlsx-submission, bool-cell-hash-overflow, datetime-cell-hash-overflow, pdf-visual-confirm]
+  - id: md-to-pdf-chrome
+    legacy: "2-2"
+    level: 3
+    title: "md → PDF: Chrome headless + Python markdown"
+  - id: pdf-snapshot-xlsx-submission
+    legacy: "2-3"
+    level: 3
+    title: "PDF は確認 / 印刷 / 後参照用、 提出は xlsx 本体"
+  - id: docx-to-pdf-pages
+    legacy: "2-4"
+    level: 3
+    title: "docx → PDF: Pages.app AppleScript が macOS では最も robust"
+    related: [docx-pdf-stale-cache]
+  - id: docx-pdf-stale-cache
+    legacy: "2-4b"
+    level: 3
+    title: "Word docx → PDF AppleScript の二大故障: stale in-memory cache + cold-start 失敗"
+    origin: "2026-06"
+    related: [docx-to-pdf-pages, docx-checkbox-content-control, manual-review-required, image-budget-exhaustion]
+  - id: docx-fill-xml-edit
+    legacy: "2-5"
+    level: 3
+    title: "docx fill: `python-docx` で XML 直編集 (= 共通パターン)"
+  - id: docx-checkbox-content-control
+    legacy: "2-5b"
+    level: 3
+    title: "☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける"
+    related: [docx-fill-xml-edit]
+  - id: docx-guidance-deletion
+    legacy: "2-5c"
+    level: 3
+    title: "docx form から記入要領 / ガイダンスを削除する: 構造は残す + content-control を見逃さない + 双方向検証"
+    origin: "2026-06"
+    related: [manual-review-required, docx-pdf-stale-cache]
+  - id: erad-forbidden-chars
+    legacy: "2-6"
+    level: 3
+    title: "e-Rad の使用禁止文字 (= 入力フィールド charset 制限)"
+  - id: signature-not-stamp
+    legacy: "2-7"
+    level: 3
+    title: "「署名」 要求は手書き署名 or 電子署名、 認印画像では不可"
+    origin: "2026-05"
+  - id: physical-seal-required
+    legacy: "2-7b"
+    level: 3
+    title: "紙原本要求の窓口では貼付電子印影は印刷しても拒否される (= 実押印が確実)"
+    origin: "2026-06"
+    related: [signature-not-stamp, pdf-snapshot-xlsx-submission]
+  - id: placeholder-trailing-underscore
+    legacy: "2-8"
+    level: 3
+    title: "docx template の placeholder 末尾装飾 underscore の cleanup"
+    origin: "2026-05"
+  - id: docx-pdf-page-compress
+    legacy: "2-9"
+    level: 3
+    title: "docx → PDF の page count 圧縮 (= 余白縮小 + 行間 + 末尾空段落削除)"
+    origin: "2026-05"
+  - id: tts-review
+    legacy: "3"
+    level: 2
+    title: "提案書を音声で確認 (macOS `say` で TTS)"
+  - id: common-discipline
+    legacy: "4"
+    level: 2
+    title: "共通の規律"
+  - id: dump-cell-structure-first
+    legacy: "4-1"
+    level: 3
+    title: "xlsx 内部の cell 構造を **常に最初に dump** する"
+  - id: char-limit-formula-check
+    legacy: "4-2"
+    level: 3
+    title: "字数制限は cell 末尾の formula で常時確認"
+  - id: visual-check-by-user
+    legacy: "4-3"
+    level: 3
+    title: "user 視覚確認は computer-use ではなく user に依頼"
+  - id: label-vs-input-antipattern
+    legacy: "5"
+    level: 2
+    title: "**label vs input row anti-pattern** (= 様式 改変 の主因)"
+  - id: label-input-structure
+    legacy: "5-1"
+    level: 3
+    title: "構造"
+  - id: label-overwrite-bug
+    legacy: "5-2"
+    level: 3
+    title: "典型バグ (= 様式改変)"
+  - id: diff-form-xlsx-detection
+    legacy: "5-3"
+    level: 3
+    title: "機械的検出: `diff-form-xlsx.py`"
+  - id: fill-prevention-workflow
+    legacy: "5-4"
+    level: 3
+    title: "予防 workflow (= 規律)"
+    related: [form-dump-first, choice-label-marking]
+  - id: embedded-instruction-in-label
+    legacy: "5-5"
+    level: 3
+    title: "label 内 embedded instruction の見落とし防止"
+    origin: "2026-05"
+  - id: label-detection-at-dump
+    legacy: "5-6"
+    level: 3
+    title: "dump 段階での label 識別"
+    related: [form-dump-first]
+  - id: choice-label-marking
+    legacy: "5-7"
+    level: 3
+    title: "選択肢ラベルの選択マーク (= 専用 input cell がない選択)"
+    origin: "2026-06"
+    related: [label-input-structure, label-overwrite-bug, label-overwrite-detection-limit, manual-review-required]
+  - id: multi-sheet-formula-propagation
+    legacy: "5-8"
+    level: 3
+    title: "multi-sheet form の数式伝播 + literal の帰属区別"
+    related: [form-dump-first]
+  - id: clear-yellow-fill-marks
+    legacy: "5-9"
+    level: 3
+    title: "事務が黄色マークした入力 cell は fill 後に「白に戻す」 (= 黄色残置 = 様式改変扱い)"
+    related: [label-overwrite-bug, diff-form-xlsx-detection, pdf-visual-confirm, xlsx-to-pdf-script, multi-sheet-form]
+  - id: xlsx-visual-unobservable
+    legacy: "6"
+    level: 2
+    title: "xlsx visual rendering の Claude 観察不可 と PDF 視認義務"
+  - id: claude-cannot-observe-render
+    legacy: "6-1"
+    level: 3
+    title: "構造的限界"
+  - id: wrap-text-row-height-prereq
+    legacy: "6-2"
+    level: 3
+    title: "wrap_text 依存の落とし穴 (= row height prerequisite)"
+  - id: explicit-newline-break
+    legacy: "6-3"
+    level: 3
+    title: "explicit `\\n` 改行 = wrap_text 依存しない確実方法"
+  - id: pdf-visual-confirm
+    legacy: "6-4"
+    level: 3
+    title: "PDF visual confirmation 義務"
+  - id: image-budget-exhaustion
+    legacy: "6-5"
+    level: 3
+    title: "画像レンダリング検証の \"image budget\" 枯渇 → text-first 原則"
+    origin: "2026-06"
+    related: [pdf-visual-confirm, docx-pdf-stale-cache, bool-cell-hash-overflow, datetime-cell-hash-overflow, claude-cannot-observe-render, visual-check-by-user, manual-review-required]
+  - id: multi-sheet-form
+    legacy: "7"
+    level: 2
+    title: "多 sheet form の構造理解と sheet 全 sweep 義務"
+  - id: all-sheet-sweep
+    legacy: "7-1"
+    level: 3
+    title: "sheet 全 sweep 必須 (= form fill 完了直前の checklist)"
+  - id: cross-sheet-formula-chain
+    legacy: "7-2"
+    level: 3
+    title: "数式自動連動 cell の chain effect"
+  - id: side-by-side-page-split
+    legacy: "7-3"
+    level: 3
+    title: "横並び left + right page 分割構造"
+    related: [multiple-print-areas]
+  - id: hidden-sheet-user-expectation
+    legacy: "7-4"
+    level: 3
+    title: "hidden sheet 判断は user 期待に依存"
+  - id: same-pattern-grep-sweep
+    legacy: "7-5"
+    level: 3
+    title: "同型文字列 grep 全 cell sweep (= user 指摘 1 cell scope trap 防止)"
+  - id: print-area-pagebreak
+    legacy: "8"
+    level: 2
+    title: "印刷範囲 / page break / scale の設定"
+  - id: print-area-tradeoff
+    legacy: "8-1"
+    level: 3
+    title: "print_area の設定 trade-off"
+  - id: fittopage-vs-scale
+    legacy: "8-2"
+    level: 3
+    title: "fitToPage vs scale 明示"
+  - id: multiple-print-areas
+    legacy: "8-3"
+    level: 3
+    title: "multiple print_areas (= 横並び form 用)"
+    related: [side-by-side-page-split]
+  - id: row-col-breaks
+    legacy: "8-4"
+    level: 3
+    title: "row_breaks / col_breaks (= manual page break)"
+  - id: print-setup-visual-confirm
+    legacy: "8-5"
+    level: 3
+    title: "印刷 setup 変更後の PDF visual confirmation 義務"
+    related: [pdf-visual-confirm]
+  - id: print-dialog-whole-workbook
+    legacy: "8-6"
+    level: 3
+    title: "user 印刷時の dialog 「ブック全体」 vs 「アクティブシート」"
+  - id: label-overwrite-detection-limit
+    legacy: "9"
+    level: 2
+    title: "label overwrite 機械検証 limit + 手 review 必須"
+    related: [diff-form-xlsx-detection]
+  - id: detection-miss-example
+    legacy: "9-1"
+    level: 3
+    title: "典型検出漏れ事例"
+  - id: manual-review-required
+    legacy: "9-2"
+    level: 3
+    title: "手 review 義務"
+  - id: header-row-detection-helper
+    legacy: "9-3"
+    level: 3
+    title: "dump 時の header row 識別 helper"
+  - id: business-trip-proof-forward
+    legacy: "10"
+    level: 2
+    title: "学外団体主催出張の用務証明書類 forward flow"
+  - id: forward-mail-template
+    legacy: "10-1"
+    level: 3
+    title: "forward mail 構造 (= template)"
+  - id: forward-mail-components
+    legacy: "10-2"
+    level: 3
+    title: "構成要素"
+  - id: forward-record-sync
+    legacy: "10-3"
+    level: 3
+    title: "内部 record の同 turn 同期"
+  - id: external-vs-internal-form
+    legacy: "11"
+    level: 2
+    title: "学外者 form vs 学内者 form の構造差認識"
+  - id: external-internal-structure-diff
+    legacy: "11-1"
+    level: 3
+    title: "典型的 構造差 (= 機関別 form 設計の一般 pattern)"
+  - id: seal-field-verify-method
+    legacy: "11-2"
+    level: 3
+    title: "user 質問への verify method (= 印欄存在問合せ reflex)"
+  - id: tpl-only-false-positive
+    legacy: "11-3"
+    level: 3
+    title: "「TPL のみ存在」 = false positive trap (= hidden sheet 関連)"
+  - id: seal-approval-sweep
+    legacy: "12"
+    level: 2
+    title: "印鑑欄 / 承認 chain の機械的 sweep"
+    related: [seal-field-verify-method]
+  - id: seal-keyword-set
+    legacy: "12-1"
+    level: 3
+    title: "sweep keyword set (= 漏れなし list)"
+  - id: seal-diff-with-template
+    legacy: "12-2"
+    level: 3
+    title: "diff with template (= 提出前 verify)"
+  - id: seal-question-reflex
+    legacy: "12-3"
+    level: 3
+    title: "user 質問への reflex 統合"
+    related: [seal-diff-with-template]
+  - id: seal-image-generation-embed
+    legacy: "12-4"
+    level: 3
+    title: "認印画像の生成 + xlsx 埋め込み (= 印影が必要な認印レベル様式)"
+    related: [pdf-visual-confirm]
+  - id: related-repos
+    legacy: "13"
+    level: 2
+    title: "関連リポ"
+    related: [docx-fill-xml-edit, wrap-text-needs-row-height]

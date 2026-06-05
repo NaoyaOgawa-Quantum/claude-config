@@ -5,7 +5,7 @@
 になる。厳格な macOS Word (実証 16.108) はこれを「破損しています。開いて修復しますか?」と
 判定し開くたびにダイアログを出す (2026-06-05 ground-truth で確定)。Word 正規形
   <?xml version="1.0" encoding="UTF-8" standalone="yes"?>\\r\\n (double-quote + CRLF)
-に揃えると解消する。規約: claude-config/conventions/office-automation.md §2-5b。
+に揃えると解消する。規約: claude-config/conventions/office-automation.md#docx-checkbox-content-control。
 
 本 module を import すると lazy import hook が入り、**以後 python-docx (docx.document) が
 import された時に Document.save が wrap され、保存のたびに宣言が自動正規化される**。

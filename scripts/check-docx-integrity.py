@@ -9,7 +9,7 @@ XML も well-formed なのに Word だけが「破損」と判定し、開くた
 検出クラス:
   1. コンテンツコントロール checkbox(`<w:sdt><w14:checkbox>`)の状態↔表示グリフ不整合
      (例: `<w14:checked w14:val="0"/>`(未チェック) なのに表示グリフが ☑)
-     ← グリフ文字だけを ☐→☑ 置換しコントロール状態を更新しない時に発生。office-automation.md §2-5b
+     ← グリフ文字だけを ☐→☑ 置換しコントロール状態を更新しない時に発生。office-automation.md#docx-checkbox-content-control
   2. bookmarkStart / bookmarkEnd の id 不均衡
   3. テーブル gridCol と各行の論理セル数(gridSpan 考慮)の不一致
   4. 空 run(`<w:r></w:r>`) / 空 hyperlink

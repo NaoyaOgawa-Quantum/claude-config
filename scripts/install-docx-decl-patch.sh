@@ -5,7 +5,7 @@
 # 機構: user site-packages に docx_decl_patch.py (symlink) + docx_decl_patch.pth を置く。
 #       .pth が全 python3 起動で `import docx_decl_patch` し、lazy hook が docx import 時に
 #       Document.save を wrap する (docx 非使用 script は overhead ほぼゼロ)。
-# 規約: claude-config/conventions/office-automation.md §2-5b
+# 規約: claude-config/conventions/office-automation.md#docx-checkbox-content-control
 # idempotent: 何度実行しても安全 (symlink/.pth を上書き)。
 set -euo pipefail
 
