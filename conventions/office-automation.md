@@ -79,6 +79,61 @@ for sname in wb.sheetnames:
 
 ## <a id="openpyxl-xlsx-fill"></a>openpyxl xlsx fill の落とし穴
 
+### <a id="openpyxl-destroys-drawings"></a>⚠️ openpyxl の save は既存の textbox / shape (= 標題・縦書きラベル・図形) を破壊する
+
+**症状**: 既存 xlsx (= 官製 / 事務様式テンプレ) を openpyxl で load → 値だけ書いて save すると、 **セルに乗っていない drawing オブジェクト (= 標題のテキストボックス・縦書きラベル・ロゴ図形・矢印) が消える**。 値は正しいのに「一番上の様式名が消えた」 等の事故になる (= 事務に「様式が改変されている」 と差し戻される)。
+
+**原因**: openpyxl は drawing part (`xl/drawings/drawingN.xml`) を完全には round-trip できない。 load 時に解釈できない shape を保持せず、 save 時に drop する。 **`add_image` で入れた純画像は残るが、 textbox / autoshape / グループ化図形は失われる**。
+
+**事前確認** (= 触る前に drawing の有無と種類を判定):
+```bash
+unzip -l form.xlsx | grep -iE 'drawing|media'
+#   xl/drawings/drawing1.xml          → twoCellAnchor/oneCellAnchor の textbox/shape (= openpyxl が壊す。要保護)
+#   xl/drawings/commentsDrawingN.vml  → セルコメントの吹き出し (= 別物。標題ではない)
+#   xl/media/imageN.png               → 埋め込み画像
+```
+
+**回避 (2 択)**:
+1. **Excel osascript で値を直接書く** (= drawing を一切触らず cell value だけ変更、 最も確実)。 osascript の組み立ては [`excel-osascript-cell-write`](#excel-osascript-cell-write) の堅牢パターンに従う。
+2. **drawing XML を migration** (= openpyxl save 後の xlsx に、 元 xlsx の `xl/drawings/` + 関連 `_rels` part を zip レベルでコピーし直す)。 値編集と drawing 保護を両立したいが Excel を起動できない (CI 等) とき。
+
+origin: 2026-06 連続発生した「様式の標題テキストボックスが openpyxl save で消える」 事故。 cell value の一致検証では検出できず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF 画像確認で初めて気づく。
+
+### <a id="excel-osascript-cell-write"></a>Excel osascript で cell 値を書く堅牢パターン (= drawing 保護 + -609 回避)
+
+[`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings) の回避 1 (= drawing を壊さず値だけ変える) や、 fill 後の微修正を Excel 経由でやる時の osascript の組み立て方。 **起動・reset** は [`xlsx-to-pdf-script`](#xlsx-to-pdf-script) の「連続 Excel 操作の reset」 (第 1 手 quit+sleep / 第 2 手 killall+sleep) に従い、 その上で **osascript 本体**を以下で組む:
+
+```applescript
+-- shell 側で先に reset: killall "Microsoft Excel"; sleep 6  (= cell 編集では sleep を 4 でなく 6 に厚く)
+set lf to (ASCII character 10)
+tell application "Microsoft Excel"
+  activate
+  delay 3                              -- 起動を待つ (cold start)
+  set wbk to open workbook workbook file name (POSIX file "/abs/path/form.xlsx")
+  delay 3                              -- workbook open を待つ
+  set value of range "S13" of worksheet 1 of wbk to "..."    -- ★ worksheet は index 指定
+  set ws2 to worksheet 2 of wbk
+  set value of range "I10" of ws2 to ("行1" & lf & "行2")     -- ★ 改行は (ASCII character 10)
+  save wbk
+  delay 2
+  close wbk saving no                  -- ★ save 済なので saving no (二重保存しない)
+end tell
+```
+```bash
+# ★ quit は別 osascript に分離 (同一 tell 内の close saving yes + quit は -609 を誘発)
+osascript -e 'tell application "Microsoft Excel" to quit'
+```
+
+**4 つの勘所** (= いずれも欠くと「接続が無効です **(-609)**」 で値が書かれず沈黙失敗する、 2026-06-05 RCA):
+1. **worksheet は index** (`worksheet 1` / `worksheet 2`) で指定 — シート名に全角括弧・末尾スペースがあると名前解決が不安定。
+2. **起動待ちを厚く** — `activate` 後 `delay 3` + `open` 後 `delay 3` (cold / killall 直後は特に)。
+3. **`close ... saving no`** — `save wbk` の後に `saving yes` を重ねない (二重保存)。
+4. **`quit` は別 osascript** — 同一 `tell` ブロックに `close saving yes` + `quit` (+ `return`) を詰めると接続が落ちる。
+
+**検証**: 書き込み後は openpyxl で読み直して値を assert する (= osascript は失敗しても exit 0 で沈黙しがち)。 ⚠️ ただし **merged cell の値は fitz / openpyxl の text 抽出では取れないことがある** (= 結合範囲の左上以外は空に見える / PDF の text 抽出も同様) → 抽出の空振りを「書けていない」 と即断せず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF **画像**で最終確認する。
+
+origin: 2026-06-05 学外者用様式 (= 複数シート + 数式参照 + textbox 標題) の cell 値修正。 killall 直後の 1 osascript (activate→open→set→save→close saving yes→quit) が -609 で全 cell 未書き込み → 上記 4 点で復旧。
+
 ### <a id="xlimage-size-silent-fail"></a>`XLImage.width` / `.height` setter は silent fail する
 
 **症状**: `openpyxl.drawing.image.Image` (= `XLImage`) のインスタンスに `img.width = 600` / `img.height = 400` を代入しても save 後の xlsx には反映されず、 元 PNG のオリジナル解像度がそのまま埋め込まれる。 Excel 側では rendered display で縮小されているように見えるので気づきにくい。
@@ -408,7 +463,7 @@ xlsx-to-pdf.sh <input.xlsx> [sheet] [output.pdf]
 
 🔑 **連続 Excel 操作の不安定化と確実な reset (= 2026-06-05 RCA)**: 1 セッションで Excel を多数回 (= 10 回以上) 開閉すると、 `osascript ... to quit` が **非同期** (quit が返っても Excel は終了処理中) なため、 次の `open` 時に**前プロセスが残存** → AppleEvent 無応答 **(-1712)** / パラメータ拒否 **(-50)** が散発する。
 - **第 1 手 (通常)**: Excel を呼ぶ前に **`osascript -e 'tell application "Microsoft Excel" to quit'; sleep 3`** (= sleep を 1 でなく **3 以上**に厚く、 quit の非同期完了を待つ)。
-- **第 2 手 (失敗時)**: -1712 / -50 が出たら **`killall "Microsoft Excel"; sleep 4`** でプロセス強制終了 → クリーン起動 (= 2026-06-05 はこれで復旧)。 ⚠️ **`killall` は user が開いている未保存 Excel も問答無用で閉じる** → Claude 作業中に user が Excel を触らない前提でのみ使う (= 通常は第 1 手、 killall は最終手段)。
+- **第 2 手 (失敗時)**: -1712 / -50 / **接続無効 (-609)** が出たら **`killall "Microsoft Excel"; sleep 4`** (= cell 値編集で killall を使うときは **sleep 6** に厚く) でプロセス強制終了 → クリーン起動 (= 2026-06-05 はこれで復旧)。 ⚠️ **`killall` は user が開いている未保存 Excel も問答無用で閉じる** → Claude 作業中に user が Excel を触らない前提でのみ使う (= 通常は第 1 手、 killall は最終手段)。 ⚠️ **killall 直後に cell 値を書く osascript を撃つ場合は起動待ち + 組み立て方が critical** → [`excel-osascript-cell-write`](#excel-osascript-cell-write) の 4 勘所に従う (= 怠ると -609 で沈黙失敗)。
 - **失敗の沈黙化を防ぐ**: 上記「単独・短命」 と合わせ、 Excel コマンド直後に**出力ファイルの存在を検査**して失敗を verbose に surface する (= background 化 + GUI 不調の二重で失敗が埋もれた 2026-06-05 RCA。 `[ -f out.pdf ] || echo FAILED` を後置)。
 - 設計判断: `xlsx-to-pdf.sh` の Excel engine 分岐の起動直前に第 1 手 (quit + sleep) を組み込み済 (= 呼び出し側で忘れても毎回クリーン起動)。
 
