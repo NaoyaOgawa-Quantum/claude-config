@@ -597,6 +597,34 @@ def sync_sdt_checked(tnode, val="1"):           # tnode = 該当 <w:t> element
 
 **既存の破損ファイルの確実な復旧**: Word 自身に修復させるのが bullet-proof — 修復ダイアログで「はい(開いて修復)」 → 内容が復元されて開く → そのまま保存し直すと正規の OOXML に書き直されてダイアログが消える (= 自作 pipeline 産で内容健全なら修復はロスレス)。 ⚠️ Word の「破損」判定/修復を **AppleScript で自動化するのは不安定** (= alerts-off auto-repair は復元 doc が generic 名で元パスに紐付かず save 困難、 修復ダイアログ検出も session state でブレる)。 自動検証に頼らず上記 gate (決定論) + 実機 1 回 open で確認する。
 
+### 2-5c. docx form から記入要領 / ガイダンスを削除する: 構造は残す + content-control を見逃さない + 双方向検証
+
+官製様式の docx を提出前に「記入要領 (= 各欄の評価基準・※注記・記入例) を削除」 する作業の落とし穴。 **「削除しすぎ」 と「削除し漏れ」 を同時に踏みやすい**。
+
+**(1) 何を消し何を残すか — 境界**:
+- **削除する = ガイダンス**: 各項目の評価基準 (「以下の観点から評価」 「Evaluation will be based…」)、 ※注記 (字数・ページ上限・記入例・「青字は提出時に削除」)、 予算欄の ※説明文。
+- **残す = 様式構造**: フォームの識別見出し (= 「○○専用様式」)、 各 § 見出し【…】、 表ラベル。
+- ⚠️ よくある両側エラー: 上部の**様式見出しブロックごと消す** (= 削除しすぎ) / 見出しは残すが**※注記を残す** (= 削除し漏れ)。 「見出しは残し、 ※注記だけ消す」 が正解。
+
+**(2) 削除対象を grep するとき content-control / table / textbox を見逃さない**:
+
+python-docx の `doc.paragraphs` は **本文段落しか拾わず**、 **表セル・テキストボックス・content control (`<w:sdt>`) 内のテキストを取りこぼす**。 官製様式はガイダンスを content control や表セルに埋めることが多く、 「`doc.paragraphs` で grep して 0 件 → 消えた」 が嘘になる (= 別 variant が content control 内に残存)。 body 全体の `<w:p>` を走査する:
+
+```python
+from docx.oxml.ns import qn
+def all_paragraph_texts(doc):
+    # body 全体を走査 = 表セル・textbox・content control 内の <w:p> も拾う
+    return ["".join(t.text or "" for t in p.iter(qn('w:t')))
+            for p in doc.element.body.iter(qn('w:p'))]
+```
+
+**(3) 双方向検証を template を oracle にして PDF テキストで回す** (= 「✓ 全消し」 を自分の削除判定で言わない):
+- **方向 A (削除し漏れ 0)**: 空テンプレに在るガイダンス文字列が、 提出版の **PDF テキスト**に 1 件も残っていない。 ⚠️ 削除に使った predicate で検証すると、 predicate が取りこぼした variant (= 複数形・※無しの項目名ガイダンス等) は検証も取りこぼす (= 循環、 §9-2)。 **テンプレ由来の精密な署名文字列**で照合する。
+- **方向 B (削除しすぎ 0)**: 自分が記入した内容 (= 残すべき本文) が PDF テキストに全保全。 折返しに強いよう distinctive な chunk で照合。
+- 照合先が **docx でなく PDF テキスト**なのは §2-4b の stale を貫通するため。
+
+origin: 2026-06 官製様式 docx の記入要領削除。 (a) 上部様式見出しブロックを過剰削除 → 復元、 (b) ※注記を削除し漏れ、 (c) `doc.paragraphs` 走査で content control 内の variant を取りこぼし「全消し」 と誤宣言、 を反復。 テンプレ基準 + PDF テキストの双方向検証スクリプトで決着。
+
 ### 2-6. e-Rad の使用禁止文字 (= 入力フィールド charset 制限)
 
 e-Rad の long-textarea フィールド (= 研究目的・研究概要・経費根拠・役割分担等) は厳格な charset を強制。 以下は **エラーで弾かれる**:
