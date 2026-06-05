@@ -1210,7 +1210,7 @@ xlsx 印刷 setup は openpyxl で `print_area` + `page_setup.scale` + `pageSetU
 - `print_area = None` (= template 原状態): user が Excel UI で手動印刷範囲設定
 - `print_area = "A1:AH100"` (= 任意設定): 私の判断が wrong だと user 期待と乖離 + page 数 wrong
 
-**Best practice**: template に `print_area` 既設定があれば触らない (= origin keep)。 未設定なら user 期待 (= PDF or 口頭) を先に取ってから設定。 「任意設定 → user 指摘 → 修復」 連鎖を避ける。
+**Best practice**: template に `print_area` 既設定があれば触らない (= origin keep)。 未設定なら user 期待 (= PDF or 口頭) を先に取ってから設定。 「任意設定 → user 指摘 → 修復」 連鎖を避ける。 ⚠️ ただし**体裁を能動的に直す**局面 (= 余白偏り・1 sheet を複数ページに) は例外で詰める → [`print-area-bbox-fit`](#print-area-bbox-fit) / [`one-sheet-multi-page-split`](#one-sheet-multi-page-split)。
 
 ### <a id="fittopage-vs-scale"></a>fitToPage vs scale 明示
 
@@ -1302,7 +1302,7 @@ def build(out, report_pa):
     for n in REMOVE: wb.remove(wb[n])         # 不要 sheet 削除 (参照先は残す)
     wb["報告書"].print_area = report_pa        # 同 sheet で print_area だけ変える
     wb.save(out)
-build("/tmp/A.xlsx", "A1:AJ45")    # 上半分 (= 本体)
+build("/tmp/A.xlsx", "A1:AJ45")    # 上半分 (= 本体。 余白を詰めるなら実内容 bbox に → print-area-bbox-fit)
 build("/tmp/B.xlsx", "A46:AJ93")   # 下半分 (= 別表)
 # → A.xlsx / B.xlsx を各 PDF 化 (excel-pdf-whole-workbook-export) → fitz で
 #   A[本体ページ] + B[別表ページ] + A[残りページ] の順に結合 (fitz-pdf-toolkit)
