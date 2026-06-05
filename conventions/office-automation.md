@@ -130,6 +130,8 @@ osascript -e 'tell application "Microsoft Excel" to quit'
 3. **`close ... saving no`** — `save wbk` の後に `saving yes` を重ねない (二重保存)。
 4. **`quit` は別 osascript** — 同一 `tell` ブロックに `close saving yes` + `quit` (+ `return`) を詰めると接続が落ちる。
 
+⚠️ delay/quit/cold-start の非同期対策は **AppleScript で Office app を automation する一般則** (= -609「接続無効」 は quit 後も AppleScript が reference を clear せず vanishing app にコマンドが届く / app 未 ready で起き、 **any app に共通**)。 Word docx→PDF も同根の gotcha ([`docx-pdf-stale-cache`](#docx-pdf-stale-cache) の cold-start / quit)。
+
 **検証**: 書き込み後は openpyxl で読み直して値を assert する (= osascript は失敗しても exit 0 で沈黙しがち)。 ⚠️ ただし **merged cell の値は fitz / openpyxl の text 抽出では取れないことがある** (= 結合範囲の左上以外は空に見える / PDF の text 抽出も同様) → 抽出の空振りを「書けていない」 と即断せず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF **画像**で最終確認する。
 
 origin: 2026-06-05 学外者用様式 (= 複数シート + 数式参照 + textbox 標題) の cell 値修正。 killall 直後の 1 osascript (activate→open→set→save→close saving yes→quit) が -609 で全 cell 未書き込み → 上記 4 点で復旧。
@@ -540,7 +542,7 @@ OSAEOF
 
 ### <a id="docx-pdf-stale-cache"></a>Word docx → PDF AppleScript の二大故障: stale in-memory cache + cold-start 失敗
 
-[`docx-to-pdf-pages`](#docx-to-pdf-pages) で Word AppleScript を「動くが罠あり」 とした、 その罠の中身。 docx を反復編集しながら Word で PDF 書き出す work-loop で **2 つの故障が独立に** 起きる。 ⚠️ どちらも [`docx-checkbox-content-control`](#docx-checkbox-content-control) の「XML 宣言由来の破損」 とは別物 (= こちらは zip も XML も健全、 docx 本体は正しい)。
+[`docx-to-pdf-pages`](#docx-to-pdf-pages) で Word AppleScript を「動くが罠あり」 とした、 その罠の中身。 docx を反復編集しながら Word で PDF 書き出す work-loop で **2 つの故障が独立に** 起きる。 ⚠️ どちらも [`docx-checkbox-content-control`](#docx-checkbox-content-control) の「XML 宣言由来の破損」 とは別物 (= こちらは zip も XML も健全、 docx 本体は正しい)。 なお **非同期 open → delay/sleep + quit を慎重に** は AppleScript で Office app を automation する一般則で、 Excel cell 書き ([`excel-osascript-cell-write`](#excel-osascript-cell-write) の -609 回避) も同根。
 
 #### 故障 1: stale in-memory cache (= PDF だけ古い、 docx は正しい)
 
