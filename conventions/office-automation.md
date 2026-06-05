@@ -465,6 +465,57 @@ OSAEOF
 - `close ... saving no` で Pages に「変更を保存しますか?」 ダイアログを出させない
 - 出力 PDF は Pages の組版で render される (= Word docx と layout は厳密一致しない、 form チェック☑等は正常表示される)
 
+### 2-4b. Word docx → PDF AppleScript の二大故障: stale in-memory cache + cold-start 失敗
+
+§2-4 で Word AppleScript を「動くが罠あり」 とした、 その罠の中身。 docx を反復編集しながら Word で PDF 書き出す work-loop で **2 つの故障が独立に** 起きる。 ⚠️ どちらも §2-5b の「XML 宣言由来の破損」 とは別物 (= こちらは zip も XML も健全、 docx 本体は正しい)。
+
+#### 故障 1: stale in-memory cache (= PDF だけ古い、 docx は正しい)
+
+**症状**: docx をディスク上で編集 → Word で PDF 書き出すと **編集前の古い内容の PDF が出る**。 docx 本体は正しい。 **「XML を grep したら該当文字列は消えているのに、 書き出した PDF にはまだ残っている」 が決定的サイン**。
+
+**原因**: Word が**前回 open したドキュメントを in-memory に保持**し、 osascript の `active document` がそのメモリ上の旧版を export する (= ディスクの新版を読み直さない)。 quit が中途半端 (= window だけ閉じてプロセス生存) だと特に起きる。
+
+**正しい解法 — 完全 kill → fresh open → export → PDF テキストで検証**:
+
+```bash
+pkill -x "Microsoft Word"          # ← window close では不十分、 プロセスを完全 kill
+sleep 2
+open "/path/to/form.docx"          # shell open (= file association)。 osascript 内 open より cold start に強い
+sleep 5                            # async load 完了待ち (= cold 時は長めに)
+# save as の AppleScript syntax は Word version 依存 (§6-4 と同 caveat)。 active document を PDF 書き出し:
+osascript -e 'tell application "Microsoft Word" to save as active document file name "/path/to/out.pdf" file format format PDF'
+```
+
+🔑 **検証は必ず「生成済み PDF のテキスト」 で回す** (docx でなく):
+
+```python
+import fitz
+txt = "".join(p.get_text() for p in fitz.open("/path/to/out.pdf"))
+assert "削除したはずの文字列" not in txt   # ← stale なら PDF にまだ残っている
+assert "追記したはずの文字列" in txt
+```
+
+docx を検証して「正しい」 と確認しても、 export が stale なら PDF は古いまま。 stale を検出できるのは **PDF テキスト照合だけ** (= 削除に使った判定で docx を見るのは循環検証、 §9-2)。
+
+#### 故障 2: cold-start で AppleScript が active document を掴めない
+
+**症状** (= 実エラー文字列):
+- `missing valueは“save as”メッセージを認識できません` (= active document が `missing value` = ドキュメント 0 個)
+- `active documentは“save as”メッセージを認識できません` / `…は“close”メッセージを認識できません`
+- Word が「名称未設定」 等の**空ドキュメントを複数開いた**状態になり、 実 docx が active にならない
+
+**原因**: Word が cold (= 起動直後 / 直前に kill した) のまま osascript を撃つと `open` が非同期で間に合わず、 active document が無い／空。 `open -a "Microsoft Word" file` の戻り値を変数に取る方式も cold 時に変数未定義系で死ぬ (= §2-4 の「変数 scope 罠」 の実体)。
+
+**正しい解法**: osascript 内で `open` せず、 **shell の `open <file>` (file association) + 長め sleep** で warm-up を保証してから export (= 故障 1 の前処理と同じ)。
+
+#### automation が続けて失敗するときの fallback 階層 (= 最終 PDF を automation に賭けない)
+
+1. ⭐ **最終・忠実版は user に Word で書き出してもらう** (= File ＞ 名前を付けて保存 ＞ PDF)。 レイアウト忠実、 automation 不安定さゼロ。 reviewer が Word の体裁を見る正式書類 (= 官製様式・決裁書類) はこれが確実。
+2. **Pages export (§2-4) を automation fallback に**。 動くが **layout が Word と一致しない** (= 組版し直し)。 ⚠️ よくある懸念「Pages はデータを壊す」 は誤解 — **内容は保持され、 崩れるのは体裁だけ** (= re-typeset、 文字落ちではない)。 だが官製様式では体裁差が問題になるので最終版には使わない。
+3. 中身の machine 検証 (= 上記 PDF テキスト照合) は automation の成否と独立 → automation が死んでも検証は止めない。
+
+origin: 2026-06 ある官製様式 (JST 系) の docx 修正。 docx を直しても PDF が古いまま (= stale) → quit 不十分が真因 → `pkill` + fresh open で解消。 さらに Word が cold-start で `missing value` / 空ドキュメント複数の状態に陥り automation 不能 → Pages で代替 → 最終は user の Word 書き出しに委ねた。
+
 ### 2-5. docx fill: `python-docx` で XML 直編集 (= 共通パターン)
 
 研究費応募・申請書類で頻出する 「☐ チェックリストと placeholder の docx を fill して PDF 化」 パターン。 `python-docx` ライブラリよりも、 zipfile + `word/document.xml` の直編集が **runtime 軽量で確実**。
@@ -892,6 +943,28 @@ end tell'
 ⚠️ AppleScript の save as syntax は Excel for Mac の version で異なる + parameter error 出やすい。 fallback として **user に Excel で「ファイル → 印刷 → PDF として保存」 を依頼 + PDF を chat 添付してもらう**。
 
 **運用 reflex**: 「私の setting した xlsx を 私の判断だけで完成宣言しない」 を 1 つの問い として保持。 PDF visual confirmation は form fill の **必須 prerequisite** で、 「user 指摘待ち」 reactive ではなく **proactive 早期催促** が筋。 user 指摘で初めて気付く pattern は連鎖失敗 (= 同 user に複数 turn の修復依頼) を必ず生む。
+
+### 6-5. 画像レンダリング検証の "image budget" 枯渇 → text-first 原則
+
+§6-4 は「PDF を render して目視」 を義務化するが、 **画像を読みすぎると会話単位の hard limit に達し、 以後その会話では画像が一切読めなくなる**。
+
+**症状**: 数十ページの PDF を PNG 化して目視する等で画像を大量に読むと、 ある時点から **すべての画像読み込みが恒久的に失敗**する:
+- 内部エラー: `API Error: an image in the conversation could not be processed and was removed`
+- user 側表示: 「画像を処理できませんでした」 「画像を読み込めませんでした」
+- ⚠️ **同一会話内では回復しない** (= 新しい session を開くまで戻らない)。
+
+**重要な切り分け**: この limit は **画像 content block だけ**に効く。 **テキストは依然読める**:
+- PDF テキスト: `fitz` の `page.get_text()` (= render でなく抽出)
+- docx 構造: python-docx / zipfile で `word/document.xml` を直読み
+- 通常の Read (テキストファイル)
+
+→ 検証を image でなく text に切り替えれば作業は続行できる (= 読んでいるのは「画像の推測」 でなく「docx/PDF の中身そのもの」 = 本物のデータ)。
+
+**したがって §6-4 を精緻化**: 視覚確認は **最初から text-first** にする。 「PDF を render → 目視」 より「PDF テキスト抽出 → 期待文字列を assert」 を優先。 image render は (1) 遅い (2) 限りある image budget を消費する、 の二重に不利。
+
+**本当に visual が要るとき** (= 体裁・削除後の空き詰め・手書き赤入れ等、 text で捉えられない情報) は **user に見てもらって relay** する (= §4-3「視覚確認は user に依頼」 を、 image limit が "速いから" でなく "そうするしかない" に格上げ)。 自分への「目視で確認」 は責任放棄 + 循環検証の温床 (= 削除に使った判定で見ると漏れが見えない、 §9-2)。
+
+origin: 2026-06 ある官製様式の修正で、 事務側の赤入れ PDF を全ページ画像化して赤字を追ううちに image limit に到達 → 以後 Claude は画像を一切読めず → docx 構造 + PDF テキスト基準の検証に切替 + 事務側の赤入れマークは user が page-by-page で relay して完遂。
 
 ---
 
