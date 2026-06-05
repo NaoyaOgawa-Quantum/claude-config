@@ -4,6 +4,8 @@
 
 origin: 2026-05 SPReAD (AI for Science 萌芽的挑戦研究創出事業) 応募で得た知見 (= 様式 1 研究計画調書 xlsx の Python 自動 fill、 figure 埋め込み、 字数制限管理、 PDF snapshot 生成、 TTS 確認)。
 
+> ⚠️ **保守メモ (2026-06-05)**: この file は 1300+ 行 / 69 サブセクションに肥大し、 positional な §-番号 cross-ref が脆い (= 挿入で letter-suffix § が増殖、 dangling / 重複が機械検証されていない)。 **slug-anchor + 検証可能 index + topic 分割への restructure が計画されている**。 → **新規追記の前に**: (1) 既存 § と内容が重複しないか確認 (= dedup、 特に検証系の §6-4 / §6-5 / §2-4b は overlap しやすい)、 (2) 新たな letter-suffix § (`2-4b` 型) の追加は最小限に、 (3) cross-ref する § は将来 slug 化しやすいよう関連を明示する。
+
 ---
 
 ## 0. 開始前に form を **必ず dump する** (= 推測で書かない)
