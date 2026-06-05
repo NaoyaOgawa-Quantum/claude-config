@@ -152,10 +152,17 @@ def validate(doc, index_entries):
     return fails, infos
 
 
-def run(doc, index_text, label=""):
+def run(doc, index_text, label="", silent_if_clean=False):
     entries = parse_index(index_text)
     fails, infos = validate(doc, entries)
     pre = f"[{label}] " if label else ""
+    if silent_if_clean:
+        # dashboard mode: only surface real drift (FAILs); infos are not actionable daily noise
+        if fails:
+            print("\n🗂️  office-automation index drift (slug<->doc out of sync):")
+            for f in fails:
+                print(f"  ❌ {f}")
+        return len(fails)
     for i in infos:
         print(f"{pre}info  {i}")
     for f in fails:
@@ -210,5 +217,7 @@ def selftest():
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    silent = "--silent-if-clean" in sys.argv
     sys.exit(1 if run(DOC.read_text(encoding="utf-8"),
-                      INDEX.read_text(encoding="utf-8")) else 0)
+                      INDEX.read_text(encoding="utf-8"),
+                      silent_if_clean=silent) else 0)
