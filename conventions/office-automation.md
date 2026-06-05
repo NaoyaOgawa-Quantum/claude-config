@@ -820,7 +820,7 @@ say -v "Kyoko (Enhanced)" -r 200 "本研究の目的は..."
 
 ### <a id="dump-cell-structure-first"></a>xlsx 内部の cell 構造を **常に最初に dump** する
 
-書き込む前に必ず `ws.iter_rows()` で全 cell + alignment + merged cells を出力して構造を把握する。「label cell」 と「input cell」 の混在、 merged cells、 dropdown validation 等、 form ごとに layout が異なる。 推測で `B6` に書こうとしたら実際は `B6:I6` merged で input は `B6` だけだった、 などが起きる。
+書き込む前に必ず構造 (= cell + alignment + merged + validation) を dump して把握する (= 推測で `B6` に書いたら実際は `B6:I6` merged で input は `B6` だけ、 等を防ぐ)。 **method・dump コードは [`form-dump-first`](#form-dump-first) が正本** (= 本 common-discipline はこの規律への index で、 ここでは再掲しない)。
 
 ### <a id="char-limit-formula-check"></a>字数制限は cell 末尾の formula で常時確認
 
@@ -1292,25 +1292,7 @@ forward mail send 後、 同 turn で:
 
 ### <a id="seal-field-verify-method"></a>user 質問への verify method (= 印欄存在問合せ reflex)
 
-user 「{役職} 印欄ない?」 「{機関名} の承認印は?」 等の質問は、 **推測で回答せず即 grep verify**:
-
-```python
-import openpyxl
-keywords = ['印', '殿', '承認', '検印', '押印', '署名', '判',
-            '主任', '専攻長', '研究科長', '学長', '機関の長', '部局長']
-for label, path in [('TPL', template_path), ('EDIT', edited_path)]:
-    wb = openpyxl.load_workbook(path, data_only=False)
-    for sn in wb.sheetnames:
-        ws = wb[sn]
-        # ⚠️ hidden sheet も scan (= sheet_state == 'hidden' continue で skip すると false positive)
-        for row in ws.iter_rows():
-            for cell in row:
-                if cell.value and any(k in str(cell.value) for k in keywords):
-                    hidden = ' [HIDDEN]' if ws.sheet_state == 'hidden' else ''
-                    print(f'[{label}] [{sn}{hidden}] {cell.coordinate}: {cell.value!r}')
-```
-
-diff method で「**消えた** (= TPL のみ存在)」 vs 「**元から無い** (= TPL + EDIT 両方 hit 0)」 vs 「**追加した** (= EDIT のみ存在)」 を判別。 user 質問への絶対回答 method。
+印欄の有無・位置・承認 chain は form (学外 / 学内 / 機関) で異なるので、 user 「{役職} 印欄ない?」 「{機関名} の承認印は?」 等の質問は推測で答えず必ず grep verify する。 **method の正本は [`seal-approval-sweep`](#seal-approval-sweep) 体系**: keyword set = [`seal-keyword-set`](#seal-keyword-set)、 template との grep+diff = [`seal-diff-with-template`](#seal-diff-with-template) (=「消えた」 TPL のみ存在 /「元から無い」 TPL+EDIT 両方 0 hit /「追加した」 EDIT のみ存在 を判別)、 質問への即答 + sweep range/keyword/confidence 明示 = [`seal-question-reflex`](#seal-question-reflex)。 ⚠️ grep は hidden sheet も scan (= skip すると false positive、 [`tpl-only-false-positive`](#tpl-only-false-positive))。
 
 ### <a id="tpl-only-false-positive"></a>「TPL のみ存在」 = false positive trap (= hidden sheet 関連)
 
