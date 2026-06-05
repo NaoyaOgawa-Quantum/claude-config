@@ -855,6 +855,49 @@ multi-maintainer の場合、 順序保証よりも graceful skip の方が defe
 
 ---
 
+## 14. 大規模 reference / gotcha convention の intra-file 構造 — slug identity + 検証可能 index
+
+§10 (File-role architecture) は **file 間**の auto-load tier 配置を扱う。 本節はその裏の concern = **単一 convention が大きくなった時の file 内部構造**。 落とし穴集・reference 集のように「1 file に多数の独立 entry が貯まる」 convention が肥大すると、 §10 の tier 移動とは別の保守 pathology が現れる。
+
+### 14.1 trigger signal (= 3 つのいずれか)
+
+- **(a) サブセクション過多**: `###` が数十に達し、 flat namespace で navigation / 重複検出が困難
+- **(b) letter-suffix 番号の増殖**: positional 番号 (`§2-4`) が満杯になり、 中間挿入のたびに接尾辞 (`§2-4b`) が増える = **番号が「位置」 に identity を縛っている**証拠
+- **(c) 機械検証できない cross-ref 網**: 内部 §-ref が手 join で、 dangling / 重複が人手 sweep でしか見つからない
+
+1 つでも該当したら identity を**位置非依存**にする。
+
+### 14.2 cross-ref は positional 番号でなく安定 slug で
+
+各 entry に kebab-case の安定 slug を与え、 cross-ref を slug で書く (= markdown なら `<a id="slug">` anchor + `[`slug`](#slug)` link)。 利得: 挿入・並べ替え・**ファイル移動**で ref が壊れない、 semantic (番号より意味が読める)、 **validator で dangling 検出可能**。 旧 positional 番号は捨てるが、 他 doc の dated/historical 参照が解決し続けるよう **index に `legacy` として保存**する (= 番号の identity でなく解決可能性だけ残す)。
+
+### 14.3 薄い index で「DB の利点」 を prose を動かさず得る
+
+「entry が多い → DB 化したい」 直感の**正しい翻訳**は、 prose を yaml に移すことではない (= markdown-in-yaml は編集性を殺す + LLM consumer は grep で十分読める)。 **本文 prose は markdown のまま**、 別ファイルの薄い index (= `id` / `legacy` / `title` / `related` のメタだけ) で「join 検証 + 重複 surface」 という DB の利点だけを取る。 validator が (1) 全 ref が解決 (dangling 0)、 (2) 見出し ↔ index が全単射 (orphan 0)、 (3) 重複候補を keyword overlap で surface、 を機械化する。 ⚠️ prose を yaml に移すのは anti-pattern (= §2 の「定義は 1 箇所」 を index 側に誤適用しない、 prose が定義本体)。
+
+### 14.4 split-axis は access pattern に合わせる + slug を先に振る
+
+肥大 convention を将来 file 分割するなら、 **何の軸で割るかは「何で引かれるか」 で決める**:
+
+- recency 軸 (hot/cold): 古い entry が滅多に参照されない場合 (= 個人層の作業規律 doc を hot file + grep 専用 archive に割った例)
+- **topic / concern 軸**: entry が「踏んだ症状の種類」 で引かれる場合 (= 本 repo の office-automation.md は xlsx / docx / pdf / form-discipline で割るのが適)
+
+🔑 **enabling insight = slug を先に振れば分割は ref-safe**: slug は identity を「位置」 からも「ファイル」 からも切り離す。 → **slug 化を先にやれば、 後続の topic 分割は ref を一切壊さない無痛操作**になる (= entry をどの file に動かしても slug ref は有効)。 だから順序は必ず **slug → 分割**。 分割自体は navigation pain が実証されてからで良い (= reading は grep で困らない、 §9.8 過剰対策の回避)。
+
+### 14.5 mechanical な部分は script 化 (§10.9 と整合)
+
+reference convention 内の「反復実行・検証用の手順」 は illustrative な code 片のまま貯めず script に抽出し、 prose は薄い why/when + script pointer に寄せる (= §10.9 code-as-canonical の reference-convention 版)。 validator 自体もこの一例 (= 整合性検証を prose の「手で sweep せよ」 規律から決定論 script に移す)。
+
+### 14.6 由来 + worked example
+
+2 つの観察から一般化 (= §9.8 「単一観察から飛ばない」 を満たす、 観察は 2 件):
+- 個人層の作業規律 doc の **recency 軸 hot/cold 分割** (archive-first restructure)
+- 本 repo `conventions/office-automation.md` の **slug 化 + index + validator** (= positional §-番号が letter-suffix 6 個まで増殖 + 内部 ref が無検証だった 1300+ 行 file を、 識別子だけ位置非依存化。 topic 分割は ref-safe になった状態で defer)。 worked artifact: `conventions/office-automation.index.yaml` + `scripts/check-office-automation-index.py`。
+
+決定的動機: 検証系 entry を追記した際、 それが既存 entry の mandate を掘り崩す regression を、 **機械検証が無いため手の多軸 sweep で初めて発見**した (= dangling / contradiction 検出が人手依存)。 数十 entry 規模でこれは破綻するため、 整合性検証を script 化する。
+
+---
+
 ## 変更履歴
 
 | 日付 | 変更 | 動機 |
@@ -873,3 +916,4 @@ multi-maintainer の場合、 順序保証よりも graceful skip の方が defe
 | 2026-04-18 | §1 に bundle rule (pragmatic relaxation) 追加 | claude-config DESIGN.md 自身への §7 初適用 (規則を定義したリポに規則を適用する self-consistency 回復) で、`~/Claude/CLAUDE.md` 解体時の bundle 判断 (「1 rule = 1 file 厳格適用は 1 行ファイルを生む、関連密接かつ合計 10 行未満は bundle 可」) を §1 の corollary として昇格。配置先は影響範囲の最大公約数に従う原則は保持したまま粒度の下限を緩和 |
 | 2026-04-18 | §10.8 新設「削除・委譲判断の trap」+ §7.8 に 3 回目適用 | claude-config への §7 自己適用 session で抽出した 6 件の insight を §10.8 に集約: tier-direction asymmetry (横ずらし委譲は ROI ゼロ) / T0-T1 chain pre-check / grep-substitute value (auto-load 表は pre-computed grep cache) / 削除提案 self-correction 事例 (LorentzArena ゲームパラメータ表 anti-value 判定) / DESIGN.md 分割閾値 / self-application discipline (規則定義リポへの同時 apply pass)。§7.8 に 3 回目適用段落で cross-domain validation (物理/描画 + 規約/メタ) を記録 |
 | 2026-05-06 | §11 新設「In-plan exploration trail」 | LorentzArena NPC 非対称 plan で (II)/(II'') の walkback を経て (II''') に着地。 §6 EXPLORING.md は cross-session 探索用、 本 §11 は same-session 内 plan の back-and-forth trail を §1.6 「探索過程」 として plan 本体に保存する pattern。 §11 「やらないこと」 (decision-form) と §1.6 探索過程 (process-form) は重複せず補完、 両者揃って初めて rejected alternative の「なぜ提案 / なぜ却下 / 将来再開条件」 が一貫した narrative として読める |
+| 2026-06-05 | §14 新設「大規模 reference / gotcha convention の intra-file 構造」 | office-automation.md (1300+ 行 / 69 サブセクション / letter-suffix § 6 個 / 無検証の内部 ref 網) の slug 化 restructure から抽出。 §10 が file 間 tier を扱うのに対し §14 は単一肥大 convention の file 内部 = 別 concern。 trigger 3 signal (サブセクション過多 / letter-suffix 増殖 / 無検証 cross-ref) + slug identity (legacy は index に保存) + 薄い index で DB 利点 (prose は yaml 化しない) + split-axis を access pattern に合わせる (recency 軸 = 作業規律 doc / topic 軸 = office-automation) + slug-first で分割 ref-safe + mechanical は script 化。 2 観察からの一般化 (§9.8 充足) |
