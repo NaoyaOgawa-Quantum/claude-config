@@ -476,6 +476,8 @@ OSAEOF
 - `delay 2` は docx の Pages 内 layout 完了待ち (= 表組みや長文の場合)
 - `close ... saving no` で Pages に「変更を保存しますか?」 ダイアログを出させない
 - 出力 PDF は Pages の組版で render される (= Word docx と layout は厳密一致しない、 form チェック☑等は正常表示される)
+- ⚠️ **Pages の layout 差は「見出し/表の重なり」 として出る — docx の不具合と誤認するな**: Pages は横並びの表 (= form の値テーブルと選択肢凡例テーブルが並ぶ官製様式等) を**重ねて配置**することがある。 これは Pages の組版 artifact で **docx 側のデータは正しい**。 PDF で「見出しが重なってる/崩れてる」 を見ても **docx を直す前に (1) docx の table セル値が正しいか確認 + (2) Word で render し直す**。 Word が綺麗なら docx は正しく原因は Pages → **docx を触らない** (= renderer artifact を追って docx を壊すな。 2026-06 §研究分野の「見出し重なり」 を docx 不具合と誤認しかけた RCA、 Word render はクリーンだった)。
+- **PDF の作成元を metadata で確認**: `fitz.open(pdf).metadata['creator']` が `'Pages'` なら Pages 組版 (= 体裁非忠実)、 Word 由来なら空 or Word 名。 体裁問題を見たとき「何が render したか」 + reviewer 提出版が Pages 由来でないかを、 この 1 行で判別する。
 
 ⚠️ **Pages を使う前に [`docx-pdf-stale-cache`](#docx-pdf-stale-cache) 必読**: docx→PDF は Word automation でも可だが stale / cold-start で頻繁に詰まる + Pages は layout が変わる。 最終忠実版・automation 失敗時の fallback 階層・PDF テキストでの中身検証は [`docx-pdf-stale-cache`](#docx-pdf-stale-cache) にまとめた。
 
@@ -641,7 +643,43 @@ def all_paragraph_texts(doc):
 - **方向 B (削除しすぎ 0)**: 自分が記入した内容 (= 残すべき本文) が PDF テキストに全保全。 折返しに強いよう distinctive な chunk で照合。
 - 照合先が **docx でなく PDF テキスト**なのは [`docx-pdf-stale-cache`](#docx-pdf-stale-cache) の stale を貫通するため。
 
-origin: 2026-06 官製様式 docx の記入要領削除。 (a) 上部様式見出しブロックを過剰削除 → 復元、 (b) ※注記を削除し漏れ、 (c) `doc.paragraphs` 走査で content control 内の variant を取りこぼし「全消し」 と誤宣言、 を反復。 テンプレ基準 + PDF テキストの双方向検証スクリプトで決着。
+**(4) ガイダンスが「色」 で区別される様式 (= 青字=提出時削除) は、 色そのものを ground truth にする**:
+
+官製様式は記入要領を **青字 (典型 `0070C0`)** で刷り「青字は提出時に削除」 と指示することが多い。 この削除を色で機械化するとき 2 つの落とし穴があり、 **両方を踏むと strip も検証も pass するのに青字が残る** (= 2026-06 JST 系様式の §予算記入要領 10 段落残存 RCA、 user が rendered 色を目視して発覚)。
+
+- **落とし穴 a — 色は run 直接色とは限らず段落/文字 style 継承で来る**: python-docx の `run.font.color.rgb` は **直接 run 色しか見ず style 継承色には `None` を返す**。 §予算記入要領などは段落 style (例 `a0`) が `0070C0` を定義し run に `w:color` が無い → run 色だけ見る strip / 検証は **その青字を丸ごと素通し**する。 effective color を **run 直接色 → `rStyle` → `pStyle` の style 色** の順で解決する:
+
+```python
+from docx.oxml.ns import qn
+BLUE = '0070C0'
+def style_color_map(doc):                  # styleId -> 直接定義色
+    m = {}
+    for st in doc.styles.element.iter(qn('w:style')):
+        rpr = st.find(qn('w:rPr')); c = rpr.find(qn('w:color')) if rpr is not None else None
+        m[st.get(qn('w:styleId'))] = c.get(qn('w:val')) if c is not None else None
+    return m
+def eff_color(r, pstyle, smap):            # r=<w:r>, pstyle=段落の pStyle val
+    rpr = r.find(qn('w:rPr'))
+    if rpr is not None:
+        c = rpr.find(qn('w:color'))
+        if c is not None and c.get(qn('w:val')) not in (None, 'auto'): return c.get(qn('w:val'))
+        rs = rpr.find(qn('w:rStyle'))
+        if rs is not None and smap.get(rs.get(qn('w:val'))) == BLUE: return BLUE
+    return smap.get(pstyle)                 # ← style 継承色。 ここを見落とすと青字が残る
+```
+  strip 方針: 全 run が effective 青の段落は**段落ごと削除**、 混在段落は青 run を黒 (`w:color val="auto"`) に **recolor** (= 削除でなく recolor = 重複見出し等の layout 破壊を回避)。
+
+- **落とし穴 b — phrase 照合 ((3) 方向 A) は list に無い文言を見逃す**: テンプレ署名文字列での照合は **list に登録していないガイダンスを素通し**する (= list-based audit の implicit-scope 盲点)。 「色」 という意味属性は **属性そのもの = rendered 色で検証**するのが漏れない。 提出版 PDF の非黒 text span を 0 件要求する:
+
+```python
+import fitz   # PDF render の span 色は style 継承も解決済 (= Word が描いた最終色) → 落とし穴 a・b を 1 check で塞ぐ
+blue = [s['text'] for pg in fitz.open(pdf) for b in pg.get_text('dict')['blocks']
+        for l in b.get('lines', []) for s in l.get('spans', []) if s['color'] not in (0, None) and s['text'].strip()]
+assert not blue, f"色付きガイダンス残存: {blue[:3]}"
+```
+  **一般則**: 色・構造など「意味を持つ属性」 の検証は、 **その属性自体を ground truth にする** (= proxy の phrase list や docx run 属性で代用しない)。 proxy 検証は proxy の盲点 (= list 外 / style 継承) をそのまま検証の盲点にする。
+
+origin: 2026-06 官製様式 docx の記入要領削除。 (a) 上部様式見出しブロックを過剰削除 → 復元、 (b) ※注記を削除し漏れ、 (c) `doc.paragraphs` 走査で content control 内の variant を取りこぼし「全消し」 と誤宣言、 (d) 青字記入要領を **run 直接色だけ見て strip** → 段落 style 継承の青字 (`a0`) を素通し + phrase 検証も list 外で pass → user が rendered 色を目視して発覚、 を反復。 テンプレ基準 + PDF テキスト + **PDF span 色** の検証で決着。
 
 ### <a id="erad-forbidden-chars"></a>e-Rad の使用禁止文字 (= 入力フィールド charset 制限)
 
