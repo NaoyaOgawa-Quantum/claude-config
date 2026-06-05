@@ -1359,7 +1359,20 @@ out.insert_pdf(A, from_page=0, to_page=4)   # A の 0-4 ページ
 out.insert_pdf(B, from_page=4, to_page=4)   # B の 5 ページ目を挿入
 out.insert_pdf(A, from_page=5, to_page=5)
 out.save("提出用.pdf")
+# 3. 全ページを 1 枚に tile (= contact sheet。 N ページを 1 Read で一望 → image budget 節約)
+import math
+ts = []
+for p in doc:
+    px = p.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+    ts.append(Image.frombytes("RGB", [px.width, px.height], px.samples))
+cols = 4; rows = math.ceil(len(ts) / cols)
+w = max(t.width for t in ts); h = max(t.height for t in ts)
+sheet = Image.new("RGB", (w * cols, h * rows), "white")
+for i, t in enumerate(ts): sheet.paste(t, ((i % cols) * w, (i // cols) * h))
+sheet.thumbnail((1400, 1400)); sheet.save("/tmp/contact.png")   # 1 枚で全ページ点検
 ```
+
+⚠️ contact sheet は **全体把握用** (= ページ抜け・空白ページ・大崩れ・ページ数違いを 1 Read で検出、 [`image-budget-exhaustion`](#image-budget-exhaustion) を温存)。 細部 (= 罫線欠け・文字 clip・誤字) は解像度が足りないので**個別ページ render で確認**する (= 役割分担: contact sheet で当たりを付け → 怪しいページだけ拡大)。
 
 ### <a id="pdf-margin-pixel-measure"></a>余白を px で客観測定する (= render → 非白 bbox)
 
