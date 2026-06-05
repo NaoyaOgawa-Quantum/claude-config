@@ -298,6 +298,19 @@ ws['B7'] = 'my-input-value'
 
 `ws.merged_cells.ranges` で全 merged 範囲を列挙できる (上記 [`form-dump-first`](#form-dump-first) `dump_form.py` 参照)。
 
+⚠️ **border も同じく anchor (左上) cell に set する** (= value だけでなく罫線も): 例えば `H91:S93` merged の **下罫線**を引くとき、 構成 cell (= `H93` 等、 merge の途中) に `cell.border = Border(bottom=...)` しても **save で消える / 元の罫線に戻る** (= 非 anchor cell への border 代入は openpyxl/Excel で安定しない)。 merged 範囲の外周罫線は必ず **anchor cell** に set する (= 上罫線も下罫線も左右罫線も anchor 1 つで merge 全体の外周に効く):
+
+```python
+# H91:S93 merged の「下」罫線 → 構成 cell H93 ではなく anchor H91 に set
+from openpyxl.styles import Border, Side
+from copy import copy
+a = ws['H91']                         # anchor (= top-left)
+b = a.border
+a.border = Border(top=copy(b.top), left=copy(b.left), right=copy(b.right), bottom=Side(style='thin'))
+```
+
+検証は read-back では不十分 (= 非 anchor cell の border は読めても render に出ないことがある) → 必ず PDF **画像**で確認する ([`pdf-visual-confirm`](#pdf-visual-confirm))。 症状例: 表の最下行が merged のとき左端 column だけ下罫線が欠ける (= 構成 cell に set して消えた)。
+
 ### <a id="bool-cell-hash-overflow"></a>Boolean checkbox cell は narrow column で `###` 表示
 
 **症状**: `ws['F20'] = True` と書いた cell が Excel で `###` と表示される。 値そのものは TRUE で正しい。
