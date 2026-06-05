@@ -16,6 +16,14 @@ sections:
     legacy: "1"
     level: 2
     title: "openpyxl xlsx fill の落とし穴"
+  - id: openpyxl-destroys-drawings
+    level: 3
+    title: "openpyxl の save は既存の textbox / shape (= 標題・縦書きラベル・図形) を破壊する"
+    related: [excel-osascript-cell-write, label-overwrite-bug]
+  - id: excel-osascript-cell-write
+    level: 3
+    title: "Excel osascript で cell 値を書く堅牢パターン (= drawing 保護 + -609 回避)"
+    related: [openpyxl-destroys-drawings, xlsx-to-pdf-script]
   - id: xlimage-size-silent-fail
     legacy: "1-1"
     level: 3
