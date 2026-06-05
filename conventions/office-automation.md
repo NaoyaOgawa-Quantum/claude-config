@@ -29,7 +29,7 @@ wb = load_workbook(PATH, data_only=False)
 
 for sname in wb.sheetnames:
     ws = wb[sname]
-    print(f"\n========== Sheet: {sname} ({ws.max_row}r × {ws.max_column}c) ==========")
+    print(f"\n========== Sheet: {sname} [{ws.sheet_state}] ({ws.max_row}r × {ws.max_column}c) ==========")  # sheet_state で hidden/visible を起点で明示 (= 全シート把握原則)
     # Column widths
     print("\n-- Column widths --")
     for col_letter in 'ABCDEFGHIJKLMN':
