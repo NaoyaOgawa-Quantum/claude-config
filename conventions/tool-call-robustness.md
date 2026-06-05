@@ -7,34 +7,54 @@
 
 ## 現象
 
-tool call が `Your tool call was malformed and could not be parsed. Please retry.` で失敗し、 retry も失敗すると `ターンが失敗しました` になる。 これは harness が **Claude の生成した tool call (構造化テキスト) を deserialize できなかった** failure であって、 危険操作の block ではない (= permission dialog / hook deny とは別物)。 実害は通常なし (= tool は実行されず状態は不変) だが、 user を待たせ session が止まる。 「やってはならない操作をした」 と誤解されやすいので、 発生時は **まず「フォーマットが壊れただけで何も実行・破壊していない」 と明示**する。
+tool call が `Your tool call was malformed and could not be parsed. Please retry.` で失敗し、 retry も失敗すると `ターンが失敗しました` になる。 これは harness が **生成された tool call (構造化テキスト) を deserialize できなかった** failure であって、 危険操作の block ではない (= permission dialog / hook deny とは別物)。 実害は通常なし (= tool は実行されず状態は不変) だが、 user を待たせ session が止まる。 「やってはならない操作をした」 と誤解されやすいので、 発生時は **まず「フォーマットが壊れただけで何も実行・破壊していない」 と明示**する。
 
-## トリガー (= 2026-06-05 に 3 回連続再発で同定)
+## 真因 (= 2026-06-05 調査で同定、 確度高)
 
-| トリガー | 例 |
-|---|---|
-| Bash コマンド内の **特殊文字密集** | 多段パイプ + 正規表現 (`grep -oE` で引用符を含むパターン)、 heredoc (`python3 - <<'PY' ... PY`)、 引用符の入れ子 |
-| **長い本文 + markdown テーブル + 絵文字** の直後の tool call | パイプ文字を多用した表 + 絵文字を詰めた長文応答の末尾に tool call を置く |
+**Anthropic backend 側の model serialization bug** (= 大きい context 長で動く Opus 系 model が tool_use block を構造的に壊れた形で出力する)。 報告環境は **Opus 4.8 の 1M-context session (macOS)**。 **Claude Code CLI の bug でも、 prompt の書き方の問題でもない**。 当初仮説 (= 後述「副次トリガー」 の特殊文字密集が *主因*) は誤りで、 root は model 出力側にある。
 
-原因: tool call serialization の delimiter / escape と、 コマンド文字列・本文中の特殊文字 (引用符・パイプ・山括弧・改行・heredoc terminator) が干渉し、 生成 token 列の構造整合が途中で崩れる。
+裏付け (= upstream issue tracker `anthropics/claude-code` に同症状の OPEN issue が複数、 いずれも model 側ラベル `area:model`):
 
-## 対策 (= 確立、 以後これに従う)
+| issue | 症状 | 環境一致 |
+|---|---|---|
+| #64684 | tool call の XML タグ prefix が脱落、 長い context の session で発生 | macOS / Opus 4.8 1M-context に一致 |
+| #64955 | parallel tool call / 非 ASCII (日本語等) tool call で頻発 | 並列呼び出し + 日本語に一致 |
+| #64235 | ある時期以降の regression、 stop_reason は tool_use なのに tool_use block 不在 | — |
+| #62344 (副次機序) | 一度 malformed が context に入ると後続 tool call も壊れた形を複製する (= few-shot poisoning) | retry が連続失敗する説明 |
 
-1. **複雑ロジックは `Write` でファイル化 → 単純コマンドで実行**。 Bash インラインの heredoc / 言語埋め込みは禁止 (= 中間 file に書いて `python3 /tmp/x.py` で呼ぶ)。
-2. **Bash インラインは特殊文字を薄く**: パイプ最小、 引用符 1 レベル、 正規表現の引用符ネスト回避。
-3. **JSON パース・正規表現・条件判定は Python / script ファイルへ**。 grep / awk ワンライナーで無理に処理しない。
-4. **tool call を含むターンは本文をプレーン短文に**。 markdown テーブル・大量絵文字・コードブロックは tool call の無い応答ターンに限定する (= 装飾は tool-call-free な応答ターン側に寄せる)。
-5. **`cd` を compound command に入れない** (= 別途 permission prompt を誘発する)。 `git -C <dir>` 等で代替。
-6. **commit message など複数行 + 山括弧 (Co-Authored-By 等) を含むものはファイルに書いて `git commit -F`** で渡す (= `-m "..."` 内の山括弧・改行を避ける)。
-7. **生成前の self-check**: 「この tool call は引用符・パイプ・heredoc・山括弧をいくつ含むか? 多ければファイル化」 を 1 回問う。
+→ 特殊文字密集・装飾過多は **root ではなく、 poisoning density / 並列度を上げて発生確率を押し上げる副次条件** に過ぎない。
 
-## メタ規律 (= なぜ 3 回も再発したか)
+## 副次トリガー (= 発生確率を上げるだけ、 root ではない)
 
-1 回目の後、 原因を「コマンドが複雑」 と漠然と捉え、 heredoc という **具体パターン** だけ警戒した。 真の不変条件 =「**特殊文字の密度**」 に一般化できず、 2 回目を別形態 (Python 埋め込み) で再発させた。 **具体の表層を潰すのではなく抽象 (特殊文字密度) を抽出する** — 表層モグラ叩きは反復する。 これは規律一般に共通する failure mode で、 具体 trigger を抽象 invariant に昇格させ損ねると別形態で再発する。
+| トリガー | 例 | なぜ確率を上げるか |
+|---|---|---|
+| **並列 tool call** (1 ターンに複数の tool call) | 独立した Read を 1 ターンで複数発行 | #64955 が parallel を頻発条件に挙げる |
+| **非 ASCII を多く含む tool call** | 日本語の長い本文・引数 | #64955 が non-ASCII を頻発条件に挙げる |
+| Bash 内の **特殊文字密集** | 多段パイプ + 正規表現 (`grep -oE` で引用符を含むパターン)、 heredoc (`python3 - <<'PY' ... PY`)、 引用符の入れ子 | serialization の delimiter/escape と干渉、 poisoning density 上昇 |
+| **CLI 引数に渡す JSON literal** (= 引用符の入れ子) | `node x.mjs '{"k":5}'` のように tool call で nested-quote JSON を生成 | nested quote が干渉しやすい。 → 引数なし default にする、 または args を file に書いて path だけ渡す |
+| **長い本文 + markdown テーブル + 絵文字** の直後の tool call | 表 + 絵文字を詰めた長文応答の末尾に tool call | 装飾過多で生成 token 列が長大化 |
+
+## 副次緩和 (= 発生確率を下げる運用、 root は直さない)
+
+root は backend fix 待ちだが、 発生確率と poisoning ループは以下で下げられる:
+
+1. **1 ターン 1 tool call を基本にする** (= 並列を避ける、 #64955 対策)。 独立タスクでも 1 つずつ発行する。
+2. **複雑ロジックは `Write` でファイル化 → 単純コマンドで実行**。 Bash インラインの heredoc / 言語埋め込みは避ける (= 中間 file に書いて `python3 /tmp/x.py` で呼ぶ)。
+3. **JSON / 正規表現 / 条件判定は script ファイルへ**。 grep / awk ワンライナーで無理に処理しない。 CLI に JSON literal を直接渡さず file path で渡す。
+4. **tool call を含むターンは本文をプレーン短文に**。 markdown テーブル・大量絵文字は tool call の無い応答ターンに寄せる。
+5. **`cd` を compound command に入れない** (= 別途 permission prompt を誘発)。 `git -C <dir>` 等で代替。
+6. **commit message など複数行 + 山括弧を含むものはファイルに書いて `git commit -F`** で渡す (= `-m "..."` 内の山括弧・改行を避ける)。
+7. **malformed が出たら同 session で retry を重ねない**。 #62344 の poisoning で後続も壊れるため、 数回失敗したら **新しい session に切り替える** (= 壊れた context を断ち切る)。
 
 ## 限界 (= 誇張しない)
 
-これは Claude の **生成挙動** であり、 規約を書いても「生成時に必ず従う」 保証はなく、 hook での機械 enforcement も (生成前の self-gate なので) 困難 — `hook-authoring.md §5.1` の単一視点 self-reference 不能と同型の問題。 主防御は **実行時の自己規律** (上記 7 点)。 本 file は memory aid であって enforcement ではない、 という前提で読むこと。
+- root は **Anthropic backend の model serialization bug** であり、 **prompt の書き方変更でも narrative でも直らない**。 上記「副次緩和」 は発生確率を下げるだけで 0 にはできない。
+- hook での機械 enforcement も困難 (= 生成前の self-gate であり、 `hook-authoring.md §5.1` の単一視点 self-reference 不能と同型)。 本 file は memory aid であって enforcement ではない、 という前提で読むこと。
+- **fix は upstream (Anthropic) 待ち**。 上記 issue 番号を追跡し、 解決報告が出たら「副次緩和」 を緩められる。 CLI を新しめの版に上げると retry handling が改善する可能性はあるが、 **root (model 出力) は version 更新では消えない** (= CLI 2.1.165 の改善効果は未検証、 retry handling 改善の可能性のみ)。
+
+## メタ規律 (= なぜ当初 root を読み違えたか)
+
+最初の RCA は原因を「特殊文字の密度」 = **自分で制御できる writing-style 要因** に帰属させた。 自分の操作で塞げる原因の方が actionable なので、 そちらに飛びつくバイアスがある。 だが実際は **外部 (backend model) の bug** で、 別 session で書き方を整えても再発した — この「書き方を変えても消えない」 という観察こそが root が自分の外にある signal だった。 **書き方変更で消えない再発は、 自分の挙動でなく tool/backend を疑う** へ早く切り替える (= 表層の writing-style モグラ叩きで時間を溶かさない)。
 
 ## 関連
 
