@@ -486,7 +486,8 @@ xml = files['word/document.xml'].decode('utf-8')
 
 # ☐ → ☑ (= 全置換、 または位置で選択置換)
 # ⚠️ この素朴な文字置換が安全なのは ☐ が「プレーンテキスト」 の時だけ。
-#    コンテンツコントロール checkbox (<w:sdt><w14:checkbox>) では Word 破損判定の罠 → §2-5b 必読
+#    コンテンツコントロール checkbox (<w:sdt><w14:checkbox>) は状態同期が要る (別の実在 inconsistency) → §2-5b。
+#    ※Word「破損」の確定真因は別物 = python-docx の XML 宣言形式 (§2-5b banner)
 # 例: 19 個の ☐ のうち、 ある領域 (= 学生用 2 個) は ☐ 保持
 boundary_start = xml.find('学生が研究代表者として応募')
 boundary_end = xml.find('提出形式の確認')
@@ -515,7 +516,7 @@ with zipfile.ZipFile(dest_docx, 'w', zipfile.ZIP_DEFLATED) as z:
 
 ### 2-5b. ☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける
 
-> ⚠️ **2026-06-05 RCA 訂正**: 下記 checkbox 状態↔グリフ不整合は**実在の defect で直す価値はある**が、 **ground-truth 検証で「これを直しても Word の『破損/開いて修復』ダイアログは消えなかった」** (= `check-docx-integrity.py` ✅ ・全 deterministic check pass でも実機 Word は flag 継続) ことが判明。 → **checkbox 不整合は Word 破損の確定 (sole) 真因ではない**。 Word の破損ヒューリスティックは deterministic file 解析で再現できない別/追加要因を見ており、 **本節の validator は「この inconsistency class を潰す gate」 であって「Word 破損の有無を判定する oracle ではない」**。 **確実な fix は Word 自身の `[開いて修復]` → 保存** (= ロスレス、 Word が正規 OOXML に書き直す)。 真因は調査継続中。 教訓: 「決定論 check ✅」 を「Word 受理」 と overclaim しない (= validator は必要条件、 Word 実機 open が十分条件)。
+> ⚠️ **2026-06-05 RCA 確定 (3 度の誤診の末 ground-truth で決着)**: Word「破損/開いて修復」の**確定真因は XML 宣言の形式**だった。 python-docx (lxml) が再シリアライズした OOXML パーツの宣言は `<?xml version='1.0' ... ?>` (**single-quote + LF**) になるが、 厳格な macOS Word (実証: 16.108) はこれを「このファイルは破損しています」と判定し開くたびにダイアログを出す。 Word 正規形 `<?xml version="1.0" ... ?>` (**double-quote + CRLF**) に揃えると解消 (= 実機 open で確定・内容不変)。 **fix = [`scripts/normalize-docx-decl.py`](../scripts/normalize-docx-decl.py)` FILE.docx`** (宣言のみ書換・idempotent)。 **python-docx で docx を save したら必ず通す**。 `check-docx-integrity.py` もこの single-quote 宣言を検出するよう更新済。 ⚠️ この症状は普遍でない (python-docx は通常 Word で開ける) が厳格 Word 個体で再現。 **以下の checkbox 節は「直す価値のある別の実在 inconsistency だが Word 破損の真因ではなかった」** として読む (= 当初 checkbox を真因と誤診 → ground-truth で反証 → 宣言が真因と判明)。 教訓: **決定論 check ✅ ≠ Word 受理、 最終 ground truth は実機 open** (= validator は必要条件であって十分条件でない)。
 
 `☐ → ☑` の置換は **2 種類の ☐** で扱いが違う。 取り違えると **zip も XML も well-formed なのに Word だけが「このファイルは破損しています。 開いて修復しますか?」 を開くたびに出す** (= 2026-06-05 JST LOTUS 様式の RCA)。
 

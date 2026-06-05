@@ -49,6 +49,17 @@ def check(path):
             issues.append(f"必須パーツ欠落: {req}")
     doc = parts.get("word/document.xml", b"").decode("utf-8", "replace")
 
+    # 0. XML 宣言が python-docx の single-quote 形式か
+    #    (厳格 macOS Word〔実証 16.108〕が「破損/開いて修復」判定する確定源、2026-06-05 ground-truth)
+    for n, data in parts.items():
+        if (n.endswith(".xml") or n.endswith(".rels")) and data[:19] == b"<?xml version='1.0'":
+            issues.append(
+                "XML 宣言が single-quote (python-docx/lxml 形式) — 厳格 macOS Word が"
+                "「破損/開いて修復」判定する確定源。normalize-docx-decl.py で Word 形式"
+                "(double-quote + CRLF) に正規化せよ"
+            )
+            break
+
     # 5. 全パーツ well-formed
     for n, data in parts.items():
         if n.endswith(".xml") or n.endswith(".rels"):

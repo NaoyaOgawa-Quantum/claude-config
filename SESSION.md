@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-06-05b (docx「破損」真因の**確定**= python-docx の XML 宣言形式。 下の §2-5b entry の checkbox 説を訂正)**: 下の「checkbox 不整合が真因」は **3 度の誤診の 1 つで ground-truth で反証**された。 **確定真因 = python-docx (lxml) が再シリアライズした OOXML パーツの XML 宣言 `<?xml version='1.0'...?>` (single-quote + LF)** を厳格 macOS Word (16.108) が「破損/開いて修復」判定すること (= 実機 open で確定)。 Word 正規形 `"..."` + CRLF に揃えると解消・内容不変。 **fix 新設 = [`scripts/normalize-docx-decl.py`](scripts/normalize-docx-decl.py)** (宣言のみ書換・idempotent、 python-docx save 後に必ず通す)。 `check-docx-integrity.py` に single-quote 宣言検出を追加 (= validator が確定真因を捕捉)。 §2-5b banner を確定真因に更新。 教訓: **決定論 check ✅ ≠ Word 受理、 最終 ground truth は実機 open** — validator/構造チェックを「verified」と過信し checkbox→(調査中)→宣言 と 3 度誤診 (full RCA = layer 3 `odakin-prefs/staging-incidents.md §2026-06-05`)。 全追記 generic (人名/PII/private repo literal なし)。
+
+---
+
 **2026-06-05 (office-automation.md §2-5b 新設 + `scripts/check-docx-integrity.py`: docx「破損/開いて修復」予防)**: 申請様式 fill で「python-docx でチェックボックスのグリフ文字だけ ☐→☑ 置換 → Word が開くたび『このファイルは破損しています。開いて修復しますか?』」 RCA を layer 1 化。 真因 = 行政・学術の正式様式の checkbox は **コンテンツコントロール** (`<w:sdt><w14:checkbox>`) で実装され、 グリフだけ変えると `<w14:checked w14:val="0">`(未チェック状態) と表示(☑)が不整合 → zip 整合・全 XML well-formed・関係参照 OK で構造監査を全通過するのに Word の修復ダイアログだけ出続ける (xmllint 非検出のスキーマ層)。 §2-5b に **プレーンテキスト ☐ (string-replace 可) vs コンテンツコントロール checkbox (`<w14:checked>` 状態同期必須) の区別** + 正しい fill (親 `<w:sdt>` の checked 同期) + 既存破損ファイルの確実復旧 (Word 自身に「開いて修復」 → 保存し直す = ロスレス) + **Word 修復の AppleScript 自動化が不安定な事実** (= alerts-off auto-repair は復元 doc が generic 名で save 困難、 破損検出も session state でブレる → 自動検証に頼らず決定論 gate + 実機 1 回 open) を文書化。 `scripts/check-docx-integrity.py` = Word 不要・決定論的 gate (checkbox 状態↔グリフ / bookmark 均衡 / table grid / 空 run / dangling r:id / Target 実在 / 全パーツ well-formed、 終了コード 1 で fail)。 layer 2/3 の fill pipeline 末尾に組み込み可。 全追記 generic (= 人名/機関名/private repo literal なし、 具体事例は layer 3 へ defer)。
 
 ---
