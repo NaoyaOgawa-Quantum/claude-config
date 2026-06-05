@@ -7,6 +7,8 @@ origin: 2026-05 SPReAD (AI for Science 萌芽的挑戦研究創出事業) 応募
 > 🧭 **構造メモ — 各 subsection は安定 slug-anchor で ident性を持つ** (= positional §-番号は廃止)。 cross-ref は `[`<slug>`](#<slug>)` で書く (= 挿入・移動・ファイル分割で壊れない、 機械検証可能)。 slug ↔ 旧 §-番号 ↔ title ↔ related の対応は併設 [`office-automation.index.yaml`](office-automation.index.yaml) が正本。 旧 §-番号は他 doc の dated 参照解決のため index の `legacy` に保存。 一般則は [`docs/convention-design-principles.md`](../docs/convention-design-principles.md) §14。
 >
 > **新規 subsection を足すとき**: (1) kebab-case の slug を heading に `<a id="...">` で付与、 (2) index.yaml に entry 追加 (id / legacy は空可 / title / related)、 (3) `python3 scripts/check-office-automation-index.py` で dangling 0 / orphan 0 を確認。 既存と内容が重複しないか先に dedup 確認 (= 検証系の [`pdf-visual-confirm`](#pdf-visual-confirm) / [`image-budget-exhaustion`](#image-budget-exhaustion) / [`docx-pdf-stale-cache`](#docx-pdf-stale-cache) は overlap しやすい — validator が keyword 重複を surface する)。
+>
+> 📂 **作業ルート (cwd) 外の office file** (`~/Downloads` / `~/Desktop` 等) を弄ると Claude Code が permission 確認を連発する → [`claude-code-permissions.md`](claude-code-permissions.md) で `additionalDirectories` に登録すると解消 (どの folder を登録するかは各自の personal layer の設定)。
 
 ---
 
