@@ -1284,5 +1284,16 @@ else
     fi
 fi
 
+# --- 9. Install python-docx XML declaration auto-patch (Word「破損」回避) ---
+echo ""
+echo "=== Step 9: Installing python-docx declaration auto-patch ==="
+# python-docx の single-quote XML 宣言を厳格 macOS Word が「破損」判定する問題を、
+# save 時 source で Word 形式に自動正規化して根絶 (office-automation.md §2-5b)。
+if command -v python3 >/dev/null 2>&1; then
+    bash "$SCRIPT_DIR/scripts/install-docx-decl-patch.sh" || echo "  ⚠ docx-decl patch install skipped (non-fatal)"
+else
+    echo "  python3 not found → skip"
+fi
+
 echo ""
 echo "=== Done ==="

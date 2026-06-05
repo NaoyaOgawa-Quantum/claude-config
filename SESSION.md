@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-06-05c (docx「破損」自動予防システム: python-docx save の宣言を全 python3 で auto-正規化)**: 個別 docx を後追い normalize すると取りこぼす (= 同日 filled-official だけ直して提出名にリネームした copy を取り逃し再発、 user が「自動化すべき」 と指摘)。 根治 = **save 時 source で clean**: `scripts/docx_decl_patch.py` (= python-docx `Document.save()` を lazy import hook で wrap、 保存のたび宣言を Word 形式 double-quote+CRLF へ自動正規化・content 不変・idempotent・save を壊さない try/except) + `scripts/install-docx-decl-patch.sh` (= user site-packages に `.pth`+module symlink を idempotent 設置) + setup.sh **Step 9** (= cross-machine 再現)。 全 python3 起動で `.pth` が auto-load → 以後どの script の docx も Word-clean (= race-free・覚える必要なし・取りこぼし不能)。 家 MacBook 設置+verify 済 (TEST: 素 python3 が double-quote 宣言を書く / docx 非使用は無傷)、 iMac は setup.sh 再走で適用。 §2-5b に 3 段防御 (① auto-patch 主 / ② normalize-docx-decl.py 後追い CLI / ③ check-docx-integrity.py 検出) を文書化。 venv/別 python は `.pth` 圏外で ②③ 補完。 全 generic (人名/PII なし)。
+
+---
+
 **2026-06-05b (docx「破損」真因の**確定**= python-docx の XML 宣言形式。 下の §2-5b entry の checkbox 説を訂正)**: 下の「checkbox 不整合が真因」は **3 度の誤診の 1 つで ground-truth で反証**された。 **確定真因 = python-docx (lxml) が再シリアライズした OOXML パーツの XML 宣言 `<?xml version='1.0'...?>` (single-quote + LF)** を厳格 macOS Word (16.108) が「破損/開いて修復」判定すること (= 実機 open で確定)。 Word 正規形 `"..."` + CRLF に揃えると解消・内容不変。 **fix 新設 = [`scripts/normalize-docx-decl.py`](scripts/normalize-docx-decl.py)** (宣言のみ書換・idempotent、 python-docx save 後に必ず通す)。 `check-docx-integrity.py` に single-quote 宣言検出を追加 (= validator が確定真因を捕捉)。 §2-5b banner を確定真因に更新。 教訓: **決定論 check ✅ ≠ Word 受理、 最終 ground truth は実機 open** — validator/構造チェックを「verified」と過信し checkbox→(調査中)→宣言 と 3 度誤診 (full RCA = layer 3 `odakin-prefs/staging-incidents.md §2026-06-05`)。 全追記 generic (人名/PII/private repo literal なし)。
 
 ---

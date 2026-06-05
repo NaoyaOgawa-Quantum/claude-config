@@ -84,6 +84,10 @@ claude-config/
 │   ├── diff-form-xlsx.py               # 様式 xlsx の label 上書き (= 様式改変) を雛形 diff で検出（office-automation.md §5-3）
 │   ├── scan-form-instructions.py       # 様式 xlsx の label 内 embedded instruction を category 別に抽出（office-automation.md §5-5）
 │   ├── xlsx-to-pdf.sh                   # spreadsheet → PDF 変換（LibreOffice soffice 優先 → macOS Excel osascript fallback、office-automation.md §2-1）
+│   ├── docx_decl_patch.py              # python-docx の Document.save() を auto-patch し XML 宣言を Word 形式(double-quote+CRLF)で書く（厳格 Word の「破損」回避、 save 時 source 修正・lazy import hook、 office-automation.md §2-5b）
+│   ├── install-docx-decl-patch.sh      # 上記 patch を user site-packages に `.pth`+symlink で install（setup.sh Step 9、 全 python3 起動で auto-load、 idempotent）
+│   ├── normalize-docx-decl.py          # 既存 docx の XML 宣言を Word 形式へ後追い正規化する CLI（docx_decl_patch の path-based 版、 office-automation.md §2-5b）
+│   ├── check-docx-integrity.py         # docx の Word「破損」判定源を Word 不要・決定論で検出（single-quote 宣言 / checkbox 状態↔グリフ / bookmark / table grid / dangling r:id 等、 office-automation.md §2-5b）
 │   ├── dropbox-root.sh                 # Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
 │   ├── setup-dropbox-refs.sh           # personal layer の dropbox-collabs.yaml を読んで symlink を生成
 │   └── lib/                            # sourceable helper (個人層検出の共通化)
