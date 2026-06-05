@@ -1222,6 +1222,8 @@ ws.page_setup.fitToHeight = 1
 
 → Excel が「1 page に縮小 fit」 mode で全 content を 1 page に圧縮、 文字 clip 可能性。 通常 form では wrong (= row_breaks / col_breaks が ignored される可能性)。
 
+⚠️ **`fitToPage=True` だけでは縦に効かない罠**: `fitToHeight=0` (= template 既定値 = 無制限) のままだと、 fitToPage を立てても**縦は fit せず scale 任せで縦溢れ**する (= 2026-06 出張様式で全 sheet が `fitToPage=True ∧ fitToHeight=0 ∧ scale=75/36` で溢れていた実例)。 1 ページに収めるなら **`fitToWidth=1` と `fitToHeight=1` を両方明示**する (= 0 は「無制限」 で 1 は「1 ページ」、 別物)。
+
 ```python
 ws.sheet_properties.pageSetUpPr.fitToPage = False
 ws.page_setup.scale = 85  # = 85% 縮小
