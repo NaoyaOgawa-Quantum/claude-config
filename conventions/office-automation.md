@@ -125,7 +125,7 @@ osascript -e 'tell application "Microsoft Excel" to quit'
 ```
 
 **4 つの勘所** (= いずれも欠くと「接続が無効です **(-609)**」 で値が書かれず沈黙失敗する、 2026-06-05 RCA):
-1. **worksheet は index** (`worksheet 1` / `worksheet 2`) で指定 — シート名に全角括弧・末尾スペースがあると名前解決が不安定。
+1. **worksheet は index** (`worksheet 1` / `worksheet 2`) で指定 — シート名に全角括弧・末尾スペースがあると名前解決が不安定 (= **openpyxl とは逆**: openpyxl は名前が安全で数値 index が罠 〔[`sheet-by-name-not-index`](#sheet-by-name-not-index)〕、 Excel osascript は名前が不安定なので index を使う)。 ⚠️ ただし index は順序依存なので、 **`worksheet N` が目的シートか dump (= [`form-dump-first`](#form-dump-first)、 sheet_state 付き) で確認してから**指定する (= 「index で参考シート混入」 罠は Excel osascript でも起きる)。
 2. **起動待ちを厚く** — `activate` 後 `delay 3` + `open` 後 `delay 3` (cold / killall 直後は特に)。
 3. **`close ... saving no`** — `save wbk` の後に `saving yes` を重ねない (二重保存)。
 4. **`quit` は別 osascript** — 同一 `tell` ブロックに `close saving yes` + `quit` (+ `return`) を詰めると接続が落ちる。
@@ -175,6 +175,8 @@ ws.add_image(img)
 ```
 
 事前に `print(wb.sheetnames)` で全シート名を dump して目的のシートを目視で特定する習慣を持つ (= [`dump-cell-structure-first`](#dump-cell-structure-first) 「最初に dump」 原則と同源)。
+
+⚠️ **Excel osascript (AppleScript) は逆向き**: シート名に全角括弧・末尾スペースがあると名前解決が不安定なので `worksheet N` (index) で指定する ([`excel-osascript-cell-write`](#excel-osascript-cell-write))。 = **ツールで安全な指定法が逆** (openpyxl は名前 / Excel osascript は index) なので混同しない。 ただし osascript 側も index の順序依存罠 (= 上記の参考シート混入) は残るので、 dump で `worksheet N` が目的シートか確認する。
 
 ### <a id="image-anchor-onecellanchor"></a>画像 anchor は `OneCellAnchor` + `ext` で完全制御
 
