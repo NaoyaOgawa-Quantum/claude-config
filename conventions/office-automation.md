@@ -1127,7 +1127,7 @@ for sn in wb.sheetnames:
     print(f'[{sn}] state={ws.sheet_state} / max_row={ws.max_row} / max_col={ws.max_column}')
 ```
 
-各 visible sheet を inspect + 「私が fill した sheet 以外で同型 narrative cell が残っていないか」 を grep。 「form の中心 sheet (= row 1-50 part)」 だけを fill して「form 全体 fill 完了」 と reflex equate するな。
+各 sheet (= hidden 含む全シート、 上記 全シート把握原則) を inspect + 「私が fill した sheet 以外で同型 narrative cell が残っていないか」 を grep (hidden cell は `[HIDDEN]` marker で把握)。 「form の中心 sheet (= row 1-50 part)」 だけを fill して「form 全体 fill 完了」 と reflex equate するな。
 
 ### <a id="cross-sheet-formula-chain"></a>数式自動連動 cell の chain effect
 
