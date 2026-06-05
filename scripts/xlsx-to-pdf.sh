@@ -59,6 +59,16 @@ if [ -n "$SOFFICE" ]; then
   if [ "$GEN" != "$PDF" ]; then mv -f "$GEN" "$PDF"; fi
 elif [ "$(uname)" = "Darwin" ]; then
   # Engine 2: Microsoft Excel via osascript (macOS). Supports single-sheet export.
+  # Reset stale Excel state first (2026-06-05 RCA): `quit` is ASYNC — it returns
+  # before Excel has fully exited, so a leftover process from a prior run in the same
+  # session causes AppleEvent no-response (-1712) or parameter errors (-50). The sleep
+  # covers the async quit so the next `open` starts clean.
+  #   NOTE: this also closes any workbook the user has open in Excel — safe only while
+  #   the user is NOT editing in Excel during the run. If -1712/-50 still occurs, the
+  #   caller should `killall "Microsoft Excel"; sleep 4` (last resort; see
+  #   conventions/office-automation.md §xlsx-to-pdf).
+  osascript -e 'tell application "Microsoft Excel" to quit' >/dev/null 2>&1 || true
+  sleep 3
   osascript - "$SRC" "$SHEET" "$PDF" <<'AS'
 on run argv
   set srcPath to item 1 of argv

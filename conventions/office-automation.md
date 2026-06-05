@@ -403,8 +403,14 @@ xlsx-to-pdf.sh <input.xlsx> [sheet] [output.pdf]
 
 🔑 **macOS + Excel engine は「オートメーション権限」が前提**:
 - 初回実行時に macOS が「"osascript" が "Microsoft Excel" を制御することを求めています」ダイアログを出す → 「許可」。
-- ⚠️ **background 実行 (`run_in_background` / nohup 等) はダイアログが見えず AppleEvent timeout (-1712) で失敗する**。 初回は必ず **foreground** で実行してダイアログに応答する。 一度許可すれば以後は無確認。
+- ⚠️ **background 実行 (`run_in_background` / nohup 等) はダイアログが見えず AppleEvent timeout (-1712) で失敗する**。 初回は必ず **foreground** で実行してダイアログに応答する。 一度許可すれば以後は無確認。 ⚠️ **長時間コマンド (= 「PDF 生成 + fitz 抽出 + git commit」 を 1 コマンドに詰める等) は harness が自動で background に回すことがある** (= `run_in_background` 未指定でも「Command running in background」 になる) → Excel GUI 操作が background 化されて同 timeout。 **Excel を呼ぶコマンドは単独・短命に保つ** (= PDF 生成だけ。 fitz 抽出 / git commit は別コマンドに分離)。
 - 後から変更: システム設定 > プライバシーとセキュリティ > オートメーション。
+
+🔑 **連続 Excel 操作の不安定化と確実な reset (= 2026-06-05 RCA)**: 1 セッションで Excel を多数回 (= 10 回以上) 開閉すると、 `osascript ... to quit` が **非同期** (quit が返っても Excel は終了処理中) なため、 次の `open` 時に**前プロセスが残存** → AppleEvent 無応答 **(-1712)** / パラメータ拒否 **(-50)** が散発する。
+- **第 1 手 (通常)**: Excel を呼ぶ前に **`osascript -e 'tell application "Microsoft Excel" to quit'; sleep 3`** (= sleep を 1 でなく **3 以上**に厚く、 quit の非同期完了を待つ)。
+- **第 2 手 (失敗時)**: -1712 / -50 が出たら **`killall "Microsoft Excel"; sleep 4`** でプロセス強制終了 → クリーン起動 (= 2026-06-05 はこれで復旧)。 ⚠️ **`killall` は user が開いている未保存 Excel も問答無用で閉じる** → Claude 作業中に user が Excel を触らない前提でのみ使う (= 通常は第 1 手、 killall は最終手段)。
+- **失敗の沈黙化を防ぐ**: 上記「単独・短命」 と合わせ、 Excel コマンド直後に**出力ファイルの存在を検査**して失敗を verbose に surface する (= background 化 + GUI 不調の二重で失敗が埋もれた 2026-06-05 RCA。 `[ -f out.pdf ] || echo FAILED` を後置)。
+- 設計判断: `xlsx-to-pdf.sh` の Excel engine 分岐の起動直前に第 1 手 (quit + sleep) を組み込み済 (= 呼び出し側で忘れても毎回クリーン起動)。
 
 注意:
 - 印刷範囲・ページレイアウトが未設定だと各 sheet が複数ページに分割される。 提案書用途では問題ないが、 1 ページに収めたい場合は事前に [`print-area-one-page`](#print-area-one-page) (`ws.page_setup.fitToWidth = 1` 等) を openpyxl で set。
