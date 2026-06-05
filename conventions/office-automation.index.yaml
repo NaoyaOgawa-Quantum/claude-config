@@ -310,6 +310,42 @@ sections:
     legacy: "8-6"
     level: 3
     title: "user 印刷時の dialog 「ブック全体」 vs 「アクティブシート」"
+  - id: multi-sheet-pdf-assembly
+    level: 2
+    title: "多 sheet xlsx → 提出用 PDF: ページ分割・余白・体裁の作り込み (RECIPE)"
+    related: [form-dump-first, multi-sheet-form, openpyxl-xlsx-fill, all-sheet-sweep, same-pattern-grep-sweep, print-area-bbox-fit, even-margins-centering, trailing-print-artifact, excel-pdf-whole-workbook-export, one-sheet-multi-page-split, fitz-pdf-toolkit, pdf-visual-confirm, pdf-margin-pixel-measure, image-budget-exhaustion]
+  - id: excel-pdf-whole-workbook-export
+    level: 3
+    title: "Excel の PDF 書き出しは workbook 全体を出す → 不要 sheet は temp 削除"
+    related: [xlsx-to-pdf-script, cross-sheet-formula-chain, one-sheet-multi-page-split]
+  - id: one-sheet-multi-page-split
+    level: 3
+    title: "1 sheet を複数ページに分割する (= print_area 切替 → 個別出力 → 結合)"
+    related: [excel-pdf-whole-workbook-export, fitz-pdf-toolkit, soffice-excel-fidelity, row-col-breaks]
+  - id: print-area-bbox-fit
+    level: 3
+    title: "print_area は実内容の bounding box に詰める (= 広いと縮小+余白偏り)"
+    related: [print-area-tradeoff, even-margins-centering, fittopage-vs-scale]
+  - id: even-margins-centering
+    level: 3
+    title: "余白を均等にする (= page_margins 統一 + 水平/垂直 中央寄せ)"
+    related: [soffice-excel-fidelity, pdf-margin-pixel-measure, print-area-bbox-fit]
+  - id: fitz-pdf-toolkit
+    level: 3
+    title: "PyMuPDF (fitz) で PDF を render / crop / 結合 / ページ数確認"
+    related: [pdf-visual-confirm, image-budget-exhaustion, one-sheet-multi-page-split]
+  - id: pdf-margin-pixel-measure
+    level: 3
+    title: "余白を px で客観測定する (= render → 非白 bbox)"
+    related: [even-margins-centering, pdf-visual-confirm]
+  - id: soffice-excel-fidelity
+    level: 3
+    title: "soffice と Excel の体裁差 (= verticalCentered / page break の扱い)"
+    related: [xlsx-to-pdf-script, even-margins-centering, fittopage-vs-scale]
+  - id: trailing-print-artifact
+    level: 3
+    title: "表末尾の「浮いた点線」 = 印刷範囲に余分な末尾行/半スロット"
+    related: [print-area-bbox-fit, merged-cell-write-topleft]
   - id: label-overwrite-detection-limit
     legacy: "9"
     level: 2
