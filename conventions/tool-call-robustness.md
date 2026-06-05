@@ -23,14 +23,14 @@ tool call が `Your tool call was malformed and could not be parsed. Please retr
 1. **複雑ロジックは `Write` でファイル化 → 単純コマンドで実行**。 Bash インラインの heredoc / 言語埋め込みは禁止 (= 中間 file に書いて `python3 /tmp/x.py` で呼ぶ)。
 2. **Bash インラインは特殊文字を薄く**: パイプ最小、 引用符 1 レベル、 正規表現の引用符ネスト回避。
 3. **JSON パース・正規表現・条件判定は Python / script ファイルへ**。 grep / awk ワンライナーで無理に処理しない。
-4. **tool call を含むターンは本文をプレーン短文に**。 markdown テーブル・大量絵文字・コードブロックは tool call の無い応答ターンに限定する (= chat-style の装飾は tool-call-free ターン側に寄せる)。
+4. **tool call を含むターンは本文をプレーン短文に**。 markdown テーブル・大量絵文字・コードブロックは tool call の無い応答ターンに限定する (= 装飾は tool-call-free な応答ターン側に寄せる)。
 5. **`cd` を compound command に入れない** (= 別途 permission prompt を誘発する)。 `git -C <dir>` 等で代替。
 6. **commit message など複数行 + 山括弧 (Co-Authored-By 等) を含むものはファイルに書いて `git commit -F`** で渡す (= `-m "..."` 内の山括弧・改行を避ける)。
 7. **生成前の self-check**: 「この tool call は引用符・パイプ・heredoc・山括弧をいくつ含むか? 多ければファイル化」 を 1 回問う。
 
 ## メタ規律 (= なぜ 3 回も再発したか)
 
-1 回目の後、 原因を「コマンドが複雑」 と漠然と捉え、 heredoc という **具体パターン** だけ警戒した。 真の不変条件 =「**特殊文字の密度**」 に一般化できず、 2 回目を別形態 (Python 埋め込み) で再発させた。 **具体の表層を潰すのではなく抽象 (特殊文字密度) を抽出する** — 表層モグラ叩きは反復する。 これは規律一般の failure mode で、 CLAUDE.md inline §3「事実主張の前に不確実性を expose するか問う」 と同じ「具体 trigger を抽象 invariant に昇格させる」 構造。
+1 回目の後、 原因を「コマンドが複雑」 と漠然と捉え、 heredoc という **具体パターン** だけ警戒した。 真の不変条件 =「**特殊文字の密度**」 に一般化できず、 2 回目を別形態 (Python 埋め込み) で再発させた。 **具体の表層を潰すのではなく抽象 (特殊文字密度) を抽出する** — 表層モグラ叩きは反復する。 これは規律一般に共通する failure mode で、 具体 trigger を抽象 invariant に昇格させ損ねると別形態で再発する。
 
 ## 限界 (= 誇張しない)
 
@@ -40,4 +40,3 @@ tool call が `Your tool call was malformed and could not be parsed. Please retr
 
 - `hook-authoring.md §1` — bash 3.2 の `$(...)` + heredoc parser bug。 **別 parser** (= macOS stock bash) だが回避策 (中間 file 化) が共通。
 - `hook-authoring.md §5.1` — 単一視点 self-reference の geometric 不能 (= 本 file「限界」 section の理論的根拠)。
-- `odakin-prefs/chat-style.md` — 絵文字・装飾の方針 (= 対策 4 で「tool-call-free ターンに寄せる」 と補完関係)。
