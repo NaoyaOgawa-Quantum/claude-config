@@ -513,7 +513,9 @@ with zipfile.ZipFile(dest_docx, 'w', zipfile.ZIP_DEFLATED) as z:
 
 **事前 dump 必須**: docx の XML 構造を必ず最初に `unzip -p form.docx word/document.xml | python3 -c "..."` で grep して確認。 placeholder が `＿` 何文字か、 ラベルと placeholder が同じ run か分かれた run かを事前に把握。
 
-### 2-5b. ☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける (= Word「破損」判定の罠)
+### 2-5b. ☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける
+
+> ⚠️ **2026-06-05 RCA 訂正**: 下記 checkbox 状態↔グリフ不整合は**実在の defect で直す価値はある**が、 **ground-truth 検証で「これを直しても Word の『破損/開いて修復』ダイアログは消えなかった」** (= `check-docx-integrity.py` ✅ ・全 deterministic check pass でも実機 Word は flag 継続) ことが判明。 → **checkbox 不整合は Word 破損の確定 (sole) 真因ではない**。 Word の破損ヒューリスティックは deterministic file 解析で再現できない別/追加要因を見ており、 **本節の validator は「この inconsistency class を潰す gate」 であって「Word 破損の有無を判定する oracle ではない」**。 **確実な fix は Word 自身の `[開いて修復]` → 保存** (= ロスレス、 Word が正規 OOXML に書き直す)。 真因は調査継続中。 教訓: 「決定論 check ✅」 を「Word 受理」 と overclaim しない (= validator は必要条件、 Word 実機 open が十分条件)。
 
 `☐ → ☑` の置換は **2 種類の ☐** で扱いが違う。 取り違えると **zip も XML も well-formed なのに Word だけが「このファイルは破損しています。 開いて修復しますか?」 を開くたびに出す** (= 2026-06-05 JST LOTUS 様式の RCA)。
 
