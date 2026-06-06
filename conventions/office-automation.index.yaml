@@ -126,6 +126,10 @@ sections:
     legacy: "2-5"
     level: 3
     title: "docx fill: `python-docx` で XML 直編集 (= 共通パターン)"
+  - id: docx-python-docx-surgical-edit
+    level: 3
+    title: "確定済 docx の外科編集: python-docx で run / 段落を直接いじる"
+    related: [docx-fill-xml-edit, docx-guidance-deletion, docx-checkbox-content-control, docx-pdf-stale-cache]
   - id: docx-checkbox-content-control
     legacy: "2-5b"
     level: 3
@@ -334,6 +338,10 @@ sections:
     level: 3
     title: "PyMuPDF (fitz) で PDF を render / crop / 結合 / ページ数確認"
     related: [pdf-visual-confirm, image-budget-exhaustion, one-sheet-multi-page-split]
+  - id: pdf-annotation-markup-read
+    level: 3
+    title: "共同編集者の「青字 / 赤字」 マークアップは text 色でなく注釈 (ink / Stamp) のことがある"
+    related: [fitz-pdf-toolkit, visual-check-by-user, image-budget-exhaustion]
   - id: pdf-margin-pixel-measure
     level: 3
     title: "余白を px で客観測定する (= render → 非白 bbox)"
