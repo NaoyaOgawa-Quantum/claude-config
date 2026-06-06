@@ -1428,7 +1428,7 @@ for pno, page in enumerate(doc):
     # (a) text レイヤに色があるか: span color の集合 (黒 = 0)
     cols = {s["color"] for b in page.get_text("dict")["blocks"]
             for l in b.get("lines", []) for s in l["spans"] if s["text"].strip()}
-    # (b) 注釈があるか: annots() — type 13 = 'Stamp' (= モバイル手書き ink)
+    # (b) 注釈があるか: annots() — 手書き系は Stamp(13) / Ink(15) 等 (a.type で実型確認)
     for a in (page.annots() or []):
         print(pno + 1, a.type, a.rect)      # a.rect = マークの位置 (= crop に使う)
 ```
@@ -1439,12 +1439,12 @@ for pno, page in enumerate(doc):
 
 ```python
 page = doc[pno]
-pix = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72), annots=True,  # ← annots=True が肝
+pix = page.get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72), annots=True,  # annots は既定 True (明示は意図表示)
                       clip=fitz.Rect(28, 420, 567, 500))                     # a.rect 周辺を拡大
 pix.save("/tmp/markup.png")    # Read で手書きの訂正テキストを読む
 ```
 
-⚠️ `get_pixmap` は既定で注釈を描くが、 **`annots=True` を明示**しないと環境次第で ink が落ちる。 [`fitz-pdf-toolkit`](#fitz-pdf-toolkit) の render はここに `annots=True` を足したもの。 これは [`visual-check-by-user`](#visual-check-by-user) の「手書き赤入れは user に見てもらって relay」 を、 **image budget があるとき Claude が直接 ink を読む**経路で補完する (= budget 枯渇時は従来どおり user relay、 [`image-budget-exhaustion`](#image-budget-exhaustion))。
+⚠️ **肝は「ink は text でなく注釈なので `get_text` では拾えず、 render (画像化) してはじめて見える」** こと (`get_pixmap` の `annots` は **既定 True** なので render すれば注釈は出る — 明示 `annots=True` は意図を示すだけで必須ではない)。 [`fitz-pdf-toolkit`](#fitz-pdf-toolkit) の render に、 診断 (`annots()` で位置を特定) と注釈 rect への高 DPI crop を足したのが本節。 これは [`visual-check-by-user`](#visual-check-by-user) の「手書き赤入れは user に見てもらって relay」 を、 **image budget があるとき Claude が直接 ink を読む**経路で補完する (= budget 枯渇時は従来どおり user relay、 [`image-budget-exhaustion`](#image-budget-exhaustion))。
 
 ### <a id="pdf-margin-pixel-measure"></a>余白を px で客観測定する (= render → 非白 bbox)
 
