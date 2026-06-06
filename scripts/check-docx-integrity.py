@@ -105,6 +105,18 @@ def check(path):
     if re.search(r"<w:hyperlink\b[^>]*></w:hyperlink>", doc):
         issues.append("空の <w:hyperlink></w:hyperlink> が存在")
 
+    # 8. 空セル <w:tc>(block 要素 <w:p>/<w:tbl> なし) — OOXML 違反で macOS Word が「破損」判定
+    #    (2026-06-06 RCA: python-docx 編集で段落の無い表セルが残ると、well-formed / grid 整合 /
+    #     宣言 すべて通過するのに Word は破損ダイアログを出し、開いて修復で各空セルに <w:p> を補う。
+    #     fix = 各空セルに <w:p/> を append。office-automation.md#docx-empty-cell)
+    #    検出: <w:tc> の直後が(tcPr のみを挟んで)</w:tc> = block 不在。nested table 持ちは <w:tbl/<w:p で除外。
+    empty_tc = re.findall(r"<w:tc>\s*(?:<w:tcPr(?:\s*/>|>.*?</w:tcPr>)\s*)?</w:tc>", doc, re.S)
+    if empty_tc:
+        issues.append(
+            f"空セル <w:tc>(段落なし) が {len(empty_tc)} 個 — OOXML 違反で Word 破損判定源。"
+            "各空セルに <w:p/> を append せよ (office-automation.md#docx-empty-cell)"
+        )
+
     # 6. dangling r:id
     refs = set(re.findall(r"rId\d+", " ".join(re.findall(r'r:(?:id|embed|link)="[^"]+"', doc))))
     rels = parts.get("word/_rels/document.xml.rels", b"").decode("utf-8", "replace")
