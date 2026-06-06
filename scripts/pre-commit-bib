@@ -22,29 +22,30 @@ if [[ ! -f "$FIXER" ]]; then
     FIXER="$HOME/Claude/claude-config/scripts/fix-bib-unicode.py"
 fi
 
-if [[ ! -f "$FIXER" ]]; then
+# LaTeX Unicode fix — runs only when the fixer exists AND LaTeX files are staged.
+# CRITICAL: do NOT early-exit on "no fixer" / "no LaTeX files". The layer-3
+# custom hook chain below must run on EVERY commit (incl. pure non-LaTeX, e.g.
+# yaml-only commits), otherwise data/yaml gates silently never fire. (2026-06-06
+# RCA: a refs.yaml-only commit with a duplicate was NOT rejected because this
+# early-exit skipped the custom hook.)
+if [[ -f "$FIXER" ]]; then
+    LATEX_FILES=$(git diff --cached --name-only --diff-filter=ACM \
+        | grep -E '\.(tex|bib|bst|cls|sty)$' || true)
+    if [[ -n "$LATEX_FILES" ]]; then
+        # Run the fixer (exit 1 = files were modified, 0 = no changes)
+        python3 "$FIXER" $LATEX_FILES && rc=0 || rc=$?
+        if [[ $rc -eq 1 ]]; then
+            for f in $LATEX_FILES; do
+                git add "$f"
+            done
+            echo "pre-commit: auto-fixed non-LaTeX characters and re-staged."
+        elif [[ $rc -ge 2 ]]; then
+            echo "pre-commit: fix-bib-unicode.py failed (exit $rc)." >&2
+            exit 1
+        fi
+    fi
+else
     echo "pre-commit: fix-bib-unicode.py not found. Skipping LaTeX check." >&2
-    exit 0
-fi
-
-# Check staged LaTeX-related files
-LATEX_FILES=$(git diff --cached --name-only --diff-filter=ACM \
-    | grep -E '\.(tex|bib|bst|cls|sty)$' || true)
-if [[ -z "$LATEX_FILES" ]]; then
-    exit 0
-fi
-
-# Run the fixer (exit 1 = files were modified, 0 = no changes)
-python3 "$FIXER" $LATEX_FILES && rc=0 || rc=$?
-
-if [[ $rc -eq 1 ]]; then
-    for f in $LATEX_FILES; do
-        git add "$f"
-    done
-    echo "pre-commit: auto-fixed non-LaTeX characters and re-staged."
-elif [[ $rc -ge 2 ]]; then
-    echo "pre-commit: fix-bib-unicode.py failed (exit $rc)." >&2
-    exit 1
 fi
 
 # Optional chain to layer-3 (= personal layer) custom hook.
