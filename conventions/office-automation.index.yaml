@@ -135,6 +135,10 @@ sections:
     level: 3
     title: "☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける"
     related: [docx-fill-xml-edit]
+  - id: docx-word-corruption-diagnosis
+    level: 3
+    title: "Word が「破損」と言うが決定論 check は通る時の真因特定 (= 修復版との diff)"
+    related: [docx-checkbox-content-control, docx-empty-cell, manual-review-required]
   - id: docx-empty-cell
     level: 3
     title: "空セル <w:tc>(段落なし)は Word 破損判定源 — 各セルに <w:p> を補う"

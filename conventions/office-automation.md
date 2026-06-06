@@ -694,7 +694,7 @@ for line in new_lines:
 
 ⚠️ **挿入の idempotency gate は「挿入文の unique な lead 句」 で**判定する。 ゆるい substring (= 文書の別所にも在る語) で「挿入済か」 を見ると、 既存本文に誤 match して挿入を skip する (= 実際に踏んだ事故)。
 
-**保存後**: python-docx で save したら [`docx-checkbox-content-control`](#docx-checkbox-content-control) の XML 宣言正規化を通す (auto-patch 済なら自動)。 PDF 化は [`docx-pdf-stale-cache`](#docx-pdf-stale-cache)、 検証は docx でなく **PDF テキスト**で回す (= 削除マーカーの不在・追記の存在を grep + 色 histogram)。 ⚠️ content 保全 verifier (= テンプレ差分照合) は **意図的に消した文字列を「欠落」 と flag する** — 想定どおりで regression ではない ([`docx-guidance-deletion`](#docx-guidance-deletion) 方向 B と同型)。
+**保存後**: python-docx で save したら [`docx-checkbox-content-control`](#docx-checkbox-content-control) の XML 宣言正規化を通す (auto-patch 済なら自動)。 ⚠️ **段落 / セル内容を削除する編集は空セル (段落なし `<w:tc>`) を生みうる** → save 後に `check-docx-integrity.py` ([`docx-empty-cell`](#docx-empty-cell) クラス8) を必ず通す。 PDF 化は [`docx-pdf-stale-cache`](#docx-pdf-stale-cache)、 検証は docx でなく **PDF テキスト**で回す (= 削除マーカーの不在・追記の存在を grep + 色 histogram)。 ⚠️ content 保全 verifier (= テンプレ差分照合) は **意図的に消した文字列を「欠落」 と flag する** — 想定どおりで regression ではない ([`docx-guidance-deletion`](#docx-guidance-deletion) 方向 B と同型)。
 
 ### <a id="docx-checkbox-content-control"></a>☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける
 
@@ -729,6 +729,20 @@ def sync_sdt_checked(tnode, val="1"):           # tnode = 該当 <w:t> element
 **出荷前 gate**: `~/Claude/claude-config/scripts/check-docx-integrity.py FILE.docx …` で checkbox 状態↔グリフ不整合 + bookmark 不均衡 + table grid 不一致 + 空 run + dangling r:id 等を **Word 不要・決定論的**に検出 (終了コード 1 で fail)。 fill pipeline の末尾に組み込むと「Word で開いて初めて破損が判明」 を防げる。
 
 **既存の破損ファイルの確実な復旧**: Word 自身に修復させるのが bullet-proof — 修復ダイアログで「はい(開いて修復)」 → 内容が復元されて開く → そのまま保存し直すと正規の OOXML に書き直されてダイアログが消える (= 自作 pipeline 産で内容健全なら修復はロスレス)。 ⚠️ Word の「破損」判定/修復を **AppleScript で自動化するのは不安定** (= alerts-off auto-repair は復元 doc が generic 名で元パスに紐付かず save 困難、 修復ダイアログ検出も session state でブレる)。 自動検証に頼らず上記 gate (決定論) + 実機 1 回 open で確認する。
+
+### <a id="docx-word-corruption-diagnosis"></a>Word が「破損」と言うが決定論 check は通る時の真因特定 (= 修復版との diff)
+
+[`docx-checkbox-content-control`](#docx-checkbox-content-control)(XML 宣言)や [`docx-empty-cell`](#docx-empty-cell)(空セル)のように、 **zip も XML も well-formed・`check-docx-integrity.py` の gate も通過するのに macOS Word だけが「破損 / 開いて修復」を出す**ことがある。 Word の破損ヒューリスティックは非公開なので、 決定論 gate は **必要条件であって十分条件でない** ([`manual-review-required`](#manual-review-required))。 未知の破損モードの真因はこう特定する:
+
+**① 壊れた版を退避 → Word に「開いて修復」させ別名保存 → diff** (= gold standard)。 Word の repair は破損トリガーだけを除去するので **repaired と broken の diff = トリガー**。 Word は computer-use で開く (or user に「開いて修復 → 別名保存」 を頼む — 「開くだけ」 の確認は自分でスクショするより user に聞く方が速い)。 ⚠️ **repair 前に broken のコピーを必ず取る** (repair で上書きされうる)。
+
+**② Word は repair 時に全体を再シリアライズする** → 生バイト diff はノイズだらけ。 **構造的カウントで絞る**: part list / `[Content_Types]` / `<w:sdt>`・`<w:drawing>` 数 / **空セル数** / rels の Target。 broken と repaired で食い違う 1 点がトリガー。
+
+**③ 要素カウントの delta が signature**: repaired が **段落 +N** = 空セル (Word が `<w:p>` を N 個補填 → [`docx-empty-cell`](#docx-empty-cell))。 他の delta は他トリガーを指す。
+
+⚠️ **false-positive の罠 (実際に踏んだ)**: `etree.tostring(部分要素)` は、 その要素が使う名前空間を **毎回 `xmlns:` 付きで出力**する (fragment を standalone で well-formed にするため)。 これを「stored の `document.xml` に局所再宣言がある」 と誤読するな (2026-06-06 に「namespace 汚染が原因」 と誤診して時間を浪費)。 **局所再宣言の有無は raw stored バイトで** `<w:p xmlns` を grep して確認する (tostring した文字列でなく)。
+
+**④ 特定したら決定論側に畳み込む**: トリガーを `check-docx-integrity.py` の新クラス + generator の予防 step に追加し、 同モードを二度と実機 open まで持ち越さない (= [`docx-empty-cell`](#docx-empty-cell) のクラス8 検出 / `ensure_cell_paragraphs` 補填はこの手順で生まれた)。
 
 ### <a id="docx-empty-cell"></a>空セル `<w:tc>`(段落なし)は Word 破損判定源 — 各セルに `<w:p>` を補う
 
