@@ -135,6 +135,10 @@ sections:
     level: 3
     title: "☐ チェックは「ただの文字」か「コンテンツコントロール」かを見分ける"
     related: [docx-fill-xml-edit]
+  - id: docx-empty-cell
+    level: 3
+    title: "空セル <w:tc>(段落なし)は Word 破損判定源 — 各セルに <w:p> を補う"
+    related: [docx-checkbox-content-control, docx-python-docx-surgical-edit, manual-review-required]
   - id: docx-guidance-deletion
     legacy: "2-5c"
     level: 3

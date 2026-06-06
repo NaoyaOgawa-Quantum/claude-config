@@ -730,6 +730,28 @@ def sync_sdt_checked(tnode, val="1"):           # tnode = 該当 <w:t> element
 
 **既存の破損ファイルの確実な復旧**: Word 自身に修復させるのが bullet-proof — 修復ダイアログで「はい(開いて修復)」 → 内容が復元されて開く → そのまま保存し直すと正規の OOXML に書き直されてダイアログが消える (= 自作 pipeline 産で内容健全なら修復はロスレス)。 ⚠️ Word の「破損」判定/修復を **AppleScript で自動化するのは不安定** (= alerts-off auto-repair は復元 doc が generic 名で元パスに紐付かず save 困難、 修復ダイアログ検出も session state でブレる)。 自動検証に頼らず上記 gate (決定論) + 実機 1 回 open で確認する。
 
+### <a id="docx-empty-cell"></a>空セル `<w:tc>`(段落なし)は Word 破損判定源 — 各セルに `<w:p>` を補う
+
+OOXML は **全ての表セル `<w:tc>` が最低 1 つの block 要素 (`<w:p>` か `<w:tbl>`) を含むことを必須**とする。 python-docx で段落を削除したり form を fill した結果、 **段落の無い空セル** (`<w:tc><w:tcPr>…</w:tcPr></w:tc>`) が残ると、 **zip も XML も well-formed・grid 整合・宣言 double-quote・[`docx-checkbox-content-control`](#docx-checkbox-content-control) の出荷前 gate を全部通過するのに、 macOS Word だけが「このファイルは破損しています」** を開くたびに出す。 Word の「開いて修復」は各空セルに `<w:p>` を補って直す (= **段落数が +N される**のが決定的サイン)。
+
+⚠️ **決定論 check の盲点だった** (2026-06-06 RCA): 宣言・bookmark・grid・空 run・dangling r:id は検査していたが **空セルは未検出**。 well-formed parse も通るため、 **Word の「開いて修復」版との diff で初めて「Word が +N 段落を空セルに補った」** と判明した = 真因。 [`manual-review-required`](#manual-review-required) の「決定論 ✅ ≠ Word 受理、 最終 ground truth は実機 open」 の生きた実例 (= 決定論チェッカに新検査を足して塞いだ)。
+
+**検出 (決定論)**: `check-docx-integrity.py` クラス 8 — `<w:tc>` 直後が (tcPr のみ挟んで) `</w:tc>` の空セルを flag。
+
+**fix (補填)**: 各空セルに最小の `<w:p>` を append する。 generator は save 直前に必ず通す。
+
+```python
+from docx.oxml.ns import qn
+def ensure_cell_paragraphs(doc):
+    n = 0
+    for tc in doc.element.body.iter(qn('w:tc')):
+        if not tc.findall(qn('w:p')) and not tc.findall(qn('w:tbl')):
+            tc.append(tc.makeelement(qn('w:p'), {})); n += 1   # tcPr の後ろに空段落を補う
+    return n
+```
+
+既存の破損ファイルは Word の「開いて修復」→上書き保存でも直る ([`docx-checkbox-content-control`](#docx-checkbox-content-control) の「既存破損の確実な復旧」)。 ただし repair 版は Word が全体を再シリアライズするので、 **編集途中なら ↑ の補填で直す方が edit を保てる**。
+
 ### <a id="docx-guidance-deletion"></a>docx form から記入要領 / ガイダンスを削除する: 構造は残す + content-control を見逃さない + 双方向検証
 
 官製様式の docx を提出前に「記入要領 (= 各欄の評価基準・※注記・記入例) を削除」 する作業の落とし穴。 **「削除しすぎ」 と「削除し漏れ」 を同時に踏みやすい**。

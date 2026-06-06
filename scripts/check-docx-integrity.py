@@ -16,6 +16,7 @@ XML も well-formed なのに Word だけが「破損」と判定し、開くた
   5. 全パーツ(.xml/.rels)の XML well-formedness
   6. document.xml の r:id 参照と document.xml.rels 定義の dangling
   7. 関係 Target の実在(Internal のみ)
+  8. 空セル <w:tc>(段落 <w:p> なし) — OOXML 違反で Word が「破損」判定、修復で <w:p> を補う(2026-06-06 RCA)
 
 使い方:
   python3 check-docx-integrity.py FILE.docx [FILE2.docx ...]
