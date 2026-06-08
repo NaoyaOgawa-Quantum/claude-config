@@ -150,7 +150,7 @@ restart 方法 (= terminal が開けない状態でも可):
 
 ## 関連
 
-- upstream: anthropics/claude-code #47909 (canonical) / #57580 (議論最多) — **Anthropic 未対応**、 報告を増やすと優先度向上に寄与
+- upstream: anthropics/claude-code #47909 (canonical) / #57580 (議論最多) — **Anthropic 未対応** (= 2026-06-08 時点、 #57580 の全 comment は外部 user [author_association: NONE]、 staff 応答なし / bot の重複自動 close のみ / fix・target version・assignee いずれも無し)。 #57580 に **v2.1.165 still-affected の実測 data point 投稿済** (2026-06-08、 Anthropic 反応あれば follow-up 候補)。 報告を増やすと優先度向上に寄与
 - root cause: node-pty `posix_spawn` fallback の fd leak (gemini-cli #15945 で特定)
 - sibling: `macos-claude-code-tcc-recurring-prompt.md` (= 同じく Claude.app の versioned path 由来の構造的症状、 Anthropic 側 fix 待ち)
 - macOS pty pool 上限は kernel-locked (= ~960 が hard ceiling、 SIP 関連)
