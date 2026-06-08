@@ -230,6 +230,46 @@ clean 前提を preflight で保証してから `git clean -fd <dirs>` する設
 
 ---
 
+## 8. 無人で「人間が curate した file」 を auto-edit する
+
+§6 は「yaml の fine-grained 自動 edit を避け print reminder にせよ」 と説く。 だが **無人実行 (§7)** では reminder を受け取る人間が run-time に居ない。 かつ対象が「人間も編集する curated file」 (= 過去エントリに手作業の清書・補足が入っている) なら、 file ごと regenerate すると人手 curation を破壊する。 この交差点での規律。
+
+### Pattern: surgical text-edit + 再 parse integrity (library round-trip でなく)
+
+load→dump round-trip (PyYAML 等) は comment / 整形 / key 順を破壊し、 既存全エントリを書き換えるので「人手 curation の温存」 と両立しない。 代わりに:
+
+- **対象の block だけを text として挿入/置換**し、 他バイトは一切触らない (= 既存エントリは byte-identical、 diff 最小、 人手 curation 不変)。
+- 書込み後に **load して integrity 検証**: 「意図した key (= 追加/更新した entry) 以外の既存エントリが一切変わっていない」 を機械的に確認。 surgery に bug があっても検証で fail-safe (= 書込みを revert して中止、 壊れた state を push しない)。
+
+整形保持 library (ruamel.yaml 等) が無い環境でも、 text-surgery + integrity gate なら依存ゼロで安全に auto-edit できる。 新規 file 作成と既存 file 編集で revert 手段が違う点に注意 (= 新規 untracked は unlink、 既存 tracked は `git checkout`、 §7 の `git clean` 巻き込み回避と同じ理由)。
+
+### Pattern: human/machine 共有 file の ownership marker
+
+同じ file を「pipeline が auto 生成する行」 と「人間が手で enrich する行」 が共有するなら、 auto 生成行に **provenance marker** (例 `auto: true`) を付ける:
+
+- pipeline は **marker 付き行だけ**を上流追従で update し、 marker 無し行 (= 人間所有) は絶対に触らない。
+- 人間が auto 行を手直ししたくなったら **marker を消す** → 以後 pipeline はその行を人間所有として保護。
+- これで「auto は上流に追従、 人手 enrich は不可侵」 が 1 file 内で両立する。 既存に大量の人手エントリがある file へ後から pipeline を足す時も、 既存は marker 無し = 全部「人間所有」 として凍結され、 新規 auto 行だけが marker 付きで machine 所有になる (= 安全な漸進導入)。
+
+### Pattern: 決定的 mirror が curated downstream を「品質回帰」 させるなら gate する
+
+§7 の armed-gate は「導出不能 field を推測で埋めない」。 だが **上流が下流より雑** (= typo / 1 cell に複数値を free-form で詰める / 表記揺れ) な場合、 純粋な決定的 mirror は **curated downstream の品質を回帰させる** (= 上流 typo を公開面に焼き直す、 複数値の分割を誤る)。 この時の gate:
+
+- 上流各行を「決定的に安全に変換できる (= 単一値・正規 token・曖昧さなし)」 と「人手 judgment が要る (= 複数値分割・翻訳・表記正規化・typo 疑い)」 に分類。
+- **安全な行だけ auto-publish、 残りは surface** して人手に渡す (= §7 の armed-gate を「推測回避」 から「品質回帰回避」 へ一般化、 §3 の placeholder と同思想で「機械は安全な subset だけ触る」)。
+- arm する前に §5 の reproduce で「安全 subset の自動生成が過去の人手 curation を再現するか」 を検証 (= auto 出力 == 人手出力 を確認 → 回帰しない確証)。
+- mirror と record を分離: 公開描画する SoT (= curated) と、 上流の付帯情報 (= 注記・出典等) を残す collaborator-readable な record file を別 file にすると、 公開データに内部注記が混ざらず record も全行を一様に持てる。 record が「上流の疎な free-form を mirror する」 だけなら、 その不完全性 (= 「空欄 = 事実なし、 ではない」) を file header に明記して over-claim を防ぐ。
+
+### Pitfall: 同一 yaml を 2 parser が読むと YAML 1.1 boolean key で食い違う
+
+同じ yaml を **build tool の js-yaml (YAML 1.2) と script の PyYAML (YAML 1.1)** が両方読む構成では、 unquoted な `no` / `yes` / `on` / `off` / `y` / `n` を **PyYAML は boolean (例 `no:` → `False` key)、 js-yaml 1.2 は string** として load する (= 食い違う)。
+
+- 症状: PyYAML 側で `d.get("no")` が `None` を返す (= 実 key は `False`)。 build (js-yaml) は正常なので「script だけ」 が静かに誤読する。
+- 対処: script 側で両対応 (`d.get("no", d.get(False))`)、 または yaml 側で当該 key/値を quote。
+- reflex: 「この yaml は他 parser も読むか? key/値に `no/yes/on/off` 系の bare token はないか?」 を script を書く時に問う。
+
+---
+
 ## まとめ: 自動化 pipeline 設計の checklist
 
 新規自動化 script を書く前に以下を確認:
@@ -244,6 +284,9 @@ clean 前提を preflight で保証してから `git clean -fd <dirs>` する設
 - [ ] yaml の自動 edit を避けて print reminder にした?
 - [ ] **無人実行なら**: 自動 publish は推測ゼロの変換だけ? 導出不能 field は事前入力 (armed) or surface? (§7)
 - [ ] **無人 commit なら**: clean∧ff-only-or-abort → build 検証 → 失敗 revert → commit → push retry を mechanize した? (§7)
+- [ ] **無人で curated file を auto-edit するなら**: surgical text-edit + 再 parse integrity (round-trip でなく)? human/machine 共有なら ownership marker で人手所有を保護? (§8)
+- [ ] **上流が下流より雑なら**: 純 mirror が品質回帰しないか? 安全 subset だけ auto・残りは surface? (§8)
+- [ ] **同一 yaml を 2 parser (js-yaml + PyYAML) が読むなら**: YAML 1.1 の `no/yes/on/off` boolean key 食い違いを確認? (§8)
 
 ### 関連 convention
 

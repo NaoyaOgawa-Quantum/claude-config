@@ -27,6 +27,20 @@ MCP では cover できない (= bulk 操作・xlsx parse・特殊 scope) Google
 
 **重要な区別**: project 管理 (= layer 1) と token 発行 (= layer 3) は別 layer。 owner アカウント (= layer 1) が個人 Google で、 token 発行 (= layer 3) を Workspace アカウントで行う構成は normal。
 
+## まず: そもそも OAuth API が要るか (= published sheet は no-auth CSV で取れる)
+
+read-only でよく、 対象の Google Sheet が **「ウェブに公開 (publish to web)」** 済なら、 OAuth も GCP project も**一切不要**で CSV を取れる。 publish 済 sheet の URL 形 `…/d/e/2PACX-…/pubhtml` に対し、 tab ごとに:
+
+```
+https://docs.google.com/spreadsheets/d/e/<published-id>/pub?gid=<gid>&single=true&output=csv
+```
+
+を `curl` / `urllib` で GET すれば CSV が返る (= 認証なし、 誰でも)。 他人が公開している sheet (= 自分が owner でない upstream) を mirror source にする時に特に有用。
+
+- 見つけ方: 対象が GitHub Pages 等に sheet を iframe 埋め込みしているなら、 その `iframe src` の `…/pub?…` URL から `<published-id>` と各 `gid` を拾える。 `pubhtml` (gid なし) は全 tab を返す。
+- 保守: tab (= 年度別シート等) ごとに `gid` が違うので、 必要な gid を script に小さな map で持つ (= 1 行/tab)。 publish が解除されると endpoint は HTML error を返すので、 取得失敗は silent skip にして pipeline を止めない。
+- 制約: read-only かつ「公開済」 が前提。 private sheet / write / 細かい権限が要るなら下記の OAuth API 経由。
+
 ## GCP project の API enable
 
 各 Google API (Gmail / Sheets / Drive / Calendar / Classroom / etc.) は GCP project ごとに**個別 enable 必要**。 1 つ enable しても他は別。
