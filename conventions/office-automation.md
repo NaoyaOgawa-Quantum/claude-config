@@ -134,6 +134,8 @@ osascript -e 'tell application "Microsoft Excel" to quit'
 
 ⚠️ delay/quit/cold-start の非同期対策は **AppleScript で Office app を automation する一般則** (= -609「接続無効」 は quit 後も AppleScript が reference を clear せず vanishing app にコマンドが届く / app 未 ready で起き、 **any app に共通**)。 Word docx→PDF も同根の gotcha ([`docx-pdf-stale-cache`](#docx-pdf-stale-cache) の cold-start / quit)。
 
+⚠️ **merged cell の font 属性設定で `-10006` (errAEPrivilegeError) が返る場合**: osascript で merged cell の font size 等を変えようとすると -10006 が返ることがある。 Python 側で `try/except` を各操作に被せて続行し、 文字 clipping の根本解決は openpyxl の `shrink_to_fit=True` で行う ([`clear-yellow-fill-marks`](#clear-yellow-fill-marks) 参照)。 origin: 2026-06-04 謝金様式の fill 後微修正。
+
 **検証**: 書き込み後は openpyxl で読み直して値を assert する (= osascript は失敗しても exit 0 で沈黙しがち)。 ⚠️ ただし **merged cell の値は fitz / openpyxl の text 抽出では取れないことがある** (= 結合範囲の左上以外は空に見える / PDF の text 抽出も同様) → 抽出の空振りを「書けていない」 と即断せず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF **画像**で最終確認する。
 
 origin: 2026-06-05 学外者用様式 (= 複数シート + 数式参照 + textbox 標題) の cell 値修正。 killall 直後の 1 osascript (activate→open→set→save→close saving yes→quit) が -609 で全 cell 未書き込み → 上記 4 点で復旧。
