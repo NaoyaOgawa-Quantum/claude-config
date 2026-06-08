@@ -164,6 +164,25 @@ Claude Code は各 Bash 呼び出しの stdout/stderr を per-session tmp dir (=
 
 ---
 
+## 6. Pilot single-brain — 並列 session に同型の構造/規約タスクを渡す時
+
+### 問題
+
+同じ convention / structural task (= anchor schema 設計、 SoT 統合、 index 形式の確定 等) を**複数の parallel session に「各自 完成まで」 渡す**と、 各 session が独立に設計判断を下し、 **divergent な解に着地**する。 §1 の「同 file を別 session が独立に書く」 race と違い、 ここで衝突するのは file content でなく **設計それ自体** (= anchor の命名規則、 slug の振り方、 registry の schema)。 結果、 各 session が「正しいが互いに非互換な convention」 を生み、 **"multiple SoT" 問題**を 1 段上 (= メタレベル) で再生産する (= 後で統合する羽目になり、 [`convention-design-principles.md` §15 「SoT consolidation recipe」](../docs/convention-design-principles.md) の是正手順を回す対象が増える)。
+
+### 規律: sequential な pilot→worker にする (= parallel-to-completion にしない)
+
+- **1 つの session が convention design を所有する** (= pilot single-brain)。 anchor / slug / registry schema 等の**設計を確定 (frozen) させる**のはこの 1 session だけ。
+- 設計が frozen になってから、 **worker session には個別 entry の適用だけを伝播**する (= worker は schema を再設計せず、 確定済 schema に従って自分の担当 entry を埋めるだけ)。
+- frozen な instruction を worker に渡す (= 「この slug 規則・この anchor 形式で適用せよ」 と明示)。 worker が設計判断を再度行う余地を残さない。
+
+### Anti-pattern
+
+- **同型タスクを N session に「完成まで」 fan-out**: 各 session が良かれと独立設計し、 N 個の非互換な convention が生まれる。 N が大きいほど後段の統合コストが爆発
+- **pilot の設計が frozen 前に worker を走らせる**: worker が暫定 schema で適用を始め、 pilot が schema を変えると worker の成果が陳腐化 (= §13 のデータ→コード ordering と同型、 「確定する側」 を先に固める)
+
+---
+
 ## 関連
 
 - collaborator (= 他 user) との Git race / branching: [`shared-repo.md`](shared-repo.md)

@@ -910,6 +910,8 @@ multi-maintainer の場合、 順序保証よりも graceful skip の方が defe
 
 各 entry に kebab-case の安定 slug を与え、 cross-ref を slug で書く (= markdown なら `<a id="slug">` anchor + `[`slug`](#slug)` link)。 利得: 挿入・並べ替え・**ファイル移動**で ref が壊れない、 semantic (番号より意味が読める)、 **validator で dangling 検出可能**。 旧 positional 番号は捨てるが、 他 doc の dated/historical 参照が解決し続けるよう **index に `legacy` として保存**する (= 番号の identity でなく解決可能性だけ残す)。
 
+⚠️ slug-anchor が救うのは **内部 (= 同 file 内) の cross-ref** に限る。 doc 自体を repo-root → subdir へ **relocate** すると、 その doc が**他 file を指す** markdown 相対 link `[](path)` は黙って壊れる (= intra-repo link は `../` を 1 段 prepend する必要が出る、 cross-repo link は `../` → `../../` に深くなる)。 さらに厄介なのは、 **構造化 ref (= yaml の `cross_ref` 等) だけを検証する link-checker は markdown の `[](path)` link を対象に含まない**ため、 この breakage は**機械検出から漏れる** (= validator が green でも relative link は dangling しうる)。 → **doc を relocate したら、 その doc が抱える相対 link を手で fix し、 link 先の到達性を verify する** (= slug 化で「内部 ref は ref-safe」 になっても、 file 自身の移動による「外向き相対 link」 の breakage は別問題)。
+
 ### 14.3 薄い index で「DB の利点」 を prose を動かさず得る
 
 「entry が多い → DB 化したい」 直感の**正しい翻訳**は、 prose を yaml に移すことではない (= markdown-in-yaml は編集性を殺す + LLM consumer は grep で十分読める)。 **本文 prose は markdown のまま**、 別ファイルの薄い index (= `id` / `legacy` / `title` / `related` のメタだけ) で「join 検証 + 重複 surface」 という DB の利点だけを取る。 validator が (1) 全 ref が解決 (dangling 0)、 (2) 見出し ↔ index が全単射 (orphan 0)、 (3) 重複候補を keyword overlap で surface、 を機械化する。 ⚠️ prose を yaml に移すのは anti-pattern (= §2 の「定義は 1 箇所」 を index 側に誤適用しない、 prose が定義本体)。
@@ -934,6 +936,22 @@ reference convention 内の「反復実行・検証用の手順」 は illustrat
 - 本 repo `conventions/office-automation.md` の **slug 化 + index + validator** (= positional §-番号が letter-suffix 6 個まで増殖 + 内部 ref が無検証だった 1300+ 行 file を、 識別子だけ位置非依存化。 topic 分割は ref-safe になった状態で defer)。 worked artifact: `conventions/office-automation.index.yaml` + `scripts/check-office-automation-index.py`。
 
 決定的動機: 検証系 entry を追記した際、 それが既存 entry の mandate を掘り崩す regression を、 **機械検証が無いため手の多軸 sweep で初めて発見**した (= dangling / contradiction 検出が人手依存)。 数十 entry 規模でこれは破綻するため、 整合性検証を script 化する。
+
+---
+
+## 15. SoT consolidation recipe — README-as-SoT / 多重記述の是正手順
+
+§2 の「定義は 1 箇所＋pointer」、 §14.3 の薄い index、 単一-SoT 原則は**断片**として既に存在する。 だが「同じ authoritative fact が複数 file に多重記述されてしまった状態を実際に直す」 という作業は ordered procedure を要し、 順序を誤ると外部 ref を壊す / 内容を silently 変えてしまう。 本節はその是正手順を 7 step に固定する:
+
+1. **authoritative fact を provenance 付きで inventory する**: 何が正本足りうる fact かを列挙し、 重複箇所を `file:line` で洗い出す (= どこに何が散在しているかを先に確定。 grep で機械的に拾う)。
+2. **home は 1 つ＝grep 可能な working-SoT file に決める**: machine-consumer (= script が parse する必要) が無ければ単一の `.md` で十分、 **yaml にしない** (= prose を yaml 化すると編集性を殺す、 §14.3 の anti-pattern と同根)。 各 entry に出典と「源泉が改訂されたら再転記せよ」 の注記を添える。
+3. **README は thin index に降格する**: 定義本体を README から抜き、 home への pointer だけ残す。 ただし **外部 (= 編集権限のない別 repo) が指している anchor / heading は保存し、 path を rename しない** (= path-targeting な外部 ref を dangle させない。 §14.2 の legacy 保存原則の cross-file 版)。
+4. **全 secondary restatement を home への pointer に置換する**: 残った重複記述を全て「正本は X、 詳細は X 参照」 の pointer 文に変える。 cross-ref される表には**安定 anchor** を付け、 pointer はその anchor を指す (= positional 参照を避ける、 §14.2)。
+5. **home を SoT drift-detector に登録する** (= そういう機構を保守しているなら): このとき登録 key は **裸の値 (= 金額・日付等) でなく distinctive な規則 phrase を anchor にする** (= 値は他文脈で偶然 collide する、 規則を説明する独自 token なら誤検出が少ない)。 同時に**検出対象外の blind-spot を明示**する (= list-based audit は登録 topic しか見ない、 未登録の重複は 4 軸 sweep が cover する相補関係を doc 化、 §8.8)。
+6. **migration は逐語 relocation のみに留める**: 移設の最中に内容を「ついでに改善」 しない。 grep で home 前後の text が zero-loss であることを verify する (= これは移設であって内容変更ではない、 両者を 1 commit に混ぜると review で改変が埋もれる)。
+7. **4 軸 sweep (= goal は error 発見) ＋同 session 内で commit/push する**: 是正は複数 file を跨ぐので、 別 session の救済に依存せず同 session 内で push 完了まで持っていく (= cross-repo drift を残さない)。
+
+由来: ある運用ルールを複数 file に独立 author してしまい、 効率性軸の sweep が多重化を見逃した RCA を一般化 (= §13 の cell 埋め trap が SoT domain で発現した形態)。 本節は §2 / §14.3 の断片を「直す手順」 として束ねたもので、 新規原理ではなく ordered procedure の明文化。
 
 ---
 
