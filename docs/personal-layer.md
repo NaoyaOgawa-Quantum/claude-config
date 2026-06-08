@@ -179,7 +179,13 @@ But "the code lives at layer 3" must not become "the mechanism is invisible at l
 
 **Stronger form (preferred when feasible): split the seam.** Extract the *deterministic engine* (the part that takes a SoT and renders output) into the shared repo so its **logic is readable and runnable at layer 2**, and leave only the owner-private inputs + credentials + scheduling at the owner's layer. Then the shared repo holds transparent logic that is gated solely on private *data* — the ideal end-state. When the SoT itself already lives in the shared repo (so nothing private is read), the whole pipeline can be layer-2-native, with only an owner-private *trigger* (e.g. email detection) remaining at layer 3.
 
-This is the forward-direction analog of key-mapping: keep the private bit private, but never let the shared audience hit a wall they can neither see nor reason about.
+**Don't split the seam by *copying* a fact into two editable SoTs.** When a record has both a private aspect (pipeline / draft / contacts) and a public aspect (the published content), the tempting wrong move is to keep the whole record in the owner's private SoT *and copy the public part into the shared repo*. Now the same fact (a title, a date) lives in two independently-editable places — they drift, and you've violated single-source-of-truth. Instead:
+
+- **Partition, don't duplicate — one fact, one home.** Public fields live *only* in the shared published SoT; private fields (contacts, negotiation status, declined candidates) live *only* in the owner's ops SoT. No field is authoritative in both. The two files hold *different* data partitioned by sensitivity, not two copies of the same data.
+- **Promotion across the publish boundary is a MOVE (handoff), not a copy.** Pre-publish, the draft of the public content lives in the owner's ops SoT. At publish, its authoritative home becomes the shared published SoT, and the ops SoT *relinquishes* it (keeps only the private remainder + a key/pointer such as a slug). So at any instant each fact sits in exactly one place — it's one logical SoT physically partitioned by lifecycle (draft → published), like draft/published or hot/cold storage, not two SoTs for the same data.
+- A create-only mirror is the *copy* anti-pattern in disguise: it seeds the shared copy once, then both sides are hand-editable and silently diverge. If you find one, convert it to a move (the shared side becomes authoritative; the owner side stops carrying the public fields).
+
+This is the forward-direction analog of key-mapping: keep the private bit private, but never let the shared audience hit a wall they can neither see nor reason about — and never let the same fact have two homes.
 
 ## FAQ
 
