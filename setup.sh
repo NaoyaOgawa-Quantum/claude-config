@@ -24,6 +24,9 @@
 #        marker の警告。 commit-msg layer は 2026-05-26 追加 (= claude-code
 #        2.1.x harness invoke bug 修復 option B、 詳細は
 #        conventions/hook-authoring.md §2 (d))
+#   9.  python-docx XML 宣言 auto-patch をインストール（Word「破損」回避）
+#   10. (macOS) pty-leak mitigation の opt-in ヒント表示（自動 install しない、
+#        conventions/macos-claude-app-pty-leak.md）
 #
 # 使い方:
 #   mkdir -p <base> && cd <base>
@@ -1293,6 +1296,21 @@ if command -v python3 >/dev/null 2>&1; then
     bash "$SCRIPT_DIR/scripts/install-docx-decl-patch.sh" || echo "  ⚠ docx-decl patch install skipped (non-fatal)"
 else
     echo "  python3 not found → skip"
+fi
+
+# --- 10. (macOS) pty-leak mitigation のヒント (= opt-in、 自動 install しない) ---
+# Claude.app の /dev/ptmx leak で `forkpty: Device not configured` が出る既知バグ。
+# 通知 agent / sudo を黙って入れないため、 ここでは案内のみ (= 発見用 1 行ヒント)。
+# 詳細・原理・upstream issue は conventions/macos-claude-app-pty-leak.md。
+if [ "$(uname -s)" = "Darwin" ]; then
+    echo ""
+    echo "=== Step 10: pty-leak mitigation (macOS, opt-in) ==="
+    echo "  既知バグ: 長い session で Claude.app が pty を溜め込み、 Terminal 等が"
+    echo "  'forkpty: Device not configured' で開けなくなる (kern.tty.ptmx_max 枯渇)。"
+    echo "  緩和を入れるなら (自動 install はしない):"
+    echo "    bash $SCRIPT_DIR/scripts/install-pty-leak-mitigation.sh           # watchdog のみ (sudo 不要)"
+    echo "    bash $SCRIPT_DIR/scripts/install-pty-leak-mitigation.sh --persist  # + 起動時 bump (admin 1 回)"
+    echo "  詳細: conventions/macos-claude-app-pty-leak.md"
 fi
 
 echo ""
