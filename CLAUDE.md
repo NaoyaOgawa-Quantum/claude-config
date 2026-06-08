@@ -62,7 +62,9 @@ claude-config/
 │   ├── hook-authoring.md   # Claude Code hooks 作成 + 配信規律 (= bash 3.2 の $(...) + heredoc body quote escape parser bug + hook 配信正常性 3 軸 audit 〔symlink + settings.json + try-fire〕 + PreToolUse warn mode 出力 spec uncertainty + partial install state)
 │   ├── tool-call-robustness.md # Claude の tool call が「malformed and could not be parsed」 で壊れるのを防ぐ (= 真因は Anthropic backend の Opus 4.8 1M-context model serialization bug 〔issue #64684/#64955/#64235、 area:model〕 で書き方の問題ではない、 特殊文字密集/並列 tool call/非 ASCII/装飾過多は発生確率を上げる副次トリガー、 副次緩和 = 1 ターン 1 tool call / 複雑ロジックは Write でファイル化 / tool call ターンは本文プレーン / malformed 連発は新 session、 root は backend fix 待ち、 2026-06-05 RCA、 hook-authoring §1 の bash 3.2 parser bug とは別 layer)
 │   ├── paper-audit.md      # multi-paper merger 等の forward ref / 重複 subsection / structure issue を Phase1 機械検出 + Phase2 section-by-section AI 精読 + findings.yaml で体系 audit
-│   └── rebuttal-letter.md  # referee report への point-by-point 返信 (= author response) 作成 6 reflex (= 回答は本文 grep 照合・起源でない文献は see e.g.・referee 誤記は静かに正す・自己否定語回避・全 comment フル引用・旧式番号は submission 版基準)、 paper-audit.md と相補
+│   ├── rebuttal-letter.md  # referee report への point-by-point 返信 (= author response) 作成 6 reflex (= 回答は本文 grep 照合・起源でない文献は see e.g.・referee 誤記は静かに正す・自己否定語回避・全 comment フル引用・旧式番号は submission 版基準)、 paper-audit.md と相補
+│   ├── giving-talks.md     # 講演のしかた (= Robert Geroch "Suggestions For Giving Talks" arXiv:gr-qc/9703019 の own-words ダイジェスト、 主題選択 / 3-4 メッセージ構成 / 導入は全体の 1-5 / 視覚資料は図>言葉>式 / 1h で非自明な式 5 本・スライド 10 枚 / 質問は完全に正直に 等。 セミナー・JC・卒論発表の準備時に読む、 英語本体)
+│   └── giving-talks.ja.md  # ↑ giving-talks.md の日本語版
 ├── hooks/
 │   ├── memory-guard.sh             # メモリ書き込みガード — Edit/Write 用（§8 feedback deny + escape hatch: machine-local marker）
 │   ├── memory-guard-bash.sh        # メモリ書き込みガード — Bash 用（§8 feedback deny + escape hatch）
