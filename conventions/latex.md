@@ -290,7 +290,8 @@ hook (`scripts/fix-bib-unicode.py`) の `UNICODE_MAP` は **U+2013 (en-dash) と
 
 - **ページ番号・セクション名・式番号で位置を示す。tex の行番号は使わない。** 行番号はツールが tex を読むときの内部座標で、ユーザー側 (PDF / TeXShop) には不可視。ユーザーがナビゲートできない参照は無効
 - 行番号は Edit 等の tool 引数として内部で使うだけに留める
-- ページ番号は `.aux` の `\newlabel{...}{{sec}{page}{...}}` から引ける。最新ビルドの aux が無ければ PDF を読んで確認する
+- ページ番号・**式番号・節番号**は `.aux` の `\newlabel{<label>}{{<番号>}{<page>}...}` の**第 1 フィールド (= 番号)** から引ける (= `zref-clever` を使う note は `\zref@newlabel{<label>}{\default{<番号>}...}` 行も同値)。最新ビルドの aux が無ければ PDF を読む
+- **共著者の未 compile な `.tex` から番号を引く**には、 preamble の driver で 1 パス compile して aux を生成する。日本語 note (`ascmac` / `[dvipdfmx]` graphicx 等) は `uplatex -output-directory=<tmp> -interaction=nonstopmode <file>.tex` で通す (= pdflatex では通らない)。出力を tmp に逃がせば元の clone / Overleaf 入れ子を汚さない
 
 ## .gitignore
 **LaTeX 生成 PDF はリポに含める（ignore しない）。** 共同編集者がコンパイル環境を持っていない場合でも最新の PDF を参照できるようにするため。`*.pdf` を ignore する場合は `!<main>.pdf` で除外対象から外す。
