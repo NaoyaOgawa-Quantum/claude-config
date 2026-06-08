@@ -146,6 +146,14 @@ Tier 4 の例:
 - Fix: `const x = raw.default || raw;` で normalize (= v2 でも v3 でも動く)
 - 順序: 1) normalizer fix を main に commit、 2) Dependabot PR merge で実バンプ、 3) normalizer の fallback が活きる
 
+### Tier 4 の「local build test」 が build を持たない project (= 自作 MCP server 等) では何を指すか
+
+build step を持たない runtime project (= 自作 MCP server、 CLI、 script 群) の major dep bump では「build test」 の中身を明示する必要がある。 特に **自作 MCP server は API client (`googleapis` 等) を lazy 構築する** (= 初回 `tools/call` まで未構築) ため、 stdio `initialize` handshake は server boot + protocol negotiation のみ確認し、 **その依存を一切 exercise しない**。 → handshake PASS は major dep bump の検証として **不十分**、 read-only な `tools/call` を投げて**実 API round-trip**まで確認する (= 手順は [`mcp.md` runbook §1](mcp.md) の「handshake は依存検証ではない」)。 staged verification (= 1 dir bump → bump 前と live 結果比較 → 全 dir 展開) で blast radius 最小化。
+
+### Dependabot security-update PR は monorepo の全 manifest を cover しないことがある
+
+`directories:` 設定の monorepo で、 同一脆弱 package が複数 subdir の lockfile に出ても、 Dependabot の **security-update PR は一部 dir のみ生成される** ことがある (= rate-limit / batching)。 partial PR だけ merge すると残 dir の alert を見逃す。 → **全 affected dir 横断の local `npm audit fix` (non-`--force`) の方が完全**。 local fix → push → 残った partial PR は supersede として close、 が確実 (= §10 cascading loop に乗せて PR を 1 件ずつ追う より速い)。
+
 ## 7. ESM migration backwards-compatible normalizer
 
 CommonJS → ESM library で `require()` の戻り型が変わる (= bare function → `{default: fn, ...}`) ケースに reusable な pattern:

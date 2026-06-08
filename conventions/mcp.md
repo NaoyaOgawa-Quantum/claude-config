@@ -54,6 +54,22 @@ echo '{"jsonrpc":"2.0","method":"initialize","id":1,"params":{"protocolVersion":
 
 応答に `"result":{"protocolVersion":...}` が返れば server 側は健全。問題は Claude Code の MCP daemon 側の cache。
 
+#### handshake は「起動確認」 であって「依存検証」 ではない (= dependency bump 時の落とし穴)
+
+`initialize` handshake が PASS しても、それは **server の boot + protocol negotiation** を確認したに過ぎない。多くの MCP server は API client (`googleapis` 等) を **lazy に構築する** (= 初回 `tools/call` まで未構築)。したがって、ある dependency が **tool handler の中でしか使われない** 場合、handshake では一切 exercise されず、**handshake PASS は「その依存が動く」 証明にならない**。
+
+→ **major dependency bump (e.g. `googleapis` 171→173) を検証するなら、handshake では不十分。read-only な `tools/call` を投げて実 API round-trip まで確認する**:
+
+```bash
+# 1) initialize で result を受けたら 2) initialized 通知 → 3) read-only tool を call
+#    {"jsonrpc":"2.0","method":"notifications/initialized"}
+#    {"jsonrpc":"2.0","method":"tools/call","id":2,"params":{"name":"<read_only_tool>","arguments":{}}}
+```
+
+複数行 JSON を順に書く client は **`Write` で小さな node/python harness にして単純コマンドで起動**する (= inline の nested-quote JSON は tool call malformed を誘発、 [tool-call-robustness.md](tool-call-robustness.md) 参照)。staged verification 推奨: 1 dir だけ先に bump → bump 前と live 結果を比較 (同一なら回帰なし) → 全 dir 展開、で blast radius を最小化。
+
+**OAuth-backed server を live test する時の副作用**: 実 `tools/call` は token refresh を誘発し、credential file が drift する (= ephemeral な `access_token` / `expiry_date` のみ、durable な `refresh_token` は標準的 refresh では rotate されない)。検証後は drift を `git checkout --` で破棄してよい (= 次回使用時に refresh_token から自動再 refresh)。git-crypt'd credential file の durable field が不変かを `git show <rev>:<path>` で diff 確認することは**できない** (= ciphertext が返る、[git-crypt-guide.ja.md トラブルシューティング](../docs/git-crypt-guide.ja.md) 参照) ので、OAuth refresh semantics に依拠する。
+
 ### 2. log を確認
 
 ```bash
