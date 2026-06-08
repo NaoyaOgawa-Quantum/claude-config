@@ -221,6 +221,8 @@ run-time に人間が居る半自動 (§3) では placeholder を出力に残し
 
 clean 前提を preflight で保証してから `git clean -fd <dirs>` する設計なら、 clean は「自分が今作った untracked だけ」 を消す (= 既存 untracked を巻き込まない) ことが保証される。
 
+**Pitfall: 「clean」 判定 (`git status --porcelain`) は untracked file も拾う**。 つまり repo に**無関係な stray untracked file が 1 個でもあると preflight が dirty と判定して無人 job が静かに止まる** (= 別 session の中途 WIP、 migration 生成物、 手で置いた tmp file 等)。 これは安全側 (= 散らかった tree を触らない) だが、 停止の**原因が非自明** (= 「なぜ今日 publish されてない?」 が untracked file 由来と気付きにくい)。 対策: 無人 job には別途 **heartbeat / staleness 検出** (= N 時間 publish 無し or 実行痕跡無しを surface) を持たせ、 停止に気付ける状態にする (= preflight abort 自体は正しい、 検出層で可視化する)。
+
 ### 関連
 
 - §3 (judgment-required placeholder) = run-time 人間あり版、 本 §7 = 無人版。 同じ「機械は推測しない」 思想の対話/無人の両極
