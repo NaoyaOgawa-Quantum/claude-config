@@ -25,6 +25,25 @@
 
 node-pty が `posix_spawn` 失敗時に PTY master を開いたまま `child_process` fallback して fd を close しないのが root と特定済 (gemini-cli #15945)。 同症状: Cursor / opencode (#11016) 等、 node-pty を使う Electron 系 CLI 全般。 → **Anthropic 単独でなく node-pty 層の問題**だが、 当面 Claude.app 側でも未対処。
 
+## Quick install (claude-config 同梱の 1 コマンド)
+
+macOS で claude-config を使っているなら、 同梱 installer で緩和を配線できる (idempotent、 macOS 以外は no-op):
+
+```bash
+# (1) watchdog のみ (sudo 不要): 枯渇前に macOS 通知
+bash scripts/install-pty-leak-mitigation.sh
+
+# (2) + reboot 後も 958 維持 (admin password 1 回)
+bash scripts/install-pty-leak-mitigation.sh --persist
+```
+
+- watchdog = `scripts/pty-leak-watch.sh` を LaunchAgent `com.claude-config.pty-leak-watch` (5 分毎、 85%/93% で通知) として配線。 launchd 直起動なので **watchdog 自身は pty を消費しない**。
+- `--persist` = LaunchDaemon `com.claude-config.ptmx-bump` が起動時に段階 bump (= 下記 Workaround 2 を自動化)。
+- 個人ラベル等からの移行は `--replace-agent <label>` / `--replace-daemon <label>` (= 旧を bootout+rm してから新を入れる、 admin dialog は 1 回)。
+- **これらは緩和** (= 壁の手前で時間を稼ぐ)。 唯一の回収は Claude.app restart (下記)。
+
+以下は installer が内部で行う内容の手動版・原理説明。
+
 ## Diagnosis
 
 ```bash
