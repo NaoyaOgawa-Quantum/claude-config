@@ -1484,6 +1484,24 @@ pix.save("/tmp/markup.png")    # Read で手書きの訂正テキストを読む
 
 ⚠️ **肝は「ink は text でなく注釈なので `get_text` では拾えず、 render (画像化) してはじめて見える」** こと (`get_pixmap` の `annots` は **既定 True** なので render すれば注釈は出る — 明示 `annots=True` は意図を示すだけで必須ではない)。 [`fitz-pdf-toolkit`](#fitz-pdf-toolkit) の render に、 診断 (`annots()` で位置を特定) と注釈 rect への高 DPI crop を足したのが本節。 これは [`visual-check-by-user`](#visual-check-by-user) の「手書き赤入れは user に見てもらって relay」 を、 **image budget があるとき Claude が直接 ink を読む**経路で補完する (= budget 枯渇時は従来どおり user relay、 [`image-budget-exhaustion`](#image-budget-exhaustion))。
 
+**補完ケース (= 色が text レイヤにある場合)**: 上は ink 注釈で「色で拾う → 0 件」 の側だが、 逆に **マークアップの色が text レイヤ (= 着色した `<w:t>` span)** にあるなら、 span 色を直接読んで triage bucket に振り分けられる (= render 不要、 決定論)。 span を走査して `span["color"]` (RGB int) を分類する:
+
+```python
+import fitz
+doc = fitz.open("marked.pdf")
+for page in doc:
+    for b in page.get_text("dict")["blocks"]:
+        for l in b.get("lines", []):
+            for s in l["spans"]:
+                c = s["color"]; r = (c >> 16) & 0xFF; g = (c >> 8) & 0xFF; bl = c & 0xFF
+                if r > 120 and g < 100 and bl < 100:      bucket = "red=直す"        # fix this
+                elif bl > 120 and r < 100 and g < 120:    bucket = "blue=コメント削除"  # delete guidance/comment
+                else:                                     continue                  # 黒 = 本文
+                # bucket ごとに s["text"] を集める
+```
+
+⚠️ どちらの経路かは [`pdf-annotation-markup-read`](#pdf-annotation-markup-read) 冒頭の診断 (span 色の集合が全黒か / `annots()` に Stamp があるか) で先に確定させる。
+
 ### <a id="pdf-margin-pixel-measure"></a>余白を px で客観測定する (= render → 非白 bbox)
 
 「余白が均等か」 のような体裁判断を**目視に頼らず数値で**詰める。 render image を grayscale 化 → 非白 pixel の bbox → 上下左右の余白 px を出す。 [`even-margins-centering`](#even-margins-centering) の前後で測れば改善を定量化できる。
