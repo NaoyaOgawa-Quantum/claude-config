@@ -1,6 +1,8 @@
 #!/bin/sh
 # install-pty-leak-mitigation.sh — macOS Claude.app の pty leak 緩和を現ユーザに install。
-# 正本 doc: conventions/macos-claude-app-pty-leak.md
+# 原理 doc: conventions/macos-claude-app-pty-leak.md (= 説明・判断材料)。
+# このスクリプト + pty-leak-watch.sh が段階 bump 数列 / LaunchDaemon plist /
+# watchdog ロジック / 配線の SoT (= doc 側に複製しない、 drift 防止)。
 #
 # 既定 (sudo 不要): pty-leak-watch.sh を LaunchAgent として配線 (= 枯渇前に通知)。
 #   bash scripts/install-pty-leak-mitigation.sh
