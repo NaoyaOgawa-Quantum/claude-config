@@ -61,6 +61,18 @@ token は account 単位、 project access 権限とは別 layer。 token 期限
 - fetch + push 両方 403 + 新 token でも 403 → permission/timing issue (= token は関係ない)
 - 元の push が timeout → Overleaf 側の server 状態 (= rate limit、 GitHub linking 競合)
 
+## 変種: direct nested clone (Overleaf = 唯一の source、 GitHub linking 無し)
+
+共著者が Overleaf でノートを書き、 GitHub linking を張らない / 張れない場合 (= Overleaf project がそのまま唯一の正本、 GitHub repo を介さない)、 paper repo 内に **gitignore 除外のローカル専用入れ子 clone** を置いて read 方向で取り込む。 上の GitHub linking 経路とは別物 (= こちらは master が Overleaf 側、 push は共著者に直接影響するので user 明示 OK 必須)。
+
+設計:
+- 配置: `<repo>/external/overleaf/` (`.gitignore` に `external/` を入れて本体から隔離)
+- token: `~/.secrets/overleaf-token` (= 上記 §Token 管理と同じ。 clone URL `https://git:$(cat ~/.secrets/overleaf-token)@git.overleaf.com/<project_id>` にのみ埋め込み、 出力は `olp_…` を必ずマスク)
+- **project ID は paper repo 側 (= layer 2) に記録する**。 ⚠️ ID を gitignore 除外の clone 内 (`external/overleaf/.git/config`) だけに置くと、 **別マシン / clone 削除で完全な ID が失われ**、 他マシンや Overleaf web から手で回収する羽目になる (= 2026-06-08 に実際発生。 同期されていたのは ID 先頭 8 桁の truncation だけだった)。 対策 = **冪等 bootstrap script に PROJECT_ID をハードコードして commit** し、 script を ID の single source of truth にする。
+- 冪等 bootstrap script (= 無ければ clone / あれば `git pull --ff-only` / token 無ければ `restore-secrets.sh` 案内) を repo 内に置き、 **新マシン手順を「repo clone → restore-secrets (一度) → sync script」 の 1 直線**にする。
+
+⚠️ layer 注意: project ID は**その paper repo (layer 2) に置く**のが正しい。 layer 1 (本 repo = public) に individual project の ID を書かない (= 公開リポ衛生 + 規約は汎用知識のみ)。 layer 3 (個人層) に置くと layer 2 の script が layer 3 を参照する依存違反になる (= collaborator は個人層を読めない)。 自己完結する layer 2 が audience-correct な最上層。
+
 ## なぜこの設計が optimal か
 
 - **bidirectional auto-sync**: linking active 中、 commit が自動 propagate
@@ -79,4 +91,7 @@ token は account 単位、 project access 権限とは別 layer。 token 期限
 
 ## 二例目が出たら refine
 
-将来他の共同 LaTeX paper で同様の Overleaf 共著が発生したら、 本 convention を refine。 現状は 該当 private paper repo で完結。
+将来他の共同 LaTeX paper で同様の Overleaf 共著が発生したら、 本 convention を refine。
+
+- 一例目 (2026-05-19): ある private paper repo で GitHub linking + mirror 経路を確立。
+- 二例目 (2026-06-08): 別の物理共著 note repo で **direct nested clone 変種** (= Overleaf が唯一の source、 GitHub linking 無し) が発生 → 上の §「変種: direct nested clone」 を新設。 ID を gitignore 除外 clone 内だけに置いて失われた RCA を反映。
