@@ -65,7 +65,8 @@ Two jobs:
 specific topic in three or four steps. For a general audience, open with broad recent trends
 in physics; for specialists, with current directions or open problems in the wider field.
 **Repeat the context even if the audience probably knows it** — it establishes the frame
-everyone needs. Stress what kind of problem you address and why: Why study this? Why is it
+everyone needs. (If there is no single natural context for the subject, make one up.) Stress
+what kind of problem you address and why: Why study this? Why is it
 interesting? What has it taught us about nature? Where do things stand, and where are they
 heading? An optimistic framing of the future builds enthusiasm.
 
@@ -80,7 +81,9 @@ the structure of your talk.
 - **Mark every message boundary explicitly.** Open each message by restating its title, saying
   you are starting it, and previewing its content ("We now begin our discussion of..."). Close
   it by saying it is finished and giving a three-or-four-sentence non-technical summary ("To
-  summarize,..."). Make transitions between messages unmistakable.
+  summarize,..."). These closing summaries matter especially: they let the audience consolidate
+  what you said, and let anyone who got lost rejoin the thread. Make transitions between
+  messages unmistakable.
 - **Keep re-orienting the audience.** Periodically restate the overall plan, where you are in
   it, and how the messages connect. The audience should always know where they are.
 - **Treat each message as a self-contained mini-talk** with one clear objective, typically
@@ -114,8 +117,9 @@ the structure of your talk.
   beats several weak ones.
 - **Words on slides.** When a point or argument is verbal, put a short summary on the slide or
   board for emphasis. A full sentence is fine (one or two per slide at most); for a multi-step
-  argument, list the steps as short phrases to expose the structure. It is fine to read
-  displayed text aloud. Keep each slide up for several minutes; if something would only be
+  argument, list the steps as short phrases to expose the structure. (To put a theorem on a
+  slide, condense its complicated conditions into a short descriptive phrase in quotation
+  marks.) It is fine to read displayed text aloud. Keep each slide up for several minutes; if something would only be
   shown briefly, fold it into another slide as a phrase instead.
 - **Equations.** Treat an equation as a tool for making a point, not as data for the audience
   to copy down. Present it as a "picture" to be described, discussed, and interpreted
