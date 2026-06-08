@@ -158,6 +158,29 @@ If you participate in shared-project layers that use git-crypt with shared keys 
 
 Claude reads this file via the personal-layer cascade and uses the right path automatically when entering a shared-project repo. Without this file, Claude falls back to the convention path `~/.secrets/<project-name>.key`.
 
+## Owner automation acting on a shared project
+
+The key-mapping section above handles the case where a **shared** layer needs a **private** thing (a key). The opposite direction needs a rule too: an **owner automation** (layer 3 or 4 — runs on the owner's machine, reads owner-private inputs, holds the owner's credentials) that **writes into a shared-project (layer 2) repo**. The canonical example is a nightly publisher that mirrors an owner-private source-of-truth into a shared website, or a bot that posts generated content into a shared repo.
+
+The Core rule forces the automation **itself** to sit at the owner's layer: it structurally depends on owner-private inputs (a private SoT, an OAuth token, a machine-pinned scheduler), so a copy living in the layer-2 repo would be **dead code for collaborators** — they can't run it, they lack the inputs. That placement is correct and unavoidable.
+
+But "the code lives at layer 3" must not become "the mechanism is invisible at layer 2." Separate two things:
+
+- **Gating private *data* is legitimate** — collaborators don't get to see the owner's private SoT (unconfirmed drafts, contacts, pre-public coordination). That's privacy, not opacity.
+- **Hiding the *mechanism* is a defect** — if collaborators open the shared repo and find files materializing with no visible explanation of what produces them, what the contract is, or how to operate it when the owner is away, that is exactly the inaccessible opacity to forbid. The shared repo's audience is *affected by* the automation; they must be able to see and reason about it.
+
+**Requirement — the automation must announce itself in the shared repo.** Per the depend-vs-mention rule, naming the owner-private SoT (with a boundary statement) is allowed and *encouraged*; what you add is a layer-2 contract doc stating:
+
+1. **Which files are machine-generated / owned** by the automation, vs. which are hand-editable.
+2. **Its write discipline** — create-only? idempotent overwrite? — so a collaborator knows whether their hand-edits survive.
+3. **What the SoT is and who owns it** (mention + boundary statement: "lives in the owner's private repo; you don't need access — edit the generated files here directly").
+4. **How to observe its health** (heartbeat / dashboard) and **how to run or trigger the parts collaborators can** (e.g. the deterministic build usually already lives in the shared repo).
+5. **Bus factor** — who to contact / how the shared parts are operated if the owner is unavailable.
+
+**Stronger form (preferred when feasible): split the seam.** Extract the *deterministic engine* (the part that takes a SoT and renders output) into the shared repo so its **logic is readable and runnable at layer 2**, and leave only the owner-private inputs + credentials + scheduling at the owner's layer. Then the shared repo holds transparent logic that is gated solely on private *data* — the ideal end-state. When the SoT itself already lives in the shared repo (so nothing private is read), the whole pipeline can be layer-2-native, with only an owner-private *trigger* (e.g. email detection) remaining at layer 3.
+
+This is the forward-direction analog of key-mapping: keep the private bit private, but never let the shared audience hit a wall they can neither see nor reason about.
+
 ## FAQ
 
 **Q. Is the personal layer required?**
