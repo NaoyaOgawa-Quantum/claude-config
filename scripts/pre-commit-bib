@@ -7,6 +7,11 @@
 #
 # The fixer script (fix-bib-unicode.py) is resolved relative to this file
 # when symlinked, or falls back to ~/Claude/claude-config/scripts/.
+#
+# Opt-out: vendored / verbatim third-party LaTeX can be excluded from the
+# auto-fix by unsetting the `latex-autofix` attribute in .gitattributes, e.g.
+#     notes/vendor/** -latex-autofix
+# Such paths are committed byte-for-byte (the layer-3 chain hook still runs).
 
 set -euo pipefail
 
@@ -31,7 +36,20 @@ fi
 if [[ -f "$FIXER" ]]; then
     LATEX_FILES=$(git diff --cached --name-only --diff-filter=ACM \
         | grep -E '\.(tex|bib|bst|cls|sty)$' || true)
-    if [[ -n "$LATEX_FILES" ]]; then
+    # Opt-out for vendored / verbatim third-party LaTeX: a path whose
+    # `latex-autofix` git attribute is unset (via .gitattributes, e.g.
+    #     path/to/vendored/** -latex-autofix
+    # ) is excluded here so its bytes are preserved exactly. Paths without
+    # the attribute are auto-fixed as before (= backward compatible default).
+    KEPT=""
+    for f in $LATEX_FILES; do
+        attr=$(git check-attr latex-autofix -- "$f" 2>/dev/null | sed 's/.*: //' || true)
+        [[ "$attr" == "unset" ]] && continue
+        KEPT="$KEPT $f"
+    done
+    LATEX_FILES="$KEPT"
+
+    if [[ -n "${LATEX_FILES// /}" ]]; then
         # Run the fixer (exit 1 = files were modified, 0 = no changes)
         python3 "$FIXER" $LATEX_FILES && rc=0 || rc=$?
         if [[ $rc -eq 1 ]]; then

@@ -261,6 +261,27 @@ hook (`scripts/fix-bib-unicode.py`) の `UNICODE_MAP` は **U+2013 (en-dash) と
 
 **Claude 規律**: `.tex/.bib` を書くとき、 「視覚的に em-dash」 のつもりで何の codepoint を打鍵しているか自覚する。 input method (= IME) が打鍵によって違う codepoint を吐くことがあり、 同じ文書内で codepoint 不一致が発生する (= 2026-05-15 個人層 private 日本語 LaTeX project の lecture draft で comments 部 U+2014 / body 部 U+2500 の混在を 1 セッション内で気付かずに作成、 hook が U+2014 のみ変換した結果 visual 一致だが source 不一致に着地)。 IME の確認 + 章執筆 1 個分書いたら `grep -P "[\x{2013}\x{2014}\x{2015}\x{2500}]"` で出現 codepoint を audit する。
 
+### vendored / verbatim LaTeX の opt-out (2026-06-09)
+
+hook は自分が書く LaTeX を正規化する道具なので、 **第三者の vendored ソース (arXiv 論文ソース等) を repo に byte-for-byte で取り込む時は触られると困る** (= 著者名アクセントや dash が勝手に LaTeX エスケープ化され、 upstream と diff したとき spurious 差分になる)。
+
+そこで `pre-commit-bib` は `.gitattributes` で **path 単位の opt-out** を honor する。 該当 path の `latex-autofix` 属性を unset すれば、 その file は auto-fix から除外され byte 保存される:
+
+```gitattributes
+# 例: vendored な論文ソースを丸ごと保護
+notes/vendor/**            -latex-autofix
+papers/upstream/ms.tex     -latex-autofix
+```
+
+- 属性なし (= 既定) の file は従来どおり fix される (= 後方互換)。
+- 仕組み: hook が staged LaTeX file 各々に `git check-attr latex-autofix -- <file>` を問い、 `unset` のものを fixer から外す (`scripts/pre-commit-bib`)。 末尾の layer-3 chain hook は除外と無関係に常に走る。
+- `.gitattributes` は commit に乗るので全 clone (共同編集者含む) に伝播する。
+- ⚠️ opt-out は「自動 fix からの保護」 であって「自分が書く新規 .tex でアクセント直書き OK」 ではない。 vendored 取り込み専用。
+
+### 設計動機 (2026-06-09)
+
+hook に除外機構が無く、 ある repo に arXiv の LaTeX ソースを verbatim 取り込んだ時、 初回 commit で bibliography 著者名 (`Krämer`→`Kr{\"a}mer`) と dash が自動正規化され「verbatim」 が崩れた。 public な本 repo から全 repo に配られる hook に opt-out が無いのは設計欠陥、 と判断して `.gitattributes` honor を追加。 改変は意味的には identity-preserving (LaTeX 描画同一) だが、 vendored source は upstream との byte 一致が価値なので除外できるべき。
+
 ## 日本語横罫線 (em-dash 系) の書き方 (2026-05-15、 個人層 LaTeX project 経験で導入)
 
 日本語典籍 (= 物理書・数学書・小説・新聞) で多用される「**思考の挿入・補足・話題転換**」 を示す長い横棒 (typographically: `──` or `――`) を LaTeX で書く 3 方式の比較。 視覚的には全て似ているが source / build / hook との相互作用が異なる。
