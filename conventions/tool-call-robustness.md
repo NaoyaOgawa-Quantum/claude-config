@@ -66,6 +66,21 @@ malformed-tool-call bug で session が**途中で死んでも、 その session
 
 ⚠️ root が backend bug である以上、 この回収手順は「死を防ぐ」 ものではなく「死んだ後に損失を最小化する」 ものである (= 「限界」 section と整合、 新 session 切り替えとセットで運用する)。
 
+## 別の Bash 失敗モード: 出力 capture の ENOSPC (= 「Command output was lost」、 malformed とは別物)
+
+malformed (= model serialization bug) とは独立の失敗で、 **Bash tool の stdout/stderr が harness に capture されず失われる**ことがある。 症状: tool result が `Command output was lost: the temp filesystem at /private/tmp/claude-<uid>/.../tasks is full (0MB free). ... ENOSPC` になる。 ⚠️ **コマンド自体は実行されている可能性が高い** (= 出力の取りこぼしであって操作の失敗ではない) ので、 「失敗した」 と即断せず別経路で結果を確認する。
+
+- **真因**: harness が child の stdout/stderr を一時 file に capture するが、 その capture 用 filesystem が満杯。 **メインディスクの空きとは独立** (= `df -h` でルートに余裕があっても capture fs だけ 0MB になりうる)。 正確な trigger は未確定 (= 多数 session 分の temp 累積等の可能性、 単一観察)。
+- **workaround (確実)**: コマンドの出力を **余裕のある fs 上の file に redirect し、 自身の stdout を空にする** → harness の capture write が空 (or 極小) になり ENOSPC を回避 → その file を `Read` で読む。
+
+```bash
+some-cmd > /abs/path/out.txt 2>&1; true   # stdout を出さない。 末尾 true で exit 0 を保証
+```
+
+  その後 `Read /abs/path/out.txt`。 **出力を持たないコマンド (= `rm` 等) はそのまま成功する**ので、 free-up 系はそのまま実行できる。
+- `CLAUDE_CODE_TMPDIR` を余裕のある dir に向ければ capture 先を移せるが、 **harness は親プロセス env から読む**ため child の Bash 内で export しても効かない (= 設定変更は session 再起動が要る)。
+- 上記「副次緩和 2」 (複雑ロジックを `Write` で file 化) と相性がよい: script を file 化 → `bash script > out.txt 2>&1` → `Read` で、 **malformed と ENOSPC の両方を同時に回避**できる。
+
 ## 関連
 
 - `hook-authoring.md §1` — bash 3.2 の `$(...)` + heredoc parser bug。 **別 parser** (= macOS stock bash) だが回避策 (中間 file 化) が共通。
