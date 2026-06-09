@@ -2,6 +2,10 @@
 
 ## 現在の状態
 
+**2026-06-09 (latex.md に platex DVI workflow の compile/検証 gotcha 追記)**: 物理 note を platex DVI workflow で書く session の知見を layer 1 化。 §コンパイラ: `hyperref`/`xcolor`/`tikz` も DVI 経由は driver 指定が要る (= 未指定で `\special{ps: SDict ...}` → `dvipdfmx` が `Interpreting PS code failed`、 PDF は出るがリンク/色/図が壊れ `ptex2pdf` が `failed` を返す) → `\documentclass[...,dvipdfmx]` で全 package 一括が確実。 `ptex2pdf`/`platex` の exit code は信用せず `platex×2→dvipdfmx` 個別実行 + log grep + PDF 再生成 timestamp で判定。 §418 (PDF 視覚検証 reflex): **`grep undefined` は `grep "^!"` の代用にならない** (= `Double subscript` 等の `^!` error は TeX が recover して PDF を出すので undefined-only check で見逃す、 本 session で double-subscript macro が複数 compile を生存) を追記。 全 generic (人名/機関名/private repo 名なし)。 物理側知見は private 研究リポの note/SESSION に分離記録済。
+
+---
+
 **2026-06-05e (office-automation.md に「多 sheet xlsx → 提出用 PDF」 RECIPE + 新 slug 8 個)**: 複数 sheet の様式 xlsx を提出用 PDF にする end-to-end の作り込み知見を layer 1 化 (= origin: 2026-06-05 出張様式 PDF 業務、 週次化に向け user が「完璧に再現できる手引書化」 を指示)。 新 H2 [`multi-sheet-pdf-assembly`](conventions/office-automation.md#multi-sheet-pdf-assembly) = **RECIPE** (構造把握→fill→ページ体裁→出力→検証→永続化、 既存+新 slug を task 順に連結) + 新 slug 8: `excel-pdf-whole-workbook-export` (= Excel の save-as は workbook 全体を出力→不要 sheet を temp 削除、 数式参照先は残す #REF 回避) / `one-sheet-multi-page-split` (= print_area 切替→個別出力→fitz 結合) / `print-area-bbox-fit` (= 実内容 bbox に詰める、 広いと fitToHeight で縮小+余白偏り) / `even-margins-centering` (= page_margins 統一+水平/垂直中央寄せ、 Excel 尊重 / soffice は verticalCentered 無視) / `fitz-pdf-toolkit` (= render/crop/結合/page_count) / `pdf-margin-pixel-measure` (= 非白 bbox で余白を px 実測) / `soffice-excel-fidelity` (= engine 体裁差 table) / `trailing-print-artifact` (= 表末尾の浮いた点線=余分末尾行)。 index.yaml に 9 entry 追加 + validator dangling0/orphan0 (95 sections)。 top に RECIPE 入口 pointer + stale な「Excel=1 sheet」 表記に caveat。 別 commit で `merged-cell-write-topleft` に罫線 anchor 追記済。 全 generic (人名/grant 番号/機関名なし)。 process 側 (= 出張様式 fill→検証 手順) は private repo の runbook に分離 (= layer 分割)。
 
 ---
