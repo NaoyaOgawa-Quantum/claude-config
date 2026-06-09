@@ -448,7 +448,20 @@ worked example: 運用台帳 yaml の status を unquoted scalar のまま自由
 
 reflex: 構造化データを read して何か (特に削除/上書き) する script を書く時「入力が parse 失敗したら、 これは空として進むか? それは破壊的か?」 を問う。 fail-empty が destructive path に繋がるなら fail-loud + abort に変える。 cf. `conventions/data-pipeline-automation.md §1` (= SoT invariant を経路非依存 commit gate で enforce = 生成 script の guard が手動編集をすり抜ける問題の対) — 本節は consume 側の双対。
 
-origin: 2026-06-09、 編集時 gate (= 編集後 yaml parse 検証 hook) と consume 側の fail-loud pre-flight (= 監視 yaml が 1 件でも parse 不能なら破壊的 label 除去を中止) の 2 本を実装。 観察 2 件 (本 yaml 破損 + §1 の guard-bypass) からの一般化 (§9.8 充足)。
+origin: 2026-06-09、 編集時 gate (= 編集後 yaml parse 検証 hook) と consume 側の fail-loud pre-flight (= 監視 yaml が 1 件でも parse 不能なら破壊的 label 除去を中止) の 2 本を実装。 ⚠️ 根拠は **直接事故 1 件** (本 yaml 破損 → fail-empty で破壊的誤動作) + §1 (生成側 gate) という **sibling 原則** であり、 §9.8 の「2 独立観察」 には厳密には届かない (= 直接観察は 1 件)。 ただし fail-loud / 編集時検証 は確立した一般原則で、 既存 §1 と双対をなすため layer 1 に置く (= 過度な一般化でなく、 既存原則の欠けていた対辺の補完)。
+
+### 8.11 downstream の安全網は intake で正しく表現された対象しか守れない — leverage は上流にあり、しばしば判断 (= 機械化不能)
+
+§8.8-8.10 は mechanism の **実装** 品質だった。 本節は mechanism の **配置**: surfacing / detector / 通知のような **downstream の安全網は、 対象が intake (= 取り込み・登録時) で正しく表現されている前提**で動く。 追跡すべき X が intake で **下位概念に mis-encode** される (= X をその手段 Y として登録 / 締切を proxy で埋める / 優先度を取り違える) と、 その fact は **そもそも安全網が掴む形で存在しない** ので、 downstream の網をどれだけ足しても捕まらない (= 「網が見るべきものが、 網の見える場所に無い」)。
+
+帰結:
+- **failure に downstream 検出器を足し続けると whack-a-mole**: 各 fix は「前回の失敗の正確な形」 を塞ぎ、 次は隣の未カバー領域に落ちる。 検出器 fleet の増殖は「leverage が上流にあるのに下流で叩いている」 症状 (= §9.2 の予防一辺倒肥大化と同根)。
+- **最大 leverage は intake の encoding を正すこと**: 追跡対象を「それ自身」 として登録する (下位手段でなく) / proxy でなく本物の制約を入れる / 不明なら **能動的に確定する**。 これは多くの場合 **意味判断**で hook 化できない (= 「この登録は対象を取り違えているか?」 は機械に解けない)。
+- ゆえに downstream mechanism は「正しく encode された対象の **信頼性**を上げる」 もので「mis-encode を救済する」 ものではない、 と役割を限定する。
+
+reflex: 見落とし failure に downstream の検出器/通知を足す前に「対象は intake で正しく表現されていたか? 失敗は **配置** (= 上流の encoding) か **実装** (= 下流の網) か?」 を問う。 配置側なら、 網を足すより intake の規律 (= 機械化不能でも登録時に正しい形を作る judgment discipline) を主にする。
+
+origin: ある追跡システムで「期限つき義務」 が複数回見落とされた事例の連鎖。 毎回 downstream の網 (= 到着 trigger / 締切 surface / 返信 handback 検出) を 1 つずつ足したが、 各々「前回の正確な形」 を塞いだだけで次が隣の死角に落ちた。 根は intake で義務が下位ロジ (= 調整作業) として mis-encode され、 本物の締切が一度も登録されなかったこと = どの網も「存在しない fact」 を掴めなかった。 §8.8 (網が proxy を見る) の **上流版** (= 網が見る対象自体が intake で歪む)。 3+ 事例の連鎖からの一般化 (§9.8 充足)。
 
 ---
 
@@ -990,3 +1003,4 @@ reference convention 内の「反復実行・検証用の手順」 は illustrat
 | 2026-06-05 | §14 新設「大規模 reference / gotcha convention の intra-file 構造」 | office-automation.md (1300+ 行 / 69 サブセクション / letter-suffix § 6 個 / 無検証の内部 ref 網) の slug 化 restructure から抽出。 §10 が file 間 tier を扱うのに対し §14 は単一肥大 convention の file 内部 = 別 concern。 trigger 3 signal (サブセクション過多 / letter-suffix 増殖 / 無検証 cross-ref) + slug identity (legacy は index に保存) + 薄い index で DB 利点 (prose は yaml 化しない) + split-axis を access pattern に合わせる (recency 軸 = 作業規律 doc / topic 軸 = office-automation) + slug-first で分割 ref-safe + mechanical は script 化。 2 観察からの一般化 (§9.8 充足) |
 | 2026-06-06 | §8.9 新設「set 差分 detector の false positive」 + data-pipeline-automation.md §1 Pattern | SoT 統一 session の reference-data drift 手当から抽出。 §8.9 = §8.8 (proxy 盲点 = false negative) の対で、 set 差分 drift 検出の正当な乖離 (別管理 / 環境差 / 意図的例外) を filter で峻別。 data-pipeline §1 に「SoT invariant は生成経路でなく経路非依存 commit gate で enforce」 Pattern (= 生成 script の guard が手動編集をすり抜けた RCA の一般化)。 2 観察 (repo 照合 detector + reference DB dedup) からの一般化 (§9.8 充足)。 + §8.8 表に「委譲した調査 (subagent) の結論も proxy」 行追記 (= agent の『drift なし』 を自分で grep verify したら 9 件発見した実例、 negative 結論は ground truth でない = §3 単一情報源飛躍の subagent 版) |
 | 2026-06-09 | §8.10 新設「fail-loud not fail-empty + 編集時 validity gate」 | 運用台帳 yaml の status に `: ` 混入で parse 不能化 → consumer が fail-empty (空扱い) で状態 label を 32 件誤除去した RCA から抽出。 §8.8 (proxy false-negative) / §8.9 (set 差分 false-positive) に続く mechanism の第 3 失敗モード = 「壊れた入力を空に潰して下流で破壊的 action」。 対 = 編集時 gate (parse 検証) + consume 時 fail-loud (破壊的 path を pre-flight abort)。 conventions/data-pipeline-automation.md §1 (生成側 gate) の consume 側双対。 観察 2 件 (yaml 破損 + §1 guard-bypass) からの一般化 (§9.8 充足)。 実装は個人層 (yaml 編集後検証 hook + label 同期 script の fail-loud pre-flight) |
+| 2026-06-09 | §8.11 新設「downstream 安全網は intake で正しく表現された対象しか守れない」 + §8.10 の §9.8 根拠を softening | 4 軸 self-check で §8.10 が「2 独立観察」 を over-claim (= 直接観察 1 件 + sibling) と発覚 → 「1 強 + 1 sibling、 既存 §1 の対辺補完」 に訂正。 §8.11 は別件: 「期限つき義務の見落とし」 incident 連鎖 (3+ 事例) から、 §8.8 (網が proxy を見る) の上流版 = 「網が見る対象自体が intake で mis-encode され downstream をいくら足しても掴めない / leverage は intake の encoding で、 しばしば機械化不能の判断」 を一般化。 user 方針「上の層へ移せるものは移す」 で layer 3 incident の general kernel を hoist (instance は layer 3 に残置 = kernel-up / instance-down) |
