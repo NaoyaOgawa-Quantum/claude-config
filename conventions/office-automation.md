@@ -302,6 +302,8 @@ ws['B7'] = 'my-input-value'
 
 `ws.merged_cells.ranges` で全 merged 範囲を列挙できる (上記 [`form-dump-first`](#form-dump-first) `dump_form.py` 参照)。
 
+⚠️ **同じ項目でも sheet ごとに座標が違う — 別 sheet の座標を流用しない**: 同じ様式集の複数 sheet (= 申請 sheet と報告 sheet 等) は同じ項目 (= 担当者欄等) を **別座標**に置くことが多い。 sheet A で確定した座標を sheet B にそのまま流用すると、 B では merged の **非 top-left** を指し、 openpyxl の `MergedCell` は read-only なので write が `AttributeError` か (各操作を try/except で被せていると) 黙って no-op になり、 **値が入らないまま PDF が出る** (= silent fail。 cell 値検証でも当該 cell が空に見えるだけで原因が分かりにくい)。 → 座標は使い回さず **sheet ごとに [`form-dump-first`](#form-dump-first) で merged 範囲を取り直し**、 その sheet 固有の top-left に write する。 全 sheet を漏れなく回す sweep は [`all-sheet-sweep`](#all-sheet-sweep)。
+
 ⚠️ **border も同じく anchor (左上) cell に set する** (= value だけでなく罫線も): 例えば `H91:S93` merged の **下罫線**を引くとき、 構成 cell (= `H93` 等、 merge の途中) に `cell.border = Border(bottom=...)` しても **save で消える / 元の罫線に戻る** (= 非 anchor cell への border 代入は openpyxl/Excel で安定しない)。 merged 範囲の外周罫線は必ず **anchor cell** に set する (= 上罫線も下罫線も左右罫線も anchor 1 つで merge 全体の外周に効く):
 
 ```python
