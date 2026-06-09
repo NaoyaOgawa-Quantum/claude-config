@@ -2,7 +2,9 @@
 
 A practical checklist for preparing and delivering a research talk (seminar, colloquium,
 conference talk, journal club, thesis defense). **Load this when** preparing slides or a
-talk outline, rehearsing, or advising someone on a presentation.
+talk outline, rehearsing, or advising someone on a presentation. (For the *technical* side of
+building slides — Beamer/metropolis, figure generation, reproducible PDF build, page-label
+fixes — see [beamer-slides.md](beamer-slides.md).)
 
 This is an **own-words distillation** of **Robert Geroch, "Suggestions For Giving Talks,"
 arXiv:gr-qc/9703019** (an essay of roughly 4500 words; written ~1973, posted to arXiv in
