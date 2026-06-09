@@ -226,6 +226,7 @@ run-time に人間が居る半自動 (§3) では placeholder を出力に残し
 - ⚠️ **fresh-eyes + adversarial 必須**: 同じ run が生成して同じ run がレビューすると自分の仕事を承認する rubber-stamp になる。 **別呼び出し** (= sub-agent / 別ターン cold 評価) で「**正しいか**でなく**間違いを探せ・疑わしきは hold**」 と framing (= deep-research / code-review の独立検証パスを自動化に持ち込む)。
 - checklist 例: 翻訳が原文と意味整合 / 固有名詞が実在名で原文と一致 / 文字化け・壊れ無し / 日付・場所が正気 / 画像が空でない / placeholder 漏れ無し。
 - これは「即 publish + 事後レビュー」 の上位互換でなく **stakes に応じた選択**: 低 stakes は事後レビュー (review marker + drift 検出器) で足り、 高 stakes は pre-push ゲートが見合う (= CLAUDE.md inline §4「外部発信は判断ゲート」 を無人自動化に拡張)。
+- ⚠️ **ゲートは flow でなく primitive level で塞ぐ (= bypass 経路も閉じて完成)**: 検証ゲートが `--no-push`→review→`--finalize` の flow にしか無く、 同じ engine に**直接 push する別 mode** (= 例 `--apply` で即 commit+push) が併存すると、 その primitive を呼べばゲートを丸ごと素通りできる。 enforcement が「手順/SKILL が常に gated flow を選ぶ」 という運用前提に依存してしまい、 手動実行・将来の手順改変・別 scheduler で破れる。 §1 の「gate は全経路を cover するか」 と同じ原則で、 engine は**新規 AI 生成 content を含む直接 push を明示 override flag 無しで refuse** すべき (= deterministic only 〔推測ゼロの変換〕 の直接 push は従来許可)。 = AI ゲート版の「全経路 cover」。
 
 ### Pattern: 無人 commit も対話 session と同じ git 同期規律を mechanize する
 
