@@ -12,6 +12,7 @@
 - id: slug                    # 短い識別子（姓のローマ字小文字）
   name_en: "Full Name"        # 英語名
   name_ja: "氏名"             # 日本語名（不明なら null）
+  aliases: ["愛称"]           # 会話で使う呼称・愛称（あれば、disambiguation 用）
   affiliation: "所属"         # 不明なら null
   email: "primary@example.com"
   alt_email:                  # 複数メールがある場合
