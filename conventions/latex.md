@@ -311,6 +311,15 @@ hook に除外機構が無く、 ある repo に arXiv の LaTeX ソースを ve
 - **内容理解が目的なら PDF を `pages` パラメータ付きで読む。** tex ソースはトークン消費が大きい（数万トークンになることも）。PDF なら必要なページだけ効率的に読める
 - tex は **数式の編集が必要な場合のみ** 開く。その場合も `offset`/`limit` で必要な範囲に限定する
 
+### 論文を grep/検証する: PDF プログラム抽出より arXiv ソース (2026-06-09)
+
+上の「PDF を `pages` で読む」は **Read tool の視覚読解**（page を rendered で見るので数式も正確）。一方、**論文を grep / 数値裏取り / 反復参照** したくて `fitz`(PyMuPDF) や `pymupdf4llm` で**プログラム的にテキスト抽出**する場合は別問題で、数式忠実度が崩れる:
+
+- `pymupdf4llm` (markdown): 構造は綺麗だが **ギリシャ/数式記号が壊れる**（θ→✓、Ω→⌦ 等）、図が junk テーブル化
+- column-aware `fitz` `get_text`: 記号は保つが 2 段組の単語間スペース欠落・表フラット化
+
+⇒ **数式が命の物理論文を機械的に扱うなら arXiv の LaTeX ソース (.tex) を取る**（math は LaTeX のまま完全、変換を挟むほど壊れる）。繰り返し参照する論文は .tex を repo に vendoring する手もある（その際 `-latex-autofix` で auto-fix から除外 = 上記「vendored / verbatim LaTeX の opt-out」）。図バイナリ・class file は除外し PDF/Dropbox 等に。worked example: 2026-06-09 Planck 2018 読書会で arXiv ソースを採用。
+
 ## チャット本文での位置参照
 
 - **ページ番号・セクション名・式番号で位置を示す。tex の行番号は使わない。** 行番号はツールが tex を読むときの内部座標で、ユーザー側 (PDF / TeXShop) には不可視。ユーザーがナビゲートできない参照は無効
