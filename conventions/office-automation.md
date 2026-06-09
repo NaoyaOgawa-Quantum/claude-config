@@ -341,7 +341,7 @@ ws['B5'] = "2026/6/1"               # str。 datetime より幅を取らず ### 
 # ws['B5'] = datetime(2026, 6, 1)   # ← narrow cell で ### 化しやすい
 ```
 
-⚠️ この潰れは cell 値検証 (= [`diff-form-xlsx-detection`](#diff-form-xlsx-detection) `diff-form-xlsx.py`) では catch **できない** (= 値は正しい)。 **PDF visual confirmation ([`pdf-visual-confirm`](#pdf-visual-confirm)) でのみ可視化される**。 fill 後の PDF 確認 (= [`xlsx-to-pdf-script`](#xlsx-to-pdf-script) `xlsx-to-pdf.sh`) を必須とする理由の一つ。
+⚠️ この潰れは cell 値検証 (= [`diff-form-xlsx-detection`](#diff-form-xlsx-detection) `diff-form-xlsx.py`) では catch **できない** (= 値は正しい)。 **PDF visual confirmation ([`pdf-visual-confirm`](#pdf-visual-confirm)) でのみ可視化される**。 ⚠️ **PDF の text 抽出で `"###" in text` を検出に使うのも罠** (= false negative): `###` は表示上の overflow indicator で、 PDF の text 層に入るのは元の値 (or 文字コード差で化けた文字列) なので grep が空振りし「直った」 と誤認する。 LAYOUT 崩れは text に残らない → **PNG 画像で目視**する ([`image-budget-exhaustion`](#image-budget-exhaustion) の CONTENT/LAYOUT 検証切り分け)。 fill 後の PDF 確認 (= [`xlsx-to-pdf-script`](#xlsx-to-pdf-script) `xlsx-to-pdf.sh`) を必須とする理由の一つ。
 
 ### <a id="int-vs-str-by-spec"></a>値の型 (`int` vs `str`) は form の仕様で決まる
 
