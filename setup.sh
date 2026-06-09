@@ -1193,6 +1193,34 @@ if [ -f "$JHEP_SRC" ]; then
     fi
 fi
 
+# --- 6c. Use GitHub noreply for commit author email (privacy) ---
+# 公開リポの commit author に実 email が焼き付くのを防ぐ。 各ユーザーの
+# GitHub noreply (= <id>+<login>@users.noreply.github.com) を gh api から
+# 導出する (= email をハードコードしない)。 既に noreply / 未設定なら no-op。
+# odakin: 自動適用 (idempotent) / 他ユーザー: 推奨 tip を表示のみ (非破壊)。
+CUR_EMAIL="$(git config --global user.email 2>/dev/null)"
+case "$CUR_EMAIL" in
+    ""|*@users.noreply.github.com)
+        : # 未設定 or 既に noreply → 何もしない
+        ;;
+    *)
+        NOREPLY="$(gh api user --jq '"\(.id)+\(.login)@users.noreply.github.com"' 2>/dev/null)"
+        if [ -n "$NOREPLY" ]; then
+            echo ""
+            echo "=== Step 6c: GitHub noreply email ==="
+            if [ "$GH_USER" = "odakin" ]; then
+                git config --global user.email "$NOREPLY"
+                echo "  commit author email を GitHub noreply に設定 (実 email を公開しない)。"
+                echo "  user.email = $NOREPLY"
+            else
+                echo "  あなたの commit author email ($CUR_EMAIL) は公開 commit に焼き付きます。"
+                echo "  GitHub の noreply を使うには (privacy 推奨):"
+                echo "    git config --global user.email \"$NOREPLY\""
+            fi
+        fi
+        ;;
+esac
+
 # --- 7. Install Hammerspoon config ---
 # Hammerspoon がインストール済みの場合のみ実行（なければサイレントスキップ）
 HS_SRC="$SCRIPT_DIR/hammerspoon/init.lua"

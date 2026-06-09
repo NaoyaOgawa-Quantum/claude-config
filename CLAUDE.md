@@ -151,6 +151,7 @@ setup.sh が自動で行うこと:
    - *(条件付き、macOS のみ)* 個人層に `scripts/setup-file-associations.sh` があれば実行（Launch Services のファイル拡張子別デフォルトアプリ設定）
 8. 全リポに pre-commit hook をインストール（Unicode→LaTeX 自動修正 + layer-3 chain hook）— hook 自体が staged file に `.tex/.bib/.bst/.cls/.sty` が無ければ **LaTeX fix 部分は no-op** なので、 LaTeX file 不在の repo にも install して問題ない。 ただし **末尾の layer-3 chain hook (= yaml/data gate) は LaTeX file 有無に関わらず常に実行する** (= LaTeX file 無しで early-exit すると chain した gate が silent dead になる、 2026-06-06 RCA は `conventions/hook-authoring.md §8` 参照)。 旧方式 (LaTeX file 検出経由) は時点依存で、 setup.sh 実行後に `.tex` 追加された repo で hook 未 install のまま事故になっていた (2026-05-14 RCA は `DESIGN.md` 参照)
 9. *(条件付き)* JHEP.bst を texmf-local にインストール（odakin: 自動、他ユーザー: オプション表示）
+9b. *(条件付き)* commit author email の privacy（Step 6c）— `user.email` が実 email（`@users.noreply.github.com` 以外）なら、各ユーザーの GitHub noreply（`<id>+<login>@users.noreply.github.com`、`gh api user` から導出 = ハードコードしない）を提示。odakin: 自動設定（冪等）/ 他ユーザー: 推奨コマンドを表示のみ（非破壊）。public commit に実 email を焼き付けないため
 10. *(条件付き)* git-crypt 暗号化リポを自動 unlock。共有プロジェクト鍵 (`~/.secrets/<repo>.key`) があればそれを優先、なければ個人鍵 (`~/.secrets/git-crypt.key`) で fallback
 11. *(条件付き)* Hammerspoon 設定をインストール（macOS + Hammerspoon インストール済みの場合のみ）
 
