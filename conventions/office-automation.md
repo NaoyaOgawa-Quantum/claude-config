@@ -97,7 +97,7 @@ unzip -l form.xlsx | grep -iE 'drawing|media'
 
 **回避 (2 択)**:
 1. **Excel osascript で値を直接書く** (= drawing を一切触らず cell value だけ変更、 最も確実)。 osascript の組み立ては [`excel-osascript-cell-write`](#excel-osascript-cell-write) の堅牢パターンに従う。
-2. **drawing XML を migration** (= openpyxl save 後の xlsx に、 元 xlsx の `xl/drawings/` + 関連 `_rels` part を zip レベルでコピーし直す)。 値編集と drawing 保護を両立したいが Excel を起動できない (CI 等) とき。
+2. **drawing XML を migration** (= openpyxl save 後の xlsx に、 元 xlsx の `xl/drawings/` + 関連 `_rels` part を zip レベルでコピーし直す)。 値編集と drawing 保護を両立したいが Excel を起動できない (CI 等) とき。 ⚠️ **別 file (= 標題を持つ blank テンプレ) から注入して復元するときは注入前に 3 点を確認** (= いずれか欠くと標題ずれ / 破損): ① 両 file の **merged 範囲が一致** (= drawing の anchor cell がずれず標題が正位置に乗る保証)、 ② テンプレ側 drawing が **standalone** (= `xl/media` 画像を参照しない。 参照ありなら media と rels も連れて行かないと dangling rel になる)、 ③ 注入先に **drawing が皆無で `rId` が衝突しない** (= 既に drawing を持つ file に重ねると rId 重複で Excel が破損判定)。 注入後は [`pdf-visual-confirm`](#pdf-visual-confirm) で標題の有無・位置を目視。
 
 origin: 2026-06 連続発生した「様式の標題テキストボックスが openpyxl save で消える」 事故。 cell value の一致検証では検出できず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF 画像確認で初めて気づく。
 
