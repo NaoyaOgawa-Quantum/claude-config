@@ -12,7 +12,8 @@
 ```
 claude-config/
 ├── CLAUDE.md               # このファイル（リポ固有の指示書）
-├── SESSION.md              # 現在の作業状態・残タスク
+├── SESSION.md              # 現在の作業状態・残タスク（当月 + Open items、hot/cold 分離）
+├── SESSION-archive.md      # SESSION.md から分離した 2026-05 以前の dated entry（grep 専用）
 ├── DESIGN.md               # 設計判断とその理由
 ├── CONVENTIONS.md          # 全リポ共通規約（正本）
 ├── README.md               # プロジェクト説明（English）
