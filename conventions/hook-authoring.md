@@ -407,7 +407,9 @@ claude-code の hook 関連挙動は **running build によって docs と乖離
 
 ### 9.1 新規 hook は同 session で live 発火しない (= session 開始時 snapshot)
 
-**実測 (2026-06-10、 Opus 4.8 1M harness)**: settings.json に hook を **mid-session で追加しても、 その session 中は発火しない**。 discriminator として throwaway な `Bash` matcher hook (= `echo fired >> /tmp/x`) を mid-session 登録 → 任意の Bash call 後に `/tmp/x` を確認 → **不在 = 未発火**。 = この build は hook 設定を **session 開始時に snapshot** する。
+**実測 (2026-06-10、 Opus 4.8 1M harness)**: settings.json に hook を **mid-session で追加しても、 その session 中は発火しない**。 = この build は hook 設定を **session 開始時に snapshot** する。
+
+**discriminator** (= 「snapshot build か hot-reload build か」 を実測): throwaway hook (= `echo fired >> /tmp/x`) を **`Read` (または `Write`/`Edit`) matcher** で mid-session 登録 → 該当 tool を 1 回叩いて `/tmp/x` を確認 → **不在 = 未発火 = snapshot build**。 ⚠️ **discriminator に `Bash` matcher を使わない**: §2(d) の harness-invoke bug で Bash hook は snapshot と無関係に発火しないことがあり結果が交絡する (= 2026-06-10 に最初 Bash で試して confound に気付き、 `Read` matcher で取り直して snapshot を clean に確定した)。
 
 ⚠️ 最新 docs は逆 (=「settings files を watch して `hooks` も hot-reload する」) と記載。 つまり **reload timing は build 依存**。 docs の hot-reload 記述を根拠に「今 足した hook が今 効く」 と assume しない。
 
