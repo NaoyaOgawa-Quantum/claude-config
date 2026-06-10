@@ -531,6 +531,8 @@ subprocess.run([
 
 ### <a id="docx-to-pdf-pages"></a>docx → PDF: Pages.app AppleScript が macOS では最も robust
 
+⚡ **まず [`scripts/docx-to-pdf.sh`](../scripts/docx-to-pdf.sh) を使う** (= xlsx-to-pdf.sh の docx 版、 engine 自動選択)。 `docx-to-pdf.sh [--word] <in.docx> [out.pdf]` — macOS 既定は Pages、 `--word` で Word 忠実版、 非 macOS は LibreOffice。 ⚠️ **`soffice` を直に叩かない** (= mac には未 install のことが多く「command not found」 で詰む。 2026-06-10 RCA: router を読まず soffice を試した参照漏れ)。 以下は engine 別の中身 (= スクリプトが内部で行うこと、 手組みが要るときの参照)。
+
 **選択肢**:
 1. **Pages.app** (macOS 標準、 install 済): automation としては一番安定。 ⭐ ただし出力 **layout は Word と一致しない** (= 組版し直し) → reviewer が体裁を見る正式書類では **[`docx-pdf-stale-cache`](#docx-pdf-stale-cache) の fallback 階層**を参照 (= 最終忠実版は user の Word 書き出し)
 2. **Microsoft Word** AppleScript: 動くが罠多し — 変数 scope 罠 (`set theDoc to open ...` の戻り値が「変数定義されていない」 エラー) に加え **stale in-memory cache / cold-start 失敗** (= 詳細と対処は [`docx-pdf-stale-cache`](#docx-pdf-stale-cache))
