@@ -147,6 +147,16 @@ cat /tmp/hook-trace.log       # 起動時 cwd / pid も同時 audit
 
 setup.sh 自体は idempotent design なので (i) は実装コスト低。 但し `git pull` のたびに走るとうるさい場合あり、 trade-off は user 判断。
 
+### §2 補足: tool-matcher の coverage boundary — Bash/script write は Edit/Write guard を素通りする
+
+配信が健全 (= (a)(b)(c) 全 green) でも、 PreToolUse hook は **登録した matcher の tool にしか fire しない**。 `PreToolUse(Edit|Write|MultiEdit)` guard は **Bash / script (`python ... open(w)` / `cat > f` 等) で書いた file を一切見ない** (= それらは Edit/Write tool call でないため)。 bug ではなく matcher の設計境界 (§2 (d) の harness-invoke-bug 〔Bash matcher が bug で fire しない〕 とは別軸)。 guard を分類すると塞ぎ方が決まる:
+
+- **path-based guard は Bash matcher を足せる**: `memory-guard.sh` (Edit/Write) + `memory-guard-bash.sh` (Bash) は「memory dir への write か」 を **path** で判定するので Bash 版が作れる。 `google-url-guard.sh` も Edit/Write/MultiEdit/**Bash** を cover。
+- **content-based guard は commit-time が authoritative layer**: `public-leak-guard.sh` は Edit/Write/MultiEdit のみ (Bash matcher なし) → **public repo の file を Bash/script で書くと PreToolUse leak-guard を素通りする**。 これは設計上むしろ正しい — leak 判定は**書かれる content** を見る必要があり、 Bash-write の content は command 内で生成・埋込されて静的 scan が困難。 backstop は **commit 時の `public-precommit-runner.sh` + `commit-msg-leak-guard-runner.sh`** (= materialize 済の staged content を scan するので書き方を問わず cover)。 = **public repo leak gate の真の layer は commit-time git hook、 PreToolUse leak-guard は早期 catch の best-effort**。
+- 実例 (2026-06-10): SESSION.md を python script で hot/cold split した際、 PreToolUse leak-guard は不発火、 commit-time gate + 手動 grep で安全確認した。
+
+→ guard を設計するとき「守りたい write は Edit/Write だけか、 Bash も含むか」 を明示する。 path-based なら Bash matcher を追加、 content-based なら commit-time gate に backstop を置く (= PreToolUse 単独で content leak を完全には塞げない)。
+
 ---
 
 ## §3. PreToolUse warn mode 出力の spec uncertainty
