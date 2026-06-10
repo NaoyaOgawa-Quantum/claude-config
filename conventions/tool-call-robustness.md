@@ -72,6 +72,37 @@ malformed-tool-call bug で session が**途中で死んでも、 その session
 
 ⚠️ root が backend bug である以上、 この回収手順は「死を防ぐ」 ものではなく「死んだ後に損失を最小化する」 ものである (= 「限界」 section と整合、 新 session 切り替えとセットで運用する)。
 
+## 別の症状変種: tool 結果の silent 捏造 (偽成功 / fabricated success、 2026-06-10 観測)
+
+### 既存症状との違い
+
+本ドキュメントの主症状は **「tool call が `malformed and could not be parsed` で明示的に失敗する」** 形 (= 上記「現象」節)。 本変種は **tool 結果が silent に捏造され、失敗ではなく「もっともらしい偽の成功」として返る** 形。 明示的なエラーが出ないため検出が困難で、偽完了の鵜呑みに直結する点でより危険。
+
+### 観測症状 (一般化)
+
+- **Bash 出力が内部思考の断片や前文脈テキストに化ける**: 実際のコマンド結果ではなく、モデル自身の独白風テキストや前のターンのコンテキスト断片が Bash tool の result として返る (= コマンドにもファイルにも存在しない文字列が「出力」として現れる)。
+- **サブエージェントの完了報告が実体を伴わず捏造される**: 「commit 済み・push 完了・ファイル追記済み」を詳細に (commit hash 付きで) 報告するが、独立確認すると git にコミット無し・working tree clean・ファイル変更ゼロ。 偽報告がサブエージェント自身の hallucination か、汚染された親 context が結果受信経路で捏造したかは判然としないが、親の tool 出力が汚染されている状況 (= 上記「真因」節の serialization bug が発生中) では後者の可能性が高い。
+- **別 model (Sonnet 等、bug 非該当) のサブエージェントで再確認すると正常出力が得られる**: 親 context の汚染が Opus 4.8 固有 bug 由来であることを示す。
+
+### なぜ malformed より危険か
+
+| | 明示的 malformed | 偽成功変種 |
+|---|---|---|
+| エラー通知 | あり (`malformed and could not be parsed`) | **なし** |
+| 実際の操作 | 実行されない (= 無害) | 実行されない (= 無害) が分からない |
+| 検出難度 | 気づきやすい | **検出困難** |
+| 最大リスク | user を待たせる / session 停止 | 誤った完了を user に報告 → 手戻り + 信頼コスト |
+
+書き込み操作自体は実行されないことが多く直接の被害は限定的だが、user が完了と信じて次の作業に進んだ後の手戻りと信頼コストが大きい。
+
+### 対策 (既存の副次緩和リストと整合)
+
+1. **完了は ground truth で裏取り必須**: tool / サブエージェントの自己申告を信用せず、 `git log` / `git show --stat` / `grep` の実コマンド出力で独立確認する。 サブエージェントに「実出力をそのまま貼れ、捏造するな」と指示し、さらに独立した別エージェントで再確認する (二重化)。 特に「commit + push 完了」を hash 付きで報告するサブエージェント結果は、親側で `git log --oneline -1` を打って hash を照合するまで信用しない。
+2. **バグ検知時は別 model のサブエージェントに逃がす**: 親が Opus 4.8 1M-context session で汚染されていても、Sonnet 等の bug 非該当 model のサブエージェントは健全な tool 実行ができる。 実作業・検証ともサブエージェントに委譲し、その出力を親で受け取る際も独立確認を維持する。 これは上記「副次緩和 8」(model 切替) の偽成功変種への適用。
+3. **副次トリガーは既存と同じ**: 非 ASCII 多用 / 長い context / 連続 tool 実行 / 装飾本文。 これらが発生確率を上げる点は偽成功変種でも同様。 1 ターン 1 tool call (副次緩和 1) は引き続き有効。
+
+出典 issue は既存記載を踏襲 (canonical hub #62123 / 衛星 #64684/#64955/#64235)。 本変種は同 bug ファミリの一症状と考えられ、新規 issue は起票しない (= 同 bug ファミリの新症状として #62123 へのコメント対象)。
+
 ## 別の Bash 失敗モード: 出力 capture の ENOSPC (= 「Command output was lost」、 malformed とは別物)
 
 malformed (= model serialization bug) とは独立の失敗で、 **Bash tool の stdout/stderr が harness に capture されず失われる**ことがある。 症状: tool result が `Command output was lost: the temp filesystem at /private/tmp/claude-<uid>/.../tasks is full (0MB free). ... ENOSPC` になる。 ⚠️ **コマンド自体は実行されている可能性が高い** (= 出力の取りこぼしであって操作の失敗ではない) ので、 「失敗した」 と即断せず別経路で結果を確認する。
