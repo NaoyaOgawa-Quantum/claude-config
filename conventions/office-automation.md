@@ -553,6 +553,8 @@ doc.save("filled.pdf", garbage=3, deflate=True)
 
 origin: 2026-06-11 謝金様式⑭-2 (= 標題 drawing 持ち雛形への prefill、 紙だけ必要な当日運用)。 openpyxl 派生の旧 file は標題消失で 1 枚無駄刷り → 本経路で 標題 + prefill 両立。
 
+**汎用実装**: [`scripts/pdf_form_fill.py`](../scripts/pdf_form_fill.py) (= library。 anchor 印字 / NFKC 照合 / `#+` redact / font subset / 内蔵検証 / 600dpi ラスタ化 を `build_document()` 1 呼び出しに集約)。 様式ごとの driver はこれを import して item spec (anchor / dx / dy / align / text) だけ書く。 **適用境界**: 単票向け。 記入項目が多く**派生 sheet が数式導出される workbook** (= 依頼書・承諾書が sheet 1 から自動で埋まる類) は、 [`excel-osascript-cell-write`](#excel-osascript-cell-write) で雛形 copy に Excel 記入 → PDF → ページ抽出の方が速くて正しい (= 派生書類も自動で完成する。 2026-06-11 旅費請求書一式で実証)。
+
 ### <a id="print-raster-pdf"></a>加工した PDF の印刷は 600dpi ラスタ化してから (= WYSIWYG 保証)
 
 **症状**: fitz で text 印字 + `subset_fonts()` した PDF が、 **画面プレビュー (MuPDF/Preview 系) では完全に正常なのに、 印刷すると日本語が文字化け**する (= printer 側 RIP / CUPS filter の subset font 解釈問題)。 PDF file 自体は正しいので、 **どれだけ画面で検証しても捕捉できない経路**。

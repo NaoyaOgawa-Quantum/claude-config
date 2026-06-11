@@ -91,6 +91,7 @@ claude-config/
 │   ├── diff-form-xlsx.py               # 様式 xlsx の label 上書き (= 様式改変) を雛形 diff で検出（office-automation.md#diff-form-xlsx-detection）
 │   ├── scan-form-instructions.py       # 様式 xlsx の label 内 embedded instruction を category 別に抽出（office-automation.md#embedded-instruction-in-label）
 │   ├── xlsx-to-pdf.sh                   # spreadsheet → PDF 変換（LibreOffice soffice 優先 → macOS Excel osascript fallback、office-automation.md#xlsx-to-pdf-script）
+│   ├── pdf_form_fill.py                 # 雛形 PDF への直接印字エンジン（library。anchor 印字 / NFKC 照合 / #+ redact / font subset / 内蔵検証 / 600dpi ラスタ化、office-automation.md#pdf-prefill-direct の汎用実装。単票向け — 派生 sheet 数式導出付き workbook は excel-osascript 経路）
 │   ├── docx-to-pdf.sh                   # Word docx/doc → PDF 変換（macOS 既定 Pages → --word で Word 忠実版 → 非 macOS LibreOffice、office-automation.md#docx-to-pdf-pages）
 │   ├── docx_decl_patch.py              # python-docx の Document.save() を auto-patch し XML 宣言を Word 形式(double-quote+CRLF)で書く（厳格 Word の「破損」回避、 save 時 source 修正・lazy import hook、 office-automation.md#docx-checkbox-content-control）
 │   ├── install-docx-decl-patch.sh      # 上記 patch を user site-packages に `.pth`+symlink で install（setup.sh Step 9、 全 python3 起動で auto-load、 idempotent）

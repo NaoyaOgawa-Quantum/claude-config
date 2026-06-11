@@ -43,7 +43,8 @@ content control / XML 宣言 / bookmark)。 **どの道具も、 この地層の
 | 読み取り・分析だけ | openpyxl / fitz 何でも | lossy でも害がない |
 | drawing 無し + xlsx 提出 | openpyxl fill + [`diff-form-xlsx-detection`](office-automation.md#diff-form-xlsx-detection) | 最速で機械検証可能 |
 | drawing 有り + xlsx 提出 | Excel osascript ([`excel-osascript-cell-write`](office-automation.md#excel-osascript-cell-write)) or zip 注入 + integrity gate | openpyxl は drawing を破壊する ([`openpyxl-destroys-drawings`](office-automation.md#openpyxl-destroys-drawings)) |
-| **紙だけ** 必要 | 雛形を Excel で PDF 化 → fitz で直接印字 ([`pdf-prefill-direct`](office-automation.md#pdf-prefill-direct)) | drawing は render 済で安全、 最速 |
+| **紙だけ** 必要 (単票) | 雛形を Excel で PDF 化 → fitz で直接印字 ([`pdf-prefill-direct`](office-automation.md#pdf-prefill-direct)、 汎用実装 = `scripts/pdf_form_fill.py`) | drawing は render 済で安全、 最速 |
+| 紙だけだが **多項目 + 派生 sheet が数式導出される** workbook | Excel osascript で雛形 copy に記入 → PDF → ページ抽出 | drawing native 保持 + 依頼書/承諾書等の**派生書類が数式で自動的に埋まる** (= PDF 印字だと派生分も手で印字する羽目になる)。 紙のみでもこちらが速くて正しい |
 
 **原則: 道具を使う前に「この道具はこの file の何を round-trip できないか?」 を 1 回問う。**
 答えを知らない道具で本番 file を触らない (= まず copy で挙動を観察する)。
