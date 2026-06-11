@@ -97,6 +97,7 @@ unzip -l form.xlsx | grep -iE 'drawing|media'
 
 **回避 (2 択)**:
 1. **Excel osascript で値を直接書く** (= drawing を一切触らず cell value だけ変更、 最も確実)。 osascript の組み立ては [`excel-osascript-cell-write`](#excel-osascript-cell-write) の堅牢パターンに従う。
+0. **(紙提出だけなら最速)** 雛形を Excel で PDF 化 → PDF に fitz で直接印字 ([`pdf-prefill-direct`](#pdf-prefill-direct))。 xlsx 成果物が要らない当日運用向け。
 2. **drawing XML を migration** (= openpyxl save 後の xlsx に、 元 xlsx の `xl/drawings/` + 関連 `_rels` part を zip レベルでコピーし直す)。 値編集と drawing 保護を両立したいが Excel を起動できない (CI 等) とき。 ⚠️ **別 file (= 標題を持つ blank テンプレ) から注入して復元するときは注入前に 4 点を確認** (= いずれか欠くと標題ずれ / 破損): ① 両 file の **merged 範囲が一致** (= drawing の anchor cell がずれず標題が正位置に乗る保証)、 ② テンプレ側 drawing が **standalone** (= `xl/media` 画像を参照しない。 参照ありなら media と rels も連れて行かないと dangling rel になる。 連れて行く場合は `[Content_Types].xml` に拡張子 Default 〔例: emf〕 も追加)、 ③ 注入先に **drawing が皆無で `rId` が衝突しない** (= 既に drawing を持つ file に重ねると rId 重複で Excel が破損判定)、 ④ **`<drawing r:id="…"/>` を挿す worksheet root に `xmlns:r` が宣言されているか確認** (= 一部の生成 tool 産 xlsx は root が `xmlns` のみで **`xmlns:r` 無し** 〔その file の `<legacyDrawing>` が inline `xmlns:r` を持っているのが signal〕。 そのまま挿すと unbound prefix = invalid XML で Excel が「壊れている」 ダイアログを出す。 inline で `<drawing xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="…"/>` と書けば安全)。 **注入後の機械 gate**: `scripts/check-xlsx-integrity.py FILE.xlsx` (= `check-docx-integrity.py` の xlsx 版。 全 XML well-formedness 〔unbound prefix = ④〕 + rels 両方向参照整合 〔dangling Target / 未定義 rId = ③ の検出面 / rId 重複〕 + [Content_Types] coverage を Excel 不要・決定論で検出、 exit 1 で fail)。 **zip 直編集した xlsx は納品前に必ず通す** — ③④ は実害 2 件とも本 gate で捕捉できた class (= 規約 prose の注意書きだけでは 2 回とも素通りした、 2026-06-10 RCA)。 pass 後 [`pdf-visual-confirm`](#pdf-visual-confirm) で標題の有無・位置を目視。 最終 ground truth は実機 open (= docx の教訓と同じ、 validator は必要条件。 ⚠️ AppleScript `open` の戻り値 "opened" は修復ダイアログの有無を検出できない = open 成功を健全性の根拠にしない)。
 
 origin: 2026-06 連続発生した「様式の標題テキストボックスが openpyxl save で消える」 事故。 cell value の一致検証では検出できず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF 画像確認で初めて気づく。
@@ -528,6 +529,64 @@ subprocess.run([
 ### <a id="pdf-snapshot-xlsx-submission"></a>PDF は確認 / 印刷 / 後参照用、 提出は xlsx 本体
 
 研究費応募 (e-Rad) や事務書類提出時、 PDF は **reference snapshot** で、 実提出は xlsx (or docx) 本体。 PDF と xlsx が drift しないよう、 PDF は `fill_xlsx.py` 実行後に再生成する pipeline にする。
+
+### <a id="pdf-prefill-direct"></a>雛形 PDF への直接印字 (= drawing 保護の回避経路 3、 紙提出専用)
+
+成果物が**印刷した紙だけ**でよい (= xlsx 本体の提出が無い) とき、 [`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings) の回避経路 1 (osascript) / 2 (zip 注入) より速い第 3 の経路: **雛形 xlsx を Excel 経由で PDF 化 (= drawing は render されて画像同然になる) → その PDF に fitz で値を直接印字**する。
+
+```python
+import fitz
+doc = fitz.open("template.pdf")   # Excel が吐いた雛形 PDF (標題 drawing は render 済)
+p = doc[0]
+p.insert_text((125, 165), "〇〇学科",
+              fontname="Anything", fontfile="/Library/Fonts/Arial Unicode.ttf", fontsize=9)
+doc.subset_fonts()                # 必須: full embed だと 20MB 超 → subset で ~0.2MB
+doc.save("filled.pdf", garbage=3, deflate=True)
+```
+
+- **座標の取り方**: `page.get_text("words")` で label 語の bbox を取り、 その右/下に置く。 `search_for()` は CJK 互換字形で空振りするので [`pdf-text-match-nfkc`](#pdf-text-match-nfkc) 必読
+- ⚠️ **組み込み `fontname="japan"` を使わない**: text 層には入る (= 抽出検証は通る) のに **glyph が描画されない renderer がある** (= 数字と ASCII だけ見える紙ができる)。 必ず実フォント file (= 例: `/Library/Fonts/Arial Unicode.ttf`) を `fontfile=` で渡し、 `subset_fonts()` でサイズを潰す
+- 雛形 PDF 内の `=TODAY()` 起因の `###############` は `add_redact_annot` + `apply_redactions()` で除去。 ⚠️ redact 矩形は**隣接文字の bbox に被ると巻き添え削除**する — `search_for` の返す rect を数 pt 縮めて適用
+- 検証 3 点 set: ① text 抽出 (NFKC) で全値 in ② **画像で目視** (= 配置ズレ・glyph 不描画は text 検証で見えない) ③ 印刷は [`print-raster-pdf`](#print-raster-pdf) 経由 (= subset font は printer で化けることがある)
+
+origin: 2026-06-11 謝金様式⑭-2 (= 標題 drawing 持ち雛形への prefill、 紙だけ必要な当日運用)。 openpyxl 派生の旧 file は標題消失で 1 枚無駄刷り → 本経路で 標題 + prefill 両立。
+
+### <a id="print-raster-pdf"></a>加工した PDF の印刷は 600dpi ラスタ化してから (= WYSIWYG 保証)
+
+**症状**: fitz で text 印字 + `subset_fonts()` した PDF が、 **画面プレビュー (MuPDF/Preview 系) では完全に正常なのに、 印刷すると日本語が文字化け**する (= printer 側 RIP / CUPS filter の subset font 解釈問題)。 PDF file 自体は正しいので、 **どれだけ画面で検証しても捕捉できない経路**。
+
+**規律**: プログラムで印字・加工した PDF を印刷する時は、 **600dpi でラスタ化した画像 PDF に変換してから刷る**。 フォント処理が紙への経路から消えるので「画面で見えた見た目がそのまま出る」 が構造的に保証される:
+
+```python
+import fitz
+src = fitz.open("filled.pdf"); page = src[0]
+page.get_pixmap(dpi=600).save("r.png")
+out = fitz.open(); np = out.new_page(width=page.rect.width, height=page.rect.height)
+np.insert_image(np.rect, filename="r.png"); out.save("print_raster.pdf", deflate=True)
+```
+
+Excel / Word が直接吐いた PDF は素のままで OK (= OS 標準フォントのみで化け実績なし)。 origin: 2026-06-11 ⑭-2 完成版が Canon laser で化けた実害 (画面検証は通過していた)。
+
+### <a id="lp-page-ranges-distrust"></a>`lp -o page-ranges` を信用しない (= 印刷は単独ページ PDF を抽出してから)
+
+**症状**: `lp -o page-ranges=1` を指定しても **queue/driver によっては無視されて全ページ出力**される (= xlsx 由来 PDF は隠れ「マスタ」 sheet の日付リスト等で 20-30 ページあることが多く、 ゴミ数十枚が出る実害)。
+
+**規律**: 一部ページだけ刷りたい時は、 **fitz で必要ページだけの単独 PDF を作り → `page_count` を assert → その file を丸ごと印刷**:
+
+```python
+import fitz
+d = fitz.open("src.pdf"); n = fitz.open()
+n.insert_pdf(d, from_page=0, to_page=0); n.save("p1.pdf")
+assert fitz.open("p1.pdf").page_count == 1
+```
+
+抽出方式は全環境で正しく、 page-ranges が効く環境でも害がない → 一律 default にする。 加えて、 **視認で見つけた表示破綻 (= `###` / 文字切れ / 欄消失) は print-blocker** — 「その欄はどうせ後で手書きするから」 等の理由で**黙認して刷らない** (直すか user に確認。 黙認判断の一人歩きで破綻紙を刷った実害が origin)。 origin: 2026-06-11 Canon laser queue で page-ranges 無視 + 同日 `###` 黙認印刷。
+
+### <a id="pdf-text-match-nfkc"></a>PDF text 照合は両辺 NFKC 正規化必須 (= CJK 互換字形の false negative)
+
+**症状**: PDF の text 層が 「日」 を U+2F49 (康熙部首「⽇」)、 「谷」 を 「⾕」 等の**互換字形で返す**ことがあり (= フォントの cmap 由来)、 `"申請日" in text` / `page.search_for("<氏名>")` が**正常な文書に対して空振り**する。 「prefill が消えている」 「ラベルが消えた」 等の誤診断 → 不要な作り直しに直結する。
+
+**規律**: PDF text 抽出に対する文字列照合は、 **必ず `unicodedata.normalize("NFKC", text)` してから比較**する。 `search_for()` は内部照合を正規化できないので、 互換字形を含みうる語の bbox が要る時は `get_text("words")` を取って NFKC 照合で探す。 1 度の検証で 2 回連続 false negative を踏んだ実害 (= 2026-06-11 ⑭-2、 「氏名欄・申請者欄が空」 と 2 度誤診断)。
 
 ### <a id="docx-to-pdf-pages"></a>docx → PDF: Pages.app AppleScript が macOS では最も robust
 

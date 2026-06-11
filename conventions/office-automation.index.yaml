@@ -111,6 +111,22 @@ sections:
     legacy: "2-3"
     level: 3
     title: "PDF は確認 / 印刷 / 後参照用、 提出は xlsx 本体"
+  - id: pdf-prefill-direct
+    level: 3
+    title: "雛形 PDF への直接印字 (= drawing 保護の回避経路 3、 紙提出専用)"
+    related: [openpyxl-destroys-drawings, pdf-text-match-nfkc, print-raster-pdf]
+  - id: print-raster-pdf
+    level: 3
+    title: "加工した PDF の印刷は 600dpi ラスタ化してから (= WYSIWYG 保証)"
+    related: [pdf-prefill-direct]
+  - id: lp-page-ranges-distrust
+    level: 3
+    title: "`lp -o page-ranges` を信用しない (= 印刷は単独ページ PDF を抽出してから)"
+    related: [print-raster-pdf]
+  - id: pdf-text-match-nfkc
+    level: 3
+    title: "PDF text 照合は両辺 NFKC 正規化必須 (= CJK 互換字形の false negative)"
+    related: [pdf-prefill-direct, pdf-visual-confirm]
   - id: docx-to-pdf-pages
     legacy: "2-4"
     level: 3
