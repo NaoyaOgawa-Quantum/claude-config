@@ -2,6 +2,8 @@
 
 研究費応募書類 / 教務書類 / 学術様式の Excel xlsx を **openpyxl で fill する作業**、 および生成物の **PDF 化 / 印刷 / 音声読み上げ** に関する規約と落とし穴集。
 
+> 🧠 **考え方 (原則編) は [`office-automation-principles.md`](office-automation-principles.md)** — 様式 = 「見た目が契約」 / file = 地層 / 処理 = lossy 解釈器の連鎖、 という枠組みと、 道具選択の梯子・検証 3 層モデル・既知情報 prefill / print-last 等の人間系原則。 **新しい様式・新しい罠 (= 本 file に slug が無い状況) ではまず原則編を読む**。 本 file は個別 gotcha の正本。
+
 origin: 2026-05 SPReAD (AI for Science 萌芽的挑戦研究創出事業) 応募で得た知見 (= 様式 1 研究計画調書 xlsx の Python 自動 fill、 figure 埋め込み、 字数制限管理、 PDF snapshot 生成、 TTS 確認)。
 
 > 🍳 **入口 — 多 sheet 様式 xlsx → 提出用 PDF を端から端まで** (= 構造把握 → fill → ページ分割 → 余白均等化 → 結合 → 検証) やる手順は [`multi-sheet-pdf-assembly`](#multi-sheet-pdf-assembly) の **RECIPE** に集約。 週次の様式 PDF 業務はまずそこを見る。
