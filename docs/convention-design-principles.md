@@ -46,6 +46,33 @@ email-office step 0 ← 起動トリガー（WHEN: セッション開始時）
 - **リポ CLAUDE.md**: WHEN（いつ、どのタイミングで）
 - **メモリ**: クイックリファレンス（正本へのショートカット）
 
+### 2.1 自動検出が届かない format の fact には「SoT 序列表」を宣言する
+
+anchor-token 型の drift 検出（md/yaml を scan する registry 方式）は、fact の正本や複製が **tex・PDF・code docstring** に住む場合に届かない。このとき防御は機械検出から宣言と運用規律に切り替える。
+
+**Pattern（リポ CLAUDE.md に 3 列表）:**
+
+```
+| fact 群 | 正本 (SoT) | derived copy (drift 時は正本が勝つ) |
+|---|---|---|
+| <規約 fact の束> | <prose home>（+ regression = <検証 script>） | <複製箇所>（pointer 済） |
+```
+
+- **正本セルは「prose home ⊕ machine regression」の対**で書く: 人間が読む正本と、それを実行可能に検証する script を 1 行で対にする。どちらか片方では、prose が腐るか検証が形骸化する。
+- **derived 側の各現地には subordination 文**（「正本は X、drift 時は X が勝つ」）を置き、表セル側にも「pointer 済」と明記する — 表だけが知っていて現地に印がない状態を作らない。
+- **write-time discipline**: 新しい fact を文書に書く瞬間に「どの行の正本に属するか」を先に決める。audit-time の後片付けに回すと、片付く前に重複が複製される。
+- scan 可能 format（md/yaml）の fact には従来どおり registry + 検出器が有効。序列表は**検出器の射程外を埋める手動宣言層**であり、置き換えではない（表の脚注に「この表が防御の本体」と射程を明記する）。
+
+適用事例: 物理研究リポ einstein-cartan — 規約 fact（Fourier 規約・loop 符号則・1PI↔amplitude 写像など）が複数の tex note に必然的に再掲される構造に対し、リポ CLAUDE.md に 5 行の序列表を宣言（2026-06-12）。導入動機は、誤推定 1 個が 3 つの note に伝搬した事故。
+
+### 2.2 正本の宣言・引っ越しは「衝突宣言 sweep」とワンセット
+
+正本を新しく宣言する、または別の home へ移すと、**その瞬間に旧 home・index・tree 行にある「これが正本」という記述が stale になる**。この staleness の発生を知っているのは宣言を編集した本人だけであり、同 commit が唯一安価な処理タイミング — 後続の audit は「2 つの宣言のどちらが新しいか」をそもそも知らない。
+
+**Reflex:** 正本の宣言・移動を含む commit には、fact の keyword ×（正本|SoT|authoritative）の **repo 横断 grep を同梱**する。最高信号の drift は「**2 箇所が同時に正本を名乗る**」状態（どちらかが必ず stale）。markdown 表の row を部分差し替えしたときは列数も数える（旧セルの尻尾残存で列崩れしやすい）。
+
+適用事例: 2026-06-12、同一 session 内で 2 連発 — ① 序列表は note を正本へ更新したのに script の tree 行が「script が SoT」のまま残存、② row 差し替えで旧 derived セルが残り 3 列表が 4 列化。どちらも宣言 commit 直後の grep + 目視で検出・修正。編集者本人の直後 sweep 以外に拾う仕組みがない型。
+
 ---
 
 ## 3. 規約追加の判断基準：「規約がない」のか「規約を読まない」のか
