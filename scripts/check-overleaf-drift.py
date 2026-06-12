@@ -16,7 +16,10 @@ conventions/overleaf-integration.md)。
   (= ID 喪失リスク予備軍。 将来の新規 paper repo がここに引っかかる)
 - INFO: 未 clone / 未 bootstrap (= 新マシン。 sync script 1 回実行で解消)
 - INFO: token 未復元 (= ~/.secrets/overleaf-token の配置を案内)
-- INFO: ahead > 0 (= local に Overleaf 未反映 commit。 push は user 明示 OK 必須)
+- INFO: ahead > 0 (= local に Overleaf 未反映 commit。 push は user 明示 OK 必須)。
+  status 行に ahead-expected marker があれば抑制 (= 管理 commit を push しない恒常
+  ahead 運用の repo が dashboard を恒久 INFO で汚さないための契約、 template の
+  AHEAD_EXPECTED=1)
 
 skip (silent): script 出力に DEPRECATED (= Overleaf 連携を廃止した repo の標準 marker)。
 
@@ -107,8 +110,9 @@ def classify(repo: Path, script, code, out):
         return findings
     if "PROJECT_ID 未設定" in out or "FIXME_PROJECT_ID" in out:
         findings["CRITICAL"].append(
-            f"  - {name}: PROJECT_ID 未設定 (= ID 喪失状態。 Overleaf web → Menu → Git の"
-            f" URL から ID を {script.relative_to(repo)} に記入して commit)"
+            f"  - {name}: PROJECT_ID 未設定 (= ID 喪失状態。 回収 runbook ="
+            f" overleaf-integration.md §ID 回収、 記入は install-overleaf-sync.sh"
+            f" {repo.name} <URL|ID> の 1 コマンド)"
         )
         return findings
     if "overleaf-token" in out and code == 2:
@@ -135,10 +139,11 @@ def classify(repo: Path, script, code, out):
             f"  - {name}: Overleaf に未取込みの編集 {behind} commits"
             f" (= 共著者の最新が local に無い。 bash {script.relative_to(repo)} --merge 等で取込み)"
         )
-    if ahead not in ("0", "?") and int(ahead) > 0:
+    if ahead not in ("0", "?") and int(ahead) > 0 and "ahead-expected" not in out:
         findings["INFO"].append(
             f"  - {name}: local が Overleaf より ahead={ahead} (= 反映には push が要るが"
-            f" 共著者影響 → user 明示 OK 必須)"
+            f" 共著者影響 → user 明示 OK 必須。 恒常 ahead 運用なら script の"
+            f" AHEAD_EXPECTED=1 で本 INFO を抑制)"
         )
     if behind == "?" or ahead == "?":
         findings["WARN"].append(
@@ -224,6 +229,8 @@ def selftest() -> int:
         mk_repo("r-token", "#!/bin/bash\necho '~/.secrets/overleaf-token が無い' >&2\nexit 2\n")
         # 7) ahead のみ → INFO
         mk_repo("r-ahead", "#!/bin/bash\necho '[x] ahead=2 behind=0'\n")
+        # 7b) ahead だが marker で抑制 → silent (behind があれば behind は出る)
+        mk_repo("r-aheadok", "#!/bin/bash\necho '[x] ahead=9 behind=0 ahead-expected'\n")
         # 8) 言及も script も無し → 対象外
         mk_repo("r-plain", None, "# 普通の repo\n")
         # 9) 機構の説明行のみ (= meta 言及、 個人層 dashboard 説明文型) → 対象外
@@ -245,7 +252,7 @@ def selftest() -> int:
             fails.append("r-token should be INFO")
         if not any("r-ahead" in x for x in f["INFO"]):
             fails.append("r-ahead should be INFO")
-        for quiet in ("r-clean", "r-dep", "r-plain", "r-meta"):
+        for quiet in ("r-clean", "r-dep", "r-plain", "r-meta", "r-aheadok"):
             if quiet in blob:
                 fails.append(f"{quiet} should be silent")
     if fails:
@@ -253,7 +260,7 @@ def selftest() -> int:
         for x in fails:
             print(f"  - {x}")
         return 1
-    print("SELFTEST OK (9 fixtures, 10 assertions)")
+    print("SELFTEST OK (10 fixtures, 11 assertions)")
     return 0
 
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # overleaf-sync.sh — Overleaf 同期 script の汎用 template。
 #
-# 使い方: 本 file を paper repo の scripts/overleaf-sync.sh に copy し、
+# 使い方 (推奨 = 1 コマンド設置):
+#   bash <claude-config>/scripts/install-overleaf-sync.sh <repo_dir> <Overleaf URL か 24 桁 hex ID>
+# 手動でやるなら: 本 file を paper repo の scripts/overleaf-sync.sh に copy し、
 #   1. PROJECT_ID を記入 (= Overleaf web → Menu → Git の clone URL 末尾 24 桁 hex)
 #   2. MERGE_OPTS を repo の conflict 方針に合わせて調整
 #   3. chmod +x して commit (= PROJECT_ID の single source of truth になる)
@@ -34,6 +36,11 @@ PROJECT_ID="FIXME_PROJECT_ID"
 #   Overleaf 側採用 = "-X theirs" / local 側採用 = "-X ours" / 手動解決 = ""
 MERGE_OPTS="-X theirs"
 
+# local が恒常的に ahead になる運用 (= CLAUDE.md / scripts 等の管理 commit を Overleaf に
+# push しない方針) なら 1 にすると、 status 行に ahead-expected marker が付き
+# check-overleaf-drift.py が ahead INFO を出さなくなる (behind 検出には影響しない)
+AHEAD_EXPECTED=0
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOKEN_FILE="$HOME/.secrets/overleaf-token"
 
@@ -65,7 +72,9 @@ fi
 
 AHEAD=$(git -C "$REPO_ROOT" rev-list --count overleaf/master..HEAD 2>/dev/null || echo "?")
 BEHIND=$(git -C "$REPO_ROOT" rev-list --count HEAD..overleaf/master 2>/dev/null || echo "?")
-echo "[overleaf-sync] ahead=$AHEAD behind=$BEHIND"
+MARK=""
+[ "$AHEAD_EXPECTED" = "1" ] && MARK=" ahead-expected"
+echo "[overleaf-sync] ahead=$AHEAD behind=$BEHIND$MARK"
 
 case "$MODE" in
   --status|status)
