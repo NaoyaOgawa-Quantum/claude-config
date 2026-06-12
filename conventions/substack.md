@@ -40,11 +40,24 @@ Markdown で書いてよい（見出し・太字・箇条書き等は全て Subs
 
 1. `drafts/` フォルダに Markdown 原稿を作成（例: `drafts/article-substack.md`）
 2. [md-to-substack.netlify.app](https://md-to-substack.netlify.app/) をブラウザで開く
-3. 原稿の全文を左のテキストエリアに貼る
-4. 右のプレビューでフォーマットを確認（見出し・太字・箇条書き・水平線）
+3. 原稿を左のテキストエリアに貼る。冒頭の HTML コメント行（`<!-- タイトル: ... -->` 等）は含めず、**本文（概要行）から末尾まで**を貼る
+   - ⚠️ Claude Code の Bash から `pbcopy` でクリップボードに渡す手は使えないことがある（sandbox 解除でも user session の pasteboard に書き込めない環境を実測、2026-06-12）。原稿ファイルをエディタで開いて手動コピーが確実
+4. 右のプレビューでフォーマットを確認（見出し・太字・箇条書き・リンク・水平線）
 5. 「Copy for Substack」ボタンを押す → クリップボードにリッチテキストがコピーされる
-6. Substack エディタに貼り付け（Cmd+V）
-7. タイトルは Substack エディタ側で別途入力（H1 はサブタイトルとして表示される場合がある）
+6. Substack ダッシュボードの **Create → Article** で新規記事エディタを開き、本文エリアに貼り付け（Cmd+V）
+7. タイトル・サブタイトルはエディタ上部の専用欄に入力（本文に H1 を含めると重複する → §タイトル管理）
+
+## 公開フロー（エディタ → 公開）
+
+1. プレビュー画面（Mobile / Desktop / Email 切替）から編集に戻るボタンは **Done**。Share は共有リンク用なので公開前は押さない
+2. エディタ右上の **Continue** → Publish ダイアログ（Audience / コメント許可 / タグ / Delivery / Scheduling）
+3. ⚠️ Delivery の「Send via email and the Substack app」は**既定で ON** = 公開と同時に全購読者へメール配信される。サイト掲載のみにしたいときはチェックを外す
+4. **Send to everyone now** で公開
+
+## タグ
+
+- タグ名に**スペースは使えない**（例: 「Claude Code」は不可 → 「Claude」または「ClaudeCode」）
+- 新規タグの Create が「Something went wrong」で失敗することがある（同一ダイアログ内で他のタグは付与できたのに特定の新規タグだけ落ちる事例: 2026-06-12、原因未特定）。1 回リトライしてだめなら**タグなしで公開してよい** — タグは公開後に Post settings からいつでも追加でき、公開のブロッカーにしない
 
 ## オプション設定（md-to-substack ツール）
 
