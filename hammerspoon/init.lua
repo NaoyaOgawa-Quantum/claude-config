@@ -22,13 +22,15 @@ local quitTap = hs.eventtap.new({hs.eventtap.event.types.keyDown}, function(even
 end)
 quitTap:start()
 
--- クリップボード整形: ⌃⌥⌘V
--- PDF からコピーしたテキストの余分な改行・RTF 書式を除去する。
+-- クリップボード整形 + 貼り付け: ⌃⌥⌘V
+-- PDF からコピーしたテキストの余分な改行・RTF 書式を除去し、 そのまま
+-- 前面アプリに Cmd+V を送って貼り付ける (= 「ペーストしてスタイルを
+-- 合わせる」 の整形版。 貼り付け先で押す)。
 -- hotkey での明示発火のみ（常駐監視はしない、誤爆防止 +
 -- conventions/secret-handoff.md のクリップボード単一資源原則と衝突させない）。
 -- 整形ロジックの正本は scripts/clipboard-cleaner.py
 -- （~/.hammerspoon/init.lua → repo への symlink を辿って解決する）。
-local function cleanClipboard()
+local function cleanClipboardAndPaste()
     local initPath = os.getenv("HOME") .. "/.hammerspoon/init.lua"
     local target = hs.fs.symlinkAttributes(initPath, "target")
     local repoRoot = target and target:match("^(.*)/hammerspoon/init%.lua$")
@@ -38,6 +40,14 @@ local function cleanClipboard()
         return
     end
     local output, ok = hs.execute("/usr/bin/python3 '" .. cleaner .. "' 2>&1")
-    hs.alert.show(ok and output:gsub("%s+$", "") or "clipboard-cleaner 失敗: " .. output, 2)
+    if ok then
+        -- 合成 keystroke は event flags を自前で持つので、 user が
+        -- ⌃⌥⌘ を押したままでも Cmd+V として届く
+        hs.eventtap.keyStroke({"cmd"}, "v")
+        hs.alert.show(output:gsub("%s+$", "") .. " → 貼り付け", 1.5)
+    else
+        -- 失敗時 (= クリップボードが空 等) は貼り付けない
+        hs.alert.show("clipboard-cleaner 失敗: " .. output, 3)
+    end
 end
-hs.hotkey.bind({"ctrl", "alt", "cmd"}, "V", cleanClipboard)
+hs.hotkey.bind({"ctrl", "alt", "cmd"}, "V", cleanClipboardAndPaste)
