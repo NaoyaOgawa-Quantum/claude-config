@@ -24,6 +24,10 @@ sections:
     level: 3
     title: "Excel osascript で cell 値を書く堅牢パターン (= drawing 保護 + -609 回避)"
     related: [openpyxl-destroys-drawings, xlsx-to-pdf-script]
+  - id: excel-write-string-autoconvert
+    level: 3
+    title: "Excel 経由 write は文字列を auto-convert する (= 日付文字列が serial 数字で印字される)"
+    related: [openpyxl-destroys-drawings, excel-osascript-cell-write]
   - id: xlimage-size-silent-fail
     legacy: "1-1"
     level: 3
@@ -226,6 +230,11 @@ sections:
     legacy: "5-3"
     level: 3
     title: "機械的検出: `diff-form-xlsx.py`"
+    related: [template-provenance-check]
+  - id: template-provenance-check
+    level: 3
+    title: "テンプレの素性確認 (= 「最新様式」 が誰かの記入済み修正版である罠)"
+    related: [diff-form-xlsx-detection, clear-yellow-fill-marks, openpyxl-destroys-drawings, form-dump-first]
   - id: fill-prevention-workflow
     legacy: "5-4"
     level: 3

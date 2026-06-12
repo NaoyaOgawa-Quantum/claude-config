@@ -102,7 +102,14 @@ unzip -l form.xlsx | grep -iE 'drawing|media'
 0. **(紙提出だけなら最速)** 雛形を Excel で PDF 化 → PDF に fitz で直接印字 ([`pdf-prefill-direct`](#pdf-prefill-direct))。 xlsx 成果物が要らない当日運用向け。
 2. **drawing XML を migration** (= openpyxl save 後の xlsx に、 元 xlsx の `xl/drawings/` + 関連 `_rels` part を zip レベルでコピーし直す)。 値編集と drawing 保護を両立したいが Excel を起動できない (CI 等) とき。 ⚠️ **別 file (= 標題を持つ blank テンプレ) から注入して復元するときは注入前に 4 点を確認** (= いずれか欠くと標題ずれ / 破損): ① 両 file の **merged 範囲が一致** (= drawing の anchor cell がずれず標題が正位置に乗る保証)、 ② テンプレ側 drawing が **standalone** (= `xl/media` 画像を参照しない。 参照ありなら media と rels も連れて行かないと dangling rel になる。 連れて行く場合は `[Content_Types].xml` に拡張子 Default 〔例: emf〕 も追加)、 ③ 注入先に **drawing が皆無で `rId` が衝突しない** (= 既に drawing を持つ file に重ねると rId 重複で Excel が破損判定)、 ④ **`<drawing r:id="…"/>` を挿す worksheet root に `xmlns:r` が宣言されているか確認** (= 一部の生成 tool 産 xlsx は root が `xmlns` のみで **`xmlns:r` 無し** 〔その file の `<legacyDrawing>` が inline `xmlns:r` を持っているのが signal〕。 そのまま挿すと unbound prefix = invalid XML で Excel が「壊れている」 ダイアログを出す。 inline で `<drawing xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="…"/>` と書けば安全)。 **注入後の機械 gate**: `scripts/check-xlsx-integrity.py FILE.xlsx` (= `check-docx-integrity.py` の xlsx 版。 全 XML well-formedness 〔unbound prefix = ④〕 + rels 両方向参照整合 〔dangling Target / 未定義 rId = ③ の検出面 / rId 重複〕 + [Content_Types] coverage を Excel 不要・決定論で検出、 exit 1 で fail)。 **zip 直編集した xlsx は納品前に必ず通す** — ③④ は実害 2 件とも本 gate で捕捉できた class (= 規約 prose の注意書きだけでは 2 回とも素通りした、 2026-06-10 RCA)。 pass 後 [`pdf-visual-confirm`](#pdf-visual-confirm) で標題の有無・位置を目視。 最終 ground truth は実機 open (= docx の教訓と同じ、 validator は必要条件。 ⚠️ AppleScript `open` の戻り値 "opened" は修復ダイアログの有無を検出できない = open 成功を健全性の根拠にしない)。
 
-origin: 2026-06 連続発生した「様式の標題テキストボックスが openpyxl save で消える」 事故。 cell value の一致検証では検出できず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF 画像確認で初めて気づく。
+**再発しやすい経路 = 前例 fill script の流用** (2026-06-12 再発 RCA): 同種様式の過去 dir に openpyxl 製 fill script があると、 それを copy して書き始めるのが自然な動線になり、 **起点の drawing 確認を skip して同じ破壊を再演**する。 3 つの reflex で塞ぐ:
+1. **前例 script を流用する瞬間こそ `unzip -l` 確認を発火**させる (= 「前例があるから安全」 は逆 — 前例 script が openpyxl 製なら前例 file 自身が既に標題を失っている可能性が高い)。
+2. **openpyxl `load_workbook` 時の `UserWarning: DrawingML support is incomplete ... will be lost` は破壊予告**として扱う (= warning を見たら save する前に止まって経路を選び直す。 2>/dev/null で warning を捨てる習慣がこの signal を殺す)。
+3. **過去の fill 済み file を base / 前例として再利用する前に drawing 数を確認** (= `python3 -c "import zipfile; print([n for n in zipfile.ZipFile('f.xlsx').namelist() if 'drawings/drawing' in n])"`)。 **喪失 file を base にすると喪失が連鎖**し、 「いつ消えたか」 の追跡も難しくなる。
+
+**事後の横断 sweep**: この罠を一度踏んでいたと発覚したら、 同 repo の**過去の openpyxl 製 xlsx を全部 drawing 数で走査**する (= 1 件見つかった時点で同経路の他 file も喪失している可能性が高い。 2026-06-12 の走査では 3 file 中 3 file が喪失済みだった)。
+
+origin: 2026-06 連続発生した「様式の標題テキストボックスが openpyxl save で消える」 事故。 cell value の一致検証では検出できず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF 画像確認で初めて気づく。 2026-06-12 に前例 script 流用経路で再発 (= 上記 reflex の起源)。
 
 ### <a id="excel-osascript-cell-write"></a>Excel osascript で cell 値を書く堅牢パターン (= drawing 保護 + -609 回避)
 
@@ -142,6 +149,18 @@ osascript -e 'tell application "Microsoft Excel" to quit'
 **検証**: 書き込み後は openpyxl で読み直して値を assert する (= osascript は失敗しても exit 0 で沈黙しがち)。 ⚠️ ただし **merged cell の値は fitz / openpyxl の text 抽出では取れないことがある** (= 結合範囲の左上以外は空に見える / PDF の text 抽出も同様) → 抽出の空振りを「書けていない」 と即断せず、 [`pdf-visual-confirm`](#pdf-visual-confirm) の PDF **画像**で最終確認する。
 
 origin: 2026-06-05 学外者用様式 (= 複数シート + 数式参照 + textbox 標題) の cell 値修正。 killall 直後の 1 osascript (activate→open→set→save→close saving yes→quit) が -609 で全 cell 未書き込み → 上記 4 点で復旧。
+
+### <a id="excel-write-string-autoconvert"></a>Excel 経由 write は文字列を auto-convert する (= 日付文字列が serial 数字で印字される)
+
+**症状**: osascript で `set value of range "D12" ... to "2026年6月25日"` と**文字列**を書いたのに、 読み戻すと cell 値が date (= serial `46198`) になっている。 cell の表示形式が `General` のままだと **PDF / 印刷に「46198」 という生の serial 数字が印字**される (= 様式の作業日欄が数字の羅列になる事故)。 同様に `"1/2"` → 日付、 先頭 0 付き番号 → 数値、 等。
+
+**原因**: Excel は UI 入力と同じ parser を `set value` にも適用する (= 文字列が日付・数値に見えれば**型ごと変換**)。 **openpyxl は literal 文字列をそのまま書くので、 この罠は Excel (osascript) 経由 write 固有** (= [`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings) 回避 1 を選んだ時に新たに踏む罠、 という関係)。
+
+**対処**: 日付・数値に見える文字列は **apostrophe prefix** で書く (= Excel の text 強制入力と同じ): `set value of range "D12" of ws to "'2026年6月25日"`。 cell 値は apostrophe 抜きの text になる。
+
+**検証**: 書き込み後 openpyxl で read-back し、 **値の型** (= str か datetime/число か) と `cell.number_format` を確認する。 `datetime` + `'General'` の組合せ = serial 印字事故の前兆。 auto-convert された日付が「たまたま日付書式で表示される」 場合もあるが、 様式の前例が文字列なら文字列で揃える (= 事務側の見た目互換)。
+
+origin: 2026-06-12 様式⑭-1 fill。 作業日 cell に書いた和文日付が serial 46198 (General) になり、 PDF 目視前の read-back 検証で捕捉 → apostrophe prefix で復旧。
 
 ### <a id="xlimage-size-silent-fail"></a>`XLImage.width` / `.height` setter は silent fail する
 
@@ -1111,6 +1130,23 @@ critical 検出時は exit code 1。 提出前 / commit 前に必ず実行する
 
 label 判定は heuristic で suffix 一致 (= `の必要性 / の明細 / について / の内容 / の確認 / の有無 / の状況`)。 新しい雛形で別 suffix が現れたら script の `LABEL_SUFFIXES` に追記する。
 
+⚠️ **盲点: 比較基準のテンプレ自身が記入済みだと、 残骸が見えない**。 diff は「両 file で違う cell」 しか出さないので、 **テンプレに他人の記入値が残っている場合、 自分が触らなかった cell の残骸は filled 側にもそのまま在って diff に現れない** (= 他人の氏名・金額が新規書類に混入したまま全検証 pass する)。 → テンプレを使う前に [`template-provenance-check`](#template-provenance-check) で素性を確認するのが上流対策。
+
+### <a id="template-provenance-check"></a>テンプレの素性確認 (= 「最新様式」 が誰かの記入済み修正版である罠)
+
+**症状**: 「最新様式」 としてリポに保存された xlsx が、 実は**事務が個別案件への修正指示として返した記入済み file** (= 黄色 cell + コメント + 他人の氏名・日付・金額入り) で、 それを base に新規書類を作ると他人のデータ・修正指示 artifact が混入する。 逆 pattern も起きる: 「上書き済」 と doc に書かれたテンプレが**実際は旧版のまま** (= 新様式で追加された行が無い) で、 そこから作った書類が差戻し対象になる。
+
+**Why 起きるか (= 考え方)**: 事務はブランクの新様式を配布するとは限らない — **様式更新が「個別案件の修正版」 という形でしか存在しない**ことがある (= 新構造を持つ唯一の file が誰かの記入済み)。 また「テンプレを最新版で上書きした」 という doc 記述は、 実 file の検証なしには信用できない (= doc と file の drift)。
+
+**Reflex (= テンプレを base にする前の 3 確認)**:
+1. **全 sheet を dump して個人データ走査** (= 氏名・日付・金額・所属らしき値が label 以外にあれば、 それは filled form でありブランクテンプレではない)。 対象 sheet を絞らない — 多 sheet 様式は別 sheet に残骸が居る。
+2. **新様式で追加されたはずの行・欄が実在するか**を確認 (= 様式更新の announce に「追加した」 と書かれた欄を grep。 無ければテンプレが旧版)。
+3. **黄色 fill / コメント / 修正指示 artifact** の残存走査 ([`clear-yellow-fill-marks`](#clear-yellow-fill-marks))。
+
+**記入済み file からブランクテンプレを作る手順**: 個人データ cell を特定 (= dump で値 cell を列挙し、 label・記入例 placeholder 〔「〇〇大学」 等〕・全案件共通の定数 〔申請者・予算番号等〕 を除いた残り) → **Excel osascript で空文字に** (= 標題 drawing がある様式で openpyxl は不可 [`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings)) → 黄色 fill 解除 → 検証 (= 再 dump + drawing 数 + 黄色走査) → テンプレとして保存 + **素性 (= どの file からいつ作ったか) を doc に記録**。
+
+origin: 2026-06-12 様式⑭-1。 「6/2 版で上書き済」 と記述されたテンプレが実は旧版 (= 新設の交通費起点住所行なし) で、 そこから作った別件書類が旧様式製になった + 真の新様式は個別案件の記入済み修正版にしか存在しなかった (= 上記手順でブランク化して解決)。 diff-form-xlsx をその記入済み file 基準で回しても残骸は不可視だった (= 上記盲点の実例)。
+
 ### <a id="fill-prevention-workflow"></a>予防 workflow (= 規律)
 
 1. **[`form-dump-first`](#form-dump-first) dump で template の構造を **必ず** 最初に把握** (= label 行 と input 行 を **目視で特定** 後に fill code 書く)
@@ -1187,6 +1223,13 @@ origin: 2026-06 学外者旅費様式 (`3_…`) 支給方法選択。 前 sessio
 事務 (= 教研支援課 等) が修正版様式を返すとき、 **記入してほしい cell を黄色 fill でマーク + コメント**して送ることがある。 指示は典型的に「黄色セルに追記 → **セルを白に戻して** → 押印 → 提出」。 値を入れただけで黄色を残すと「標題等が黄色のまま = 様式の改変」 扱いになりうる (= [`label-overwrite-bug`](#label-overwrite-bug) の label overwrite とは別経路の 改変リスク)。
 
 - **fill 後に該当 cell の fill をクリア**する: `cell.fill = PatternFill(fill_type=None)` (= openpyxl、 merged は top-left cell に set)。
+- ⚠️ **file が標題 drawing を持つ場合は openpyxl 法は使えない** ([`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings) = fill クリアのための save で標題が消える)。 **Excel osascript で解除**する:
+  ```applescript
+  repeat with addr in {"G13", "Q13", "D19"}
+    set color index of (interior object of range (contents of addr) of ws) to color index none
+  end repeat
+  ```
+  (= `contents of addr` が list 要素の dereference に必須。 起動・保存の枠組は [`excel-osascript-cell-write`](#excel-osascript-cell-write) の堅牢パターンに従う。 2026-06-12 様式⑭-1 で確立)
 - ⚠️ **`diff-form-xlsx.py` ([`diff-form-xlsx-detection`](#diff-form-xlsx-detection)) は cell 値の diff のみで fill 色を見ない** → 黄色残置を catch できない。 **[`pdf-visual-confirm`](#pdf-visual-confirm) PDF visual confirmation でのみ可視化**される。
 - 黄色 cell の機械走査: `cell.fill.patternType == 'solid' and getattr(cell.fill.fgColor, 'rgb', None) == 'FFFFFF00'`。
 
