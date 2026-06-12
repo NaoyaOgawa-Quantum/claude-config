@@ -50,8 +50,15 @@ META_RE = re.compile(r"drift|検出|契約")
 def find_repos(root: Path):
     """(repo_dir, script_path or None) の列。 script があるか CLAUDE.md に言及がある repo。"""
     out = []
+    self_home = Path(__file__).resolve()
     for d in sorted(root.iterdir()):
         if not d.is_dir() or not (d / ".git").exists():
+            continue
+        # 本検出器の home repo (= 機構の置き場、 規約 / template / installer を持つ) は
+        # CLAUDE.md が構造的に「Overleaf 連携」 を言及し続けるため対象外
+        # (= 三例目 sweep で発覚した自己参照偽陽性の第 2 形態。 META_RE では機構 home の
+        # 全説明行を網羅できない)
+        if d.resolve() in self_home.parents:
             continue
         script = None
         for name in SCRIPT_NAMES:
