@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDFテキスト整形ツール</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
+      padding: 32px 24px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    p.sub {
+      font-size: 14px;
+      color: #6e6e73;
+      margin-bottom: 28px;
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 700px) {
+      .cols { grid-template-columns: 1fr; }
+    }
+
+    .box {
+      background: #fff;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #6e6e73;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 10px;
+    }
+
+    textarea {
+      width: 100%;
+      height: 320px;
+      border: 1.5px solid #d2d2d7;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      line-height: 1.7;
+      font-family: inherit;
+      resize: vertical;
+      outline: none;
+      transition: border-color .15s;
+    }
+
+    textarea:focus { border-color: #0071e3; }
+
+    textarea[readonly] {
+      background: #f5f5f7;
+      cursor: default;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 24px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 10px 24px;
+      border: none;
+      border-radius: 980px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+
+    button:active { transform: scale(.97); }
+
+    .btn-primary {
+      background: #0071e3;
+      color: #fff;
+    }
+
+    .btn-primary:hover { opacity: .88; }
+
+    .btn-secondary {
+      background: #e8e8ed;
+      color: #1d1d1f;
+    }
+
+    .btn-secondary:hover { opacity: .8; }
+
+    .btn-copy {
+      background: #34c759;
+      color: #fff;
+    }
+
+    .btn-copy:hover { opacity: .88; }
+
+    .toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #1d1d1f;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 980px;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity .2s, transform .2s;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .stats {
+      font-size: 12px;
+      color: #6e6e73;
+      margin-top: 8px;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📄 PDFテキスト整形ツール</h1>
+  <p class="sub">PDFからコピーした文字を貼り付けて「整形する」を押すと、余分な改行を取り除きます。</p>
+
+  <div class="cols">
+    <div class="box">
+      <label>貼り付け（PDF からコピーしたテキスト）</label>
+      <textarea id="input" placeholder="ここにペーストしてください..."></textarea>
+      <div class="stats" id="inStats"></div>
+    </div>
+    <div class="box">
+      <label>結果（コピーしてWordへ）</label>
+      <textarea id="output" readonly placeholder="整形後のテキストが表示されます"></textarea>
+      <div class="stats" id="outStats"></div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" onclick="clean()">整形する ▶</button>
+    <button class="btn-copy" onclick="copyResult()">結果をコピー</button>
+    <button class="btn-secondary" onclick="clearAll()">クリア</button>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const inputEl  = document.getElementById('input');
+    const outputEl = document.getElementById('output');
+
+    inputEl.addEventListener('input', updateInStats);
+
+    function updateInStats() {
+      const n = inputEl.value.length;
+      document.getElementById('inStats').textContent = n ? `${n.toLocaleString()} 文字` : '';
+    }
+
+    // 日本語判定: 全角スペース・記号・かな (U+3000-30FF)、CJK 統合漢字
+    // (U+4E00-9FFF)、全角英数 (U+FF00-FFEF)。
+    // 整形ロジックの正本は scripts/clipboard-cleaner.py — 変更時は両方を更新すること。
+    const JA_RE = /[\u3000-\u30FF\u4E00-\u9FFF\uFF00-\uFFEF]/;
+
+    function clean() {
+      const raw = inputEl.value;
+      if (!raw.trim()) return;
+
+      // 空行（2つ以上の改行）で段落に分割
+      const paragraphs = raw.split(/\n{2,}/);
+
+      const result = [];
+      for (const para of paragraphs) {
+        const lines = para.split('\n').map(l => l.replace(/\s+$/, '')).filter(l => l.trim());
+        let joined = '';
+        for (const line of lines) {
+          if (!joined) { joined = line; continue; }
+          if (/[A-Za-z]-$/.test(joined)) {
+            // 英語のハイフネーション: ハイフンを除いて直結
+            joined = joined.slice(0, -1) + line;
+          } else if (JA_RE.test(joined.slice(-1)) || JA_RE.test(line.charAt(0))) {
+            // 行境界のどちらかが日本語: スペース無しで直結
+            joined += line;
+          } else {
+            // 英語同士: スペースを挟む
+            joined += ' ' + line;
+          }
+        }
+        if (joined) result.push(joined);
+      }
+
+      const cleaned = result.join('\n\n');
+      outputEl.value = cleaned;
+
+      const n = cleaned.length;
+      document.getElementById('outStats').textContent = n ? `${n.toLocaleString()} 文字` : '';
+    }
+
+    function copyResult() {
+      const text = outputEl.value;
+      if (!text) { showToast('整形後のテキストがありません'); return; }
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('コピーしました ✓');
+      });
+    }
+
+    function clearAll() {
+      inputEl.value = '';
+      outputEl.value = '';
+      document.getElementById('inStats').textContent = '';
+      document.getElementById('outStats').textContent = '';
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 2000);
+    }
+  </script>
+
+</body>
+</html>

@@ -47,6 +47,7 @@ claude-config/
 │   ├── google-api-direct-access.md # Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx、 Cloud Identity Groups API は group OWNER level で memberships CRUD 可能で Admin SDK の Workspace admin 制約を回避)
 │   ├── preview.md          # preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 │   ├── secret-handoff.md   # Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避)
+│   ├── clipboard-cleaner.md # PDF コピーの段落内改行・RTF 書式の後始末 (= ⌃⌥⌘V hotkey / CLI / ブラウザ版の 3 入口、全て明示発火・常駐 poll なし〔誤爆 + secret-handoff の clipboard 単一資源原則と衝突するため daemon 不採用〕、整形ロジック正本は scripts/clipboard-cleaner.py)
 │   ├── ui-toggle-convention.md # UI panel 内 toggle group の default 側統一ルール (slider 位置 + bright label を panel scope で揃える)
 │   ├── web-tools.md        # WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block)
 │   ├── expensive-intermediate-artifacts.md # `-output /tmp/...` reflex 防止 (= OCR / ML / 数値計算で 5 分以上要する artifact をリポ内永続化、 hooks/expensive-tmp-guard.sh で機械的検出)
@@ -80,7 +81,7 @@ claude-config/
 │   ├── pdf-read-fallback-nudge.sh  # PostToolUse(Read): Read tool が .pdf を `pdftoppm is not installed` で fail した時に PyMuPDF 1-liner を system reminder で injection (= 2026-05-18 RCA、 規律 wording に依存しない機械的 enforcement layer)
 │   └── fix-snapshot-path-patch.sh   # PATH スナップショット自動パッチ（REQUIRED_PATHS 方式、launchd WatchPaths から呼ばれる）
 ├── hammerspoon/
-│   └── init.lua                # Hammerspoon 設定（Claude Cmd+Q 誤終了防止）
+│   └── init.lua                # Hammerspoon 設定（Claude Cmd+Q 誤終了防止 + ⌃⌥⌘V クリップボード整形 hotkey、conventions/clipboard-cleaner.md）
 ├── scripts/
 │   ├── fix-bib-unicode.py              # Unicode→LaTeX 変換スクリプト
 │   ├── pre-commit-bib                  # Git pre-commit hook（上記を呼ぶ）
@@ -107,6 +108,8 @@ claude-config/
 │   ├── install-remote-control-server.sh # Remote Control サーバーモードを launchd 常駐化（--dir / --replace-agent / --status / --uninstall、KeepAlive 60s 自動復帰、preflight で auth/同意の欠落を案内、idempotent、macOS 限定、conventions/remote-control-server.md）
 │   ├── check-overleaf-drift.py         # Overleaf 正本 repo の drift / 整備漏れ検出（各 repo の scripts/overleaf-sync.sh --status を並列実行、 ID 未設定=CRITICAL / behind>0=WARN / DEPRECATED=silent / ahead-expected marker で恒常 ahead INFO 抑制、 finding 0 件 silent、 --selftest 内蔵。 個人層 dashboard 末尾から呼ぶ、 conventions/overleaf-integration.md §Sync script 契約）
 │   ├── install-overleaf-sync.sh        # Overleaf 連携 repo に sync script を 1 コマンド設置（template 展開 + URL から ID 抽出・焼き込み + --merge-opts / --ahead-expected + token があれば --status smoke、 冪等・別 ID は --force、 conventions/overleaf-integration.md §新規連携 checklist）
+│   ├── clipboard-cleaner.py            # クリップボード一発整形 CLI（PDF コピーの段落内改行除去 + pbcopy 書き戻しで RTF 書式除去、明示発火のみ・常駐なし、--selftest 内蔵、hammerspoon ⌃⌥⌘V から呼ばれる、conventions/clipboard-cleaner.md）
+│   ├── pdf-cleaner.html                # ↑のブラウザ版 fallback（非 macOS / pbcopy なし環境用、整形ロジックの正本は clipboard-cleaner.py で両実装を同期）
 │   └── lib/                            # sourceable helper (個人層検出の共通化)
 │       ├── find-personal-layer.sh      # `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
 │       └── commit-msg-leak-matcher.sh  # commit message leak matcher (= sensitive-terms.txt + repos.md private list - 6 allowlist の (a)(b)(c) check)、 claude-code hook + git-side runner の両方が source する DRY 実装
@@ -164,7 +167,7 @@ setup.sh が自動で行うこと:
 9. *(条件付き)* JHEP.bst を texmf-local にインストール（odakin: 自動、他ユーザー: オプション表示）
 9b. *(条件付き)* commit author email の privacy（Step 6c）— `user.email` が実 email（`@users.noreply.github.com` 以外）なら、各ユーザーの GitHub noreply（`<id>+<login>@users.noreply.github.com`、`gh api user` から導出 = ハードコードしない）を提示。odakin: 自動設定（冪等）/ 他ユーザー: 推奨コマンドを表示のみ（非破壊）。public commit に実 email を焼き付けないため
 10. *(条件付き)* git-crypt 暗号化リポを自動 unlock。共有プロジェクト鍵 (`~/.secrets/<repo>.key`) があればそれを優先、なければ個人鍵 (`~/.secrets/git-crypt.key`) で fallback
-11. *(条件付き)* Hammerspoon 設定をインストール（macOS + Hammerspoon インストール済みの場合のみ）
+11. *(条件付き)* Hammerspoon 設定をインストール（macOS + Hammerspoon インストール済みの場合のみ。Claude Cmd+Q 誤終了防止 + ⌃⌥⌘V クリップボード整形 hotkey）
 
 ## How to Resume
 1. SESSION.md を読む → 現在状態と残タスクを把握
