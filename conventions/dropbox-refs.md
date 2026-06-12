@@ -5,6 +5,8 @@
 > 関連スクリプト:
 > - `scripts/dropbox-root.sh` — Dropbox install root を OS 横断で resolve
 > - `scripts/setup-dropbox-refs.sh` — 後述の YAML を読んで symlink を作る
+>
+> Dropbox 以外のクラウド (OneDrive / Google Drive) への応用は §10。
 
 ---
 
@@ -268,6 +270,30 @@ CLAUDE.md セクションのテンプレート:
 - **Path に space や非 ASCII**: scripts は quote 厳守で対応済み。TeX 等で参照する際にも `dropbox-refs/...` (ASCII) を経由するので問題は出にくい
 - **Dropbox 解約 / 移行**: 別 cloud に移った場合は `dropbox-root.sh` 相当の resolver を別途書き、setup-dropbox-refs.sh を変更するか、汎用化版に置き換える
 - **Windows-native**: 現状 unsupported。WSL なら (1) DROPBOX_ROOT または (4) ~/Dropbox 経由で動く
+
+---
+
+## 10. 他クラウドストレージへの応用 (OneDrive / Google Drive)
+
+Pattern B の本質 (= 実 working tree と `.git/` をクラウド同期の外に置き、 asset folder へは gitignored な per-machine symlink で参照する) は Dropbox 固有ではない。OneDrive / Google Drive でも同型で使える。実証例: 授業教材 PDF を OneDrive に置いたまま、 個人リポから索引を git 管理する運用 (2026-06)。
+
+- **命名**: symlink は `<provider>-refs/` (例: `onedrive-refs/`, `gdrive-refs/`)。`.gitignore` に `/<provider>-refs` 行を入れる
+- **setup**: `dropbox-root.sh` 相当の resolver / YAML registry は無いので、 リポの CLAUDE.md に setup 1-liner を明記して per-machine 手動設置する。例 (macOS / OneDrive):
+
+  ```bash
+  ln -s "$HOME/Library/CloudStorage/OneDrive-<アカウント表示名>/<subpath>" onedrive-refs
+  ```
+
+  macOS の cloud storage は `~/Library/CloudStorage/<Provider>-<Account>/` に mount される。 同一 provider の複数アカウント (個人用 + 組織) が併存しうるため、 CLAUDE.md にはアカウント名まで書く
+- **汎用化のトリガー**: 複数リポ・共同編集者で使い回す段になったら registry + setup script を provider 横断に汎用化する (§8 「Dropbox 解約 / 移行」 と同じ路線)。 1 リポ 1〜2 マシンのうちは 1-liner で十分
+
+### クラウド asset の索引を自動生成する場合の gotchas (macOS launchd)
+
+asset folder の索引 (一覧 markdown 等) をリポ内に自動生成 + auto-commit する構成 (launchd agent) での実証済み注意点:
+
+- **WatchPaths はディレクトリ直下の変化しか発火しない**。 サブフォルダ内のファイル追加は検出されないので、 StartInterval (例: 1800s) をバックストップに併用する
+- **auto-commit は生成物 file のみ `git add`** する (= 作業中の他 file を巻き込まない)。 「生成日」 行だけの diff を変化とみなすと daily noise commit が積まれるので、 `git diff -I '^<生成日行 pattern>'` で除外し、 その場合は `git checkout -- <file>` で working tree を clean に戻す
+- push 失敗は放置でよい (= 次セッションの git-state-nudge hook が警告する)。 多重起動は mkdir lock で防ぐ
 
 ---
 
