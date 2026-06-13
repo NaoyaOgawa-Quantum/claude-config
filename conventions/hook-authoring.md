@@ -431,6 +431,40 @@ claude-code の hook 関連挙動は **running build によって docs と乖離
 
 ---
 
+## §10. hook を見送る判定 — trigger が「意図」 を識別できないなら chronic false positive が fleet を毀損する
+
+### 問題
+
+hook の matcher / 条件は tool call の**表層** (command 文字列・file path・引数) しか見えない。
+同じ表層で意図が分岐する操作に hook を書くと false positive が恒常化する。 典型例:
+「context を探すための grep」 と 「file 整備のための grep」 は command 上は同一で、
+前者だけに nudge したくても機械条件では分離できない。
+
+nudge (= 非 deny の reminder) は「無害」 に見えるが、 噪音は当該 hook だけでなく
+**hook 出力という機構全体への注意を磨耗させる** — 狼少年 effect は hook 単位でなく
+fleet 単位で効く。 deny 型なら誤 block の作業中断がそのまま実害になる。
+
+### 判定
+
+hook 起案時に 1 問: **「この trigger 条件は、 介入すべき呼び出しだけを機械的に識別できるか?」**
+
+- Yes → hook で良い (§0-§9 の作法へ)
+- No → hook を見送り、 **発火面を変える**:
+  - 「正しい瞬間に手順を想起する」 が問題 → **personal skill** ([`personal-skills.md`](personal-skills.md)。 description が全 session 常時可視 = recall を harness が肩代わり。 非発火時 noise ゼロ、 worst case = 現状維持の非対称 upside)
+  - 無人定期 → scheduled task ([`scheduled-tasks.md §0`](scheduled-tasks.md))
+- skill は発火が確率的 (model 判断) なので、 **不発の実害が再発したら hook へ格上げ**する
+  escalation trigger を導入時に書き残す (= evidence-driven の双方向切替)
+
+### 実例 (2026-06-13)
+
+「内部 context 検索の前に横断 lookup script を回す」 規律の機械化で、 記録系 yaml への
+grep を検出する PreToolUse nudge hook 案を検討 → grep の意図 (context-hunting vs
+maintenance) が表層から識別不能、 当該 repo の整備 session では常時発火と判定 →
+personal skill (description dispatch) に切替。 skill 名を含まない自然な質問に対する
+初手 `Skill(...)` 発火を新 session の trace で確認 (検証作法 = `personal-skills.md §4`)。
+
+---
+
 ## 関連
 
 - `claude-config/setup.sh §Step 2 install_hooks()` — 配信機構の正本 (= delivery 軸 (a) symlink + (b) settings.json を atomic 化する reference implementation。 (c) logic は hook script 側、 (d) invoke 経路は claude-code harness 側で別 layer)
