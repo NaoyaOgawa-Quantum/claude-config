@@ -41,10 +41,18 @@ local function cleanClipboardAndPaste()
     end
     local output, ok = hs.execute("/usr/bin/python3 '" .. cleaner .. "' 2>&1")
     if ok then
-        -- 合成 keystroke は event flags を自前で持つので、 user が
-        -- ⌃⌥⌘ を押したままでも Cmd+V として届く
-        hs.eventtap.keyStroke({"cmd"}, "v")
-        hs.alert.show(output:gsub("%s+$", "") .. " → 貼り付け", 1.5)
+        -- ⌃⌥⌘ が物理的に押されたままだと合成 Cmd+V にハードウェア修飾が
+        -- 合流して paste にならない (実機で確認済の罠)。 全修飾キーの
+        -- 解放を待ってから送る。
+        hs.alert.show(output:gsub("%s+$", "") .. " → キーを離すと貼り付け", 1.5)
+        hs.timer.waitUntil(
+            function()
+                local m = hs.eventtap.checkKeyboardModifiers()
+                return not (m.cmd or m.alt or m.ctrl or m.shift or m.fn)
+            end,
+            function() hs.eventtap.keyStroke({"cmd"}, "v") end,
+            0.05
+        )
     else
         -- 失敗時 (= クリップボードが空 等) は貼り付けない
         hs.alert.show("clipboard-cleaner 失敗: " .. output, 3)
