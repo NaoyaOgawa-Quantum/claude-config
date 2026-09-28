@@ -101,6 +101,12 @@ The completion Git gate below also points to it when unresolved repository
 state makes a handoff incomplete; it does not classify arbitrary SESSION prose
 as a factual ledger.
 
+The SESSION shape gate ([CONVENTIONS.md#session-no-durable-record](../CONVENTIONS.md#session-no-durable-record),
+engine `scripts/check-session-shape.py`: dated log sections, commit hashes, message ids, oversized
+lines, growth past the line budget) runs inside the shared git pre-commit hook, so it applies to Codex
+commits exactly as to Claude's and a human's. Codex has no write-time hook for that gate (the Claude side
+has `hooks/session-shape-guard.sh`); the commit gate is the common floor for both agents.
+
 `check-codex-integration.py` requires these entry points to retain the protocol
 pointer; hook fixtures verify the emitted reminder. These checks protect the
 wiring, not the semantic correctness of a handoff. The agent must read the
