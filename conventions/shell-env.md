@@ -366,6 +366,7 @@ You must agree to the Xcode license agreements...
 ### <a id="job-python-invisible"></a>壊れ方がその機械の中から見えない理由 (実測)
 
 - **session で試すと通る**: session は別の interpreter を掴んでいる。 「手で実行したら動いた」 はジョブの環境の証明にならない
+- **job 定義に PATH が無くても、 launchd の既定の PATH で走るとは限らない**: 本人の shell から `launchctl bootstrap` / `load` したジョブは、 その shell の環境を継ぐ (`launchctl print gui/<uid>/<label>` の `inherited environment` に出る)。 package manager の bin が先頭に居れば `python3` はそこで解決し、 OS 付属の python3 に入れた依存は見えない。 継いだ環境は再 bootstrap や機械の再起動で変わるので、 「昨日まで動いていた」 も証明にならない。 再現するなら `env -i HOME=$HOME PATH=<inherited の値> sh -c '<wrapper>'` で job と同じ PATH を与える (実測)
 - **成功の終了コードで何もしない**: engine を fail-open に書いていると (`ImportError` で exit 0)、 launchd の記録も cron の健康診断も正常を示す。 通知のジョブなら症状は「通知が来ない」 だけで、 来ないことには誰も気づかない
 - **関門が「待機」 に畳む**: 起動行が `<gate> || exit 0` 型だと、 interpreter が起動すらできない場合 (Xcode の gate の exit 69 / 見つからない 127) も「別のマシンが本番なので待機」 と同じ exit 0 になり、 ジョブが黙って永久に休む
 
