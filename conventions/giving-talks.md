@@ -10,7 +10,9 @@ conference talk, journal club, thesis defense). **Load this when** preparing sli
 talk outline, rehearsing, or advising someone on a presentation. (For the *technical* side of
 building slides — Beamer/metropolis, figure generation, reproducible PDF build, page-label
 fixes — see [beamer-slides.md](beamer-slides.md). For wired projector/HDMI preflight and
-recovery, see [macos-hdmi-external-display.md](macos-hdmi-external-display.md).)
+recovery, see [macos-hdmi-external-display.md](macos-hdmi-external-display.md). For the *reader-side*
+mirror of §2 — what a reader actually took home, as "what is new, interesting, important" — see
+[manuscript-value-triage.md](manuscript-value-triage.md).)
 
 This is an **own-words distillation** of **Robert Geroch, "Suggestions For Giving Talks,"
 arXiv:gr-qc/9703019** (an essay of roughly 4500 words; written ~1973, posted to arXiv in
