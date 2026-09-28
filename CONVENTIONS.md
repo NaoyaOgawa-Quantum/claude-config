@@ -116,7 +116,7 @@ nested directory に `AGENTS.md` / `AGENTS.override.md` を足すのは、その
 - 規約本体の表・判別ルールの転載 → CONVENTIONS.md / 対応する `conventions/*.md` へリンク
 - 設計根拠・トレードオフの議論 → DESIGN.md が正本
 - SESSION 的な現在進捗 (「現在〜を実装中」)
-- 上の禁忌は機械でも見る: README が自分を正本と宣言する行は非公開 repo で commit が止まり、 公開 repo では warn。 CLAUDE.md が「README / SESSION に (締切・状態・決定・成果物を) 書け」 と指示する行は warn = 違反の生成器 (実測: 案件 README に締切・状態を書けと命じた repo の CLAUDE.md が起点だった)。 gate = [`scripts/check-session-shape.py`](scripts/check-session-shape.py)
+- 上の禁忌は機械でも見る: README が自分を正本と宣言する行と、 README / SESSION 以外の file に「README / SESSION が正本」 と書いた行は非公開 repo で commit が止まり、 公開 repo では warn。 CLAUDE.md が「README / SESSION に (締切・状態・決定・成果物を) 書け」 と指示する行は warn = 違反の生成器 (実測: 案件 README に締切・状態を書けと命じた repo の CLAUDE.md が起点だった)。 gate = [`scripts/check-session-shape.py`](scripts/check-session-shape.py)
 
 上の 2〜5 番目（構造ツリー / 規約本体 / 設計根拠 / SESSION 進捗）は **case 非依存** — home が常に dynamic docs（CLAUDE.md / CONVENTIONS.md / DESIGN.md / SESSION.md）なので、どちらのケースでも README から剥がす。case で切り替わるのは 1 番目（build/quickstart/deploy）だけ。
 

@@ -51,5 +51,40 @@ if try_commit $'# S\n\n- 案件 A — 次 = Y → [正本](DESIGN.md)\n'; then o
 
 if try_commit $'# S\n\n## 2026-09-28 — 何をした\n' CLAUDE_SESSION_SHAPE_GUARD=0; then ok "escape hatch (CLAUDE_SESSION_SHAPE_GUARD=0) で通る = 止めたのはこの gate"; else ng "escape hatch でも止まる: $(printf '%s' "$OUT" | head -3)"; fi
 
+# 暗号化の一致: SESSION.md に filter が付いた repo で、 filter の無い SESSION-archive.md を足す commit を止める
+# (filter の driver は設定しない = 属性の食い違いだけで止まることを見る)。 CLAUDE_SESSION_CRYPT_GUARD=0 で通る = この gate が止めた証拠。
+CREPO="$TMP/crepo"; mkdir -p "$CREPO"
+(
+  cd "$CREPO" && git init -q -b main && git config user.email t@example.invalid && git config user.name t \
+  && ln -sf "$HOOK" .git/hooks/pre-commit \
+  && printf 'SESSION.md filter=selftestcrypt\n' > .gitattributes \
+  && printf '# S\n\n- 案件 A — 次 = X → [正本](DESIGN.md)\n' > SESSION.md && git add .gitattributes SESSION.md \
+  && HOME="$FAKE_HOME" git commit -q -m init
+) >/dev/null 2>&1 || { echo "FAIL: 暗号化の一時 repo の初期化"; exit 1; }
+CINIT="$(git -C "$CREPO" rev-parse HEAD)"
+try_archive() { # [env...] → stderr を $OUT に、 rc を返す
+  printf '# SESSION-archive\n\n## 2026-01-01 — 移した節\n- x\n' > "$CREPO/SESSION-archive.md"
+  (cd "$CREPO" && git add SESSION-archive.md && env HOME="$FAKE_HOME" "$@" git commit -q -m t 2>"$TMP/err" >/dev/null)
+  local rc=$?
+  OUT="$(cat "$TMP/err")"
+  (cd "$CREPO" && git reset -q --hard "$CINIT" && git clean -qfd) >/dev/null 2>&1  # 通ってしまった commit も戻す
+  return $rc
+}
+if try_archive; then
+  ng "暗号化された SESSION.md の隣に平文の archive を足す commit が通ってしまった"
+else
+  case "$OUT" in *"check-session-shape:"*"archive-plaintext"*) ok "平文の archive を足す commit を pre-commit-bib が止める (engine の見出しつき)";; *) ng "止まったが engine の見出しが無い: $(printf '%s' "$OUT" | head -3)";; esac
+fi
+if try_archive CLAUDE_SESSION_CRYPT_GUARD=0; then ok "escape hatch (CLAUDE_SESSION_CRYPT_GUARD=0) で通る = 止めたのはこの gate"; else ng "escape hatch でも止まる: $(printf '%s' "$OUT" | head -3)"; fi
+
+# README / SESSION を正本と書いた行: 非公開 repo の README / SESSION 以外の file でも止める
+printf '# D\n\n- 手順は README.md §How to build が正本。\n' > "$REPO/DESIGN.md"
+if (cd "$REPO" && git add DESIGN.md && env HOME="$FAKE_HOME" git commit -q -m t 2>"$TMP/err" >/dev/null); then
+  ng "「README が正本」 の行を足す commit が通ってしまった"
+else
+  case "$(cat "$TMP/err")" in *"check-session-shape:"*"sot-claim"*) ok "「README が正本」 の行を足す commit を止める (engine の見出しつき)";; *) ng "止まったが engine の見出しが無い: $(head -3 "$TMP/err")";; esac
+fi
+(cd "$REPO" && git reset -q --hard HEAD && git clean -qfd) >/dev/null 2>&1
+
 echo "pre-commit-bib.test: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
