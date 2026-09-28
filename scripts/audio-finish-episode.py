@@ -11,19 +11,22 @@
        本編は頭 0.03 秒・尾 0.05 秒を必ずフェードする。--trim-head/--trim-tail で頭尾を削れる。
        --intro-jingle で冒頭のジングルだけ指定秒で切る (締めは全長)
        --intro で冒頭だけ別の音 (かけ声を重ねたジングル等) にできる。音量は冒頭・締めを別々に測って揃える
+       --outro-overlap で締めのジングルを本編の終わりの指定秒前から重ねる (盛り上がりを最後の言葉の下に敷き、
+       アタックを語尾の直後に置く。本編の尾の無言は --trim-tail で削って揃える)
     4. MP3 128 kbps CBR / stereo / 48 kHz で 1 回だけ符号化。入力のメタデータは持ち越さず、タグを付け直す
     5. 書き出したものを測り直して検査する。リミッターで本編が下がった分・MP3 化で山が上限を越えた分を
        直して作り直す (最大 5 回)
 
 検査 (1 つでも外れたら exit 1、出力は .FAILED を付けて残す):
     全体 loudness が目標 ± 1 LU / true peak ≤ -1.0 dBTP / 本編区間が目標 ± 0.5 LU /
-    冒頭ジングル区間が目標 + offset ± 1 LU / 長さ = 冒頭ジングル + 本編 + 締めジングル (± 0.15 秒) /
+    冒頭ジングル区間が目標 + offset ± 1 LU / 長さ = 冒頭ジングル + 本編 + 締めジングル − 重ね (± 0.15 秒) /
     タグが付け直した分だけ
 
 使い方:
     python3 audio-finish-episode.py <part> --jingle <jingle> [--artist 名前 --album 名前 --title 題]
     python3 audio-finish-episode.py <part> --jingle <j> --trim-head 1.98 --intro-jingle 10.4
     python3 audio-finish-episode.py <part> --jingle <j> --intro <冒頭用の音> --intro-jingle 9.86
+    python3 audio-finish-episode.py <part> --jingle <j> --trim-tail 0.3 --outro-overlap 2.5
     python3 audio-finish-episode.py --measure <file>...      # 測るだけ
     python3 audio-finish-episode.py --selftest               # 合成音で検査が効くか確かめる
 
@@ -93,13 +96,23 @@ def measure(path: Path, start: float | None = None, end: float | None = None) ->
     return {"I": to_f(i.group(1)), "TP": to_f(tp.group(1)), "LRA": float(lra.group(1)) if lra else None}
 
 
+def band_level(path: Path, start: float, end: float, freq: float) -> float:
+    """区間の、ある周波数の近くだけの平均レベル (dB)。selftest で「その音が鳴っているか」 を見る。"""
+    text = run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-af",
+                f"atrim=start={start:.3f}:end={end:.3f},bandpass=f={freq}:width_type=q:w=30,volumedetect",
+                "-f", "null", "-"])
+    return float(re.findall(r"mean_volume:\s+(-?[\d.]+) dB", text)[-1])
+
+
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def render(part: Path, jingle: Path, out: Path, g_speech: float, g_jingle: float,
            ceiling: float, tags: dict[str, str], head: float = 0.0, speech_len: float | None = None,
-           intro_len: float | None = None, intro: Path | None = None, g_intro: float | None = None) -> None:
+           intro_len: float | None = None, intro: Path | None = None, g_intro: float | None = None,
+           outro_at: float | None = None) -> None:
+    """outro_at を渡すと、締めのジングルを連結せずに出力のその秒から重ねる (本編はその下で最後まで鳴る)。"""
     fmt = f"aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
     limit = 10 ** (ceiling / 20)
     graph = (
@@ -109,8 +122,12 @@ def render(part: Path, jingle: Path, out: Path, g_speech: float, g_jingle: float
         f"[1:a]{fmt},atrim=start={head:.3f}:duration={speech_len:.3f},asetpts=PTS-STARTPTS,"
         f"afade=t=in:st=0:d={FADE_IN_S},afade=t=out:st={speech_len - FADE_OUT_S:.3f}:d={FADE_OUT_S},"
         f"volume={g_speech:.3f}dB[s];"
-        f"[2:a]{fmt},volume={g_jingle:.3f}dB[j2];"
-        f"[j1][s][j2]concat=n=3:v=0:a=1,"
+        f"[2:a]{fmt},volume={g_jingle:.3f}dB"
+        # 重ねるときは足し算だけ (normalize=0: amix は既定で入力数で割って音量を下げる)。遅延はサンプル数で渡す
+        + (f",adelay=delays={round(outro_at * SAMPLE_RATE)}S:all=1[j2];"
+           f"[j1][s]concat=n=2:v=0:a=1[body];[body][j2]amix=inputs=2:duration=longest:normalize=0,"
+           if outro_at is not None else "[j2];[j1][s][j2]concat=n=3:v=0:a=1,")
+        +
         # level=0: alimiter は既定で出力を上限まで自動で持ち上げる (= 音量が勝手に変わる) ので切る
         # latency=1: 先読みの遅延を補正する (切らないと頭が attack 分ずれて尾が欠ける)
         f"aresample=192000,alimiter=limit={limit:.6f}:attack=1:release=50:level=0:latency=1,"
@@ -136,7 +153,7 @@ def format_tags(path: Path) -> dict[str, str]:
 
 def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
            tags: dict[str, str], quiet: bool = False, trim_head: float = 0.0, trim_tail: float = 0.0,
-           intro_jingle: float = INTRO_JINGLE_S, intro: Path | None = None) -> bool:
+           intro_jingle: float = INTRO_JINGLE_S, intro: Path | None = None, outro_overlap: float = 0.0) -> bool:
     say = (lambda *a: None) if quiet else (lambda *a: print(*a, flush=True))
     src_intro = intro or jingle        # 冒頭に置く音 (既定 = 締めと同じジングル)
     jd, raw, idur = duration(jingle), duration(part), duration(src_intro)
@@ -144,6 +161,8 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
     sd = raw - trim_head - trim_tail   # 実際に使う本編の長さ
     if sd <= FADE_IN_S + FADE_OUT_S:
         sys.exit(f"⚠️ 削りすぎ: 本編が残らない ({part})")
+    if not 0 <= outro_overlap < min(jd, sd):
+        sys.exit(f"⚠️ --outro-overlap {outro_overlap} は 0 以上で、締めのジングル ({jd:.2f} 秒) と本編より短くする")
     mj, ms = measure(jingle), measure(part, trim_head, trim_head + sd)
     mi = measure(src_intro) if intro else mj
     say(f"入力  本編 {part.name}: I={ms['I']:.1f} LUFS  TP={ms['TP']:.1f} dBTP  長さ {sd:.2f} 秒"
@@ -159,9 +178,10 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
     history = []
     for attempt in range(1, MAX_RENDERS + 1):
         render(part, jingle, out, g_speech, g_jingle, ceiling, tags, head=trim_head, speech_len=sd,
-               intro_len=ji if ji < idur else None, intro=intro, g_intro=g_intro)
+               intro_len=ji if ji < idur else None, intro=intro, g_intro=g_intro,
+               outro_at=ji + sd - outro_overlap if outro_overlap else None)
         whole = measure(out)
-        speech = measure(out, ji, ji + sd)
+        speech = measure(out, ji, ji + sd - outro_overlap)   # 締めを重ねた所は本編区間に入れない
         head = measure(out, 0, ji)
         rec = {"attempt": attempt, "gain_speech_dB": round(g_speech, 2), "gain_jingle_dB": round(g_jingle, 2),
                "gain_intro_dB": round(g_intro, 2),
@@ -180,7 +200,7 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
         g_speech += short           # リミッターで本編が下がった (or 上がった) 分を足す
 
     got_d = duration(out)
-    want_d = ji + sd + jd
+    want_d = ji + sd + jd - outro_overlap
     got_tags = format_tags(out)
     extra = sorted(set(got_tags) - {k.lower() for k in tags} - {"encoder"})
     last = history[-1]
@@ -194,7 +214,8 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
         ("ジングル区間の loudness", abs(last["out_head_jingle"]["I"] - (target + offset)) <= JINGLE_TOL_LU,
          f"{last['out_head_jingle']['I']:.1f} LUFS (目標 {target + offset} ± {JINGLE_TOL_LU})"),
         ("長さ", abs(got_d - want_d) <= DURATION_TOL_S,
-         f"{got_d:.2f} 秒 (冒頭ジングル {ji:.2f} + 本編 + 締めジングル = {want_d:.2f} ± {DURATION_TOL_S})"),
+         f"{got_d:.2f} 秒 (冒頭ジングル {ji:.2f} + 本編 + 締めジングル"
+         + (f" − 重ね {outro_overlap:.2f}" if outro_overlap else "") + f" = {want_d:.2f} ± {DURATION_TOL_S})"),
         ("元ファイルのタグが残っていない", not extra, f"余分なタグ = {extra or 'なし'}"),
     ]
     ok = all(c[1] for c in checks)
@@ -207,7 +228,7 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
     log = {"part": str(part), "part_sha256": sha256(part), "jingle": str(jingle), "jingle_sha256": sha256(jingle),
            "intro": str(intro) if intro else None, "intro_sha256": sha256(intro) if intro else None,
            "in_intro": mi if intro else None,
-           "trim_head_s": trim_head, "trim_tail_s": trim_tail, "intro_jingle_s": ji, "fade_in_s": FADE_IN_S, "fade_out_s": FADE_OUT_S,
+           "trim_head_s": trim_head, "trim_tail_s": trim_tail, "intro_jingle_s": ji, "outro_overlap_s": outro_overlap, "fade_in_s": FADE_IN_S, "fade_out_s": FADE_OUT_S,
            "target_LUFS": target, "jingle_offset_LU": offset, "bitrate": BITRATE, "tags": tags,
            "in_speech": ms, "in_jingle": mj, "renders": history,
            "checks": [{"name": n, "pass": p, "detail": d} for n, p, d in checks], "ok": ok}
@@ -260,9 +281,21 @@ def selftest() -> None:
         assert ok_intro, "selftest: 冒頭だけ別の音にすると検査に落ちた"
         want = duration(intro) + duration(part) + duration(jingle)
         assert abs(duration(d / "intro.mp3") - want) <= DURATION_TOL_S, "selftest: 冒頭の音が使われていない (長さが合わない)"
+        # 締めを重ねると、その分だけ短くなり、重ねた所で本編とジングルが同時に鳴る (= 連結でなく足し算になっている)
+        ok_ov = finish(part, jingle, d / "overlap.mp3", target=TARGET_LUFS, offset=0.0,
+                       tags={"title": "selftest-overlap"}, quiet=True, trim_tail=1.0, outro_overlap=1.5)
+        assert ok_ov, "selftest: 締めを重ねると検査に落ちた"
+        end = duration(jingle) + duration(part) - 1.0   # 出力の中で本編が終わる時刻
+        assert abs(duration(d / "overlap.mp3") - (end + duration(jingle) - 1.5)) <= DURATION_TOL_S, \
+            "selftest: 締めの重ねの長さが合わない"
+        # ジングル役は 0.5 秒の無音の後にサイン波が鳴る = 本編の終わりの 1.0 秒前から鳴り始める。
+        # 本編の終わり直前 (重なっている所) と、ジングルが始まる前を 440 Hz の近くで比べる
+        on = band_level(d / "overlap.mp3", end - 0.9, end - 0.1, 440)
+        off = band_level(d / "overlap.mp3", end - 2.4, end - 1.6, 440)
+        assert on - off > 10, f"selftest: 重ねた所でジングルが鳴っていない ({on:.1f} vs {off:.1f} dB)"
         assert not ok_bad and (d / "bad.mp3.FAILED").exists(), "selftest: 無理な目標でも検査が通ってしまった"
     print("✅ selftest PASS (合成音で検査が通る / 無理な目標では落ちて .FAILED になる / 元のタグが消える / 削り・切りの勘定が合う"
-          " / 冒頭だけ別の音でも合う)")
+          " / 冒頭だけ別の音でも合う / 締めを重ねると長さが合い、重ねた所でジングルが鳴る)")
 
 
 def main() -> None:
@@ -283,6 +316,9 @@ def main() -> None:
                     help=f"冒頭のジングル (--intro を渡したらその音) を何秒で切るか (既定 {INTRO_JINGLE_S}。0 で切らない)")
     ap.add_argument("--intro", type=Path,
                     help="冒頭だけ別の音にする (例: かけ声を重ねたジングル)。締めは常に --jingle。既定 = --jingle と同じ")
+    ap.add_argument("--outro-overlap", type=float, default=0.0,
+                    help="締めのジングルを本編の終わりの何秒前から重ねるか (既定 0 = 本編の後に続ける)。"
+                         "ジングルのアタックの時刻を渡すと、本編の終わりにアタックが来る")
     ap.add_argument("--out", type=Path, help="出力先 (Part を 1 本だけ渡すとき)")
     ap.add_argument("--force", action="store_true", help="既存の出力を上書きする")
     ap.add_argument("--measure", action="store_true", help="測るだけ")
@@ -321,7 +357,8 @@ def main() -> None:
             tags["album"] = a.album or a.artist
         print(f"== {part} → {out}", flush=True)
         ok = finish(part, a.jingle, out, target=a.target, offset=a.jingle_offset, tags=tags,
-                    trim_head=a.trim_head, trim_tail=a.trim_tail, intro_jingle=a.intro_jingle, intro=a.intro)
+                    trim_head=a.trim_head, trim_tail=a.trim_tail, intro_jingle=a.intro_jingle, intro=a.intro,
+                    outro_overlap=a.outro_overlap)
         all_ok &= ok
     sys.exit(0 if all_ok else 1)
 
