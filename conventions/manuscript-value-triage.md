@@ -121,3 +121,17 @@ summary: 原稿の価値の読み = 「何が新しくて、 面白くて、 重
 - 主張の所有と裁定の記録: [manuscript-claim-ownership.md](manuscript-claim-ownership.md) /
   [actor-attribution.md](actor-attribution.md)
 - 公開層に上げる境界 (具体の結果は上げない): [../CLAUDE.md #non-identifier-content-leak](../CLAUDE.md#non-identifier-content-leak)
+
+## <a id="delegate-per-draft"></a>8. 複数本の draft は 1 本 1 delegate で並列に (prompt の骨格)
+
+手元に戻す読みなので background delegate (Opus 級を使う = 仕事は構造の再導出 + 著者の数値照合 script の実行)。
+1 本 1 agent を同時に起動し、 起票側は返りの要約でなく **note を全文読んでから**本人に出す (実測: 1 本 25–30 分)。
+
+prompt の骨格 (番号どおりに):
+1. 基準を読む (本 doc) 2. 見本の note を読む (形だけ真似る、 中身は写さない) 3. 対象の全文 + 版 (hash) 4. 文脈 (進捗報告の該当節・
+説明書・先行する査読/敵役検証の note・作業記録。 別系統の SESSION は読まない) 5. 正しさを先に = 再導出する構造の主張を**名指しで
+列挙** (4 点程度) + 著者の照合 script を回して PASS 数を記録 (venv を作らない、 重い走査を走らせない) 6. 3 問 7. 過小評価の検査
+8. 記号の衝突 ([paper-audit.md#symbol-collision-sweep](paper-audit.md#symbol-collision-sweep)) 9. 共通論点は「別 note」 の 1 行
+10. note の path・帰属 block・空の「判断」 節・数式は Unicode。
+禁則: commit / draft の編集 / 外部連絡 / 「文献に無い」 の断定 / 無理に「面白い」 を作る。 返答は 400 字以内 (path・一行・不一致・
+過小評価の結論・衝突の有無)。 起票側が pointer (索引・SESSION・著者側の案件表・個人層の routing) を通して commit する。
