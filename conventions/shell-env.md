@@ -377,3 +377,5 @@ You must agree to the Xcode license agreements...
 3. **他の機械から見る**: 壊れた機械の中の検査は、 その機械で誰かが session を開くまで何も言わない。 [`multi-machine-state.md#fleet-heartbeat`](multi-machine-state.md#fleet-heartbeat) の job health (`--job-label-prefix` / `--job-python-modules`) が各ジョブの最後の終了コードと、 job の PATH で解決した python3 が起動できるか・依存を import できるかを記録し、 reader が「関門の python3 が起動できない」 (🔴) / 「wrapper が PATH の python3 を呼ぶのに依存を import できない」 (🟠) / 他の機械の非 0 終了 (🟠) を出す
 
 ⚠️ [#xcode-gate-wrong-fix](#xcode-gate-wrong-fix) の「別の python へ逃がすのは誤り」 は、 **PATH の順が黙って逃がしている**場合にも当てはまる = 意図して選んでいないのに、 ジョブは別の interpreter で動いている。 表の「OS の定期ジョブ」 行の `DEVELOPER_DIR` の宣言だけでは足りない (shim を直しても、 PATH が先に別の python3 を返す)。
+
+⚠️ <a id="job-python-switch-moves-tcc"></a>**interpreter を替えると、 ジョブが起動する CLI の macOS の権限 (TCC) の帰属先も変わる**: Homebrew の python から起動していた頃は python に付いていた許可が、 Apple 純正の python に替えると子の CLI 自身に求められるようになり、 それまで出なかった許可ダイアログが定期ジョブのたびに出始める (実測)。 替えた後は子の CLI の許可を 1 回取り直す。 押しても出直すなら、 CLI の署名を疑う = [`macos-claude-code-tcc-recurring-prompt.md#half-signed-universal-binary`](macos-claude-code-tcc-recurring-prompt.md#half-signed-universal-binary)。
