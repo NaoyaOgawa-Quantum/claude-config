@@ -204,7 +204,7 @@ CLAUDE.md 95 → 35 KB)。
   auto-load 税が小さく、 2026-09-11 の claude-config の SESSION.md は 506 行でも 91 KB (per-file warn 150 KB の
   遥か下) のまま誰も気付かなかった。 縮退した file には**行数の閾値**も登録し (warn = 目安 + slack、 同じく実 fleet で
   silent を確認)、 **追記した本人に届く面** (= commit 時の warn) にも置く。 実例 = claude-config の
-  `.claude/pre-commit-extra.sh` 検査 5 (100 行)。
+  `.claude/pre-commit-extra.sh` 検査 5 (120 行 = 形の gate [#session-shape-gate](#session-shape-gate) と同じ warn)。
 - **SESSION-as-SoT detector は whole-file bytes と largest UTF-8 line の両方を測る。** 行数だけでは durable payload を
   一つの巨大 bullet に詰めた file が抜け、全体量だけでは短い file 内の異常な一行が埋もれるためである。公開 engine
   [`scripts/check-session-sot.py`](../scripts/check-session-sot.py) の既定 warn は 64 KiB / 2 KiB。これは意味上の違反判定
