@@ -193,7 +193,11 @@ def cmd_follow(a) -> int:
     if not (local / ".git").exists():
         print(f"{name}: clone が無い = skip")
         return 0
-    git(local, "fetch", "-q", "origin")
+    try:
+        git(local, "fetch", "-q", "origin")
+    except RuntimeError as exc:  # 通信の失敗は traceback でなく 1 行で止まる (呼び元は次の session で再試行する)
+        print(f"{name}: fetch に失敗 (通信) = 今回は止まる、 次に再試行: {str(exc).splitlines()[0][:160]}")
+        return 1
     target = f"origin/{a.branch}"
     if subprocess.run(["git", "-C", str(local), "merge-base", "--is-ancestor", "HEAD", target],
                       capture_output=True, env=_env()).returncode == 0:
