@@ -196,6 +196,25 @@ def write_archive(path: Path, block: str, repo_name: str) -> None:
         path.write_text(f"# SESSION-archive — {repo_name}\n\n> 📦 SESSION.md から移した日付つき節 (grep 専用、 verbatim)。 現在地は SESSION.md。\n\n{block}", encoding="utf-8")
 
 
+def _filter_of(repo: Path, rel: str) -> str:
+    rc, out = _git(repo, "check-attr", "filter", "--", rel)
+    val = out.strip().rsplit(": ", 1)[-1] if rc == 0 and out.strip() else "unspecified"
+    return val or "unspecified"
+
+
+def _encrypt_gap(repo: Path, arch_rel: str) -> str | None:
+    """SESSION.md に filter (git-crypt など) が付いているのに、 移し先の archive に同じ filter が無ければ理由を返す。
+    付いていない path へ移すと、 暗号化されていた中身が平文で commit される (実測: 平文の archive が push された)。"""
+    f_s = _filter_of(repo, "SESSION.md")
+    if f_s in ("unspecified", "unset"):
+        return None
+    f_a = _filter_of(repo, arch_rel)
+    if f_a != f_s:
+        return (f"SESSION.md は filter={f_s} (暗号化) なのに移し先 {arch_rel} は filter={f_a} = 平文で commit される。 "
+                f".gitattributes で移し先にも同じ filter を付けて commit してから")
+    return None
+
+
 def process_repo(repo: Path, *, apply: bool, commit: bool, push: bool, today: str, gate: Path | None) -> str:
     name = repo.name
     sp = repo / "SESSION.md"
@@ -212,6 +231,9 @@ def process_repo(repo: Path, *, apply: bool, commit: bool, push: bool, today: st
         return f"skip {name}: SESSION.md が untracked"
     arch = archive_target(repo, today)
     arch_rel = str(arch.relative_to(repo))
+    gap = _encrypt_gap(repo, arch_rel)
+    if gap:
+        return f"skip {name}: {gap}"
     p = plan(sp.read_text(encoding="utf-8"), today, arch_rel)
     if p is None:
         return f"skip {name}: 日付つきの top-level 節が無い"
@@ -322,6 +344,24 @@ def run_selftest() -> int:
         check(st.strip() == "", "commit 後は clean")
         r2 = process_repo(repo, apply=True, commit=True, push=False, today=today, gate=gate)
         check(r2.startswith("skip") and "無い" in r2, "2 回目は移すものが無く skip")
+        # SESSION.md が暗号化 (filter 指定) で移し先が同じ filter でなければ、 書く前に止まる (平文の archive を作らない)
+        repo3 = Path(tmp) / "repo3"
+        repo3.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo3, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.invalid"], cwd=repo3, check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo3, check=True)
+        (repo3 / ".gitattributes").write_text("SESSION.md filter=selftestcrypt\n", encoding="utf-8")
+        (repo3 / "SESSION.md").write_text(t2, encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo3, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo3, check=True)
+        r5 = process_repo(repo3, apply=True, commit=True, push=False, today=today, gate=gate)
+        check(r5.startswith("skip") and "平文" in r5 and not (repo3 / "SESSION-archive.md").exists()
+              and (repo3 / "SESSION.md").read_text(encoding="utf-8") == t2,
+              "SESSION.md が暗号化で移し先が平文なら、 何も書かずに止まる")
+        (repo3 / ".gitattributes").write_text("SESSION.md filter=selftestcrypt\nSESSION-archive.md filter=selftestcrypt\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-q", "-am", "attr"], cwd=repo3, check=True)
+        r6 = process_repo(repo3, apply=False, commit=False, push=False, today=today, gate=gate)
+        check(r6.startswith("dry-run"), "移し先にも同じ filter があれば進む")
         # 既存の SESSION-archive.md に差し込む形 (見出しの直後)
         repo2 = Path(tmp) / "repo2"
         repo2.mkdir()
