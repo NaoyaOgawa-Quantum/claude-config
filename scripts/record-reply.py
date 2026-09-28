@@ -58,7 +58,8 @@ selftest (= 偽の Gmail + 2 台帳の fixture、 API に触らない): t1 legac
   t12 --remigrate は root の行だけ外す / t13 todo/<id>.yaml の項目 / t14 自分発の相手 = 宛先 (索引と現在地)、
   返事でない message (新規・追送・転送) は --ctx-new-out / --ctx-new-in / t15 --relabel (相手の引き直し・下書きの
   行を外して印を戻す・Gmail に無い id は残す・他の field は不変・冪等) / t16 現在地を作る thread = 今回記録する最新を持つ thread /
-  t17 途中で止まったらこの実行の書き込みを全部戻す。
+  t17 途中で止まったらこの実行の書き込みを全部戻す / t18 1 つの entry に複数 thread の行 (別 thread の行が今回より
+  前 / 後の日付) = 索引は全行の日付順・印は全行の最新・既存の行を落とさない。
 下書き: Gmail は未送信の下書きも thread の message として返す。 lib/gmail_read が既定で除く (= 記録しない・返事の
   判定に入れない)。 下書きを記録してしまった既存の行は --relabel が外す。
 """
@@ -372,6 +373,26 @@ def _block_tail(lines: list[str], s: int, e: int) -> int:
     return j
 
 
+def merge_order(lines: list[str]) -> list[str]:
+    """索引の行を日付順に並べる (同じ分の行は元の順 = stable)。 読めない行は直前の読める行の日付で並べる (= 位置を保つ)。"""
+    keyed, last = [], ""
+    for x in lines:
+        m = MSG_LINE_RE.match(x)
+        last = m.group(2) if m else last
+        keyed.append((last, x))
+    return [x for _, x in sorted(keyed, key=lambda kx: kx[0])]
+
+
+def latest_upto(lines: list[str]) -> str | None:
+    """索引の全行のうち最新の行 (同じ分なら後の行) を指す recorded_upto の値。 読める行が無ければ None。"""
+    best = None
+    for x in lines:
+        m = MSG_LINE_RE.match(x)
+        if m and (best is None or m.group(2) >= best.group(2)):
+            best = m
+    return f"messageId:{best.group(1)} ({best.group(2)})" if best else None
+
+
 def update_entry_text(cfg: Config, text: str, entry_id: str, msgs: list[dict], record_ids: list[str],
                       todo_id: str | None, add_thread: bool, tid: str, reset: bool = False) -> str:
     """既存 entry に threadId (無ければ) / recorded_upto / messages / related_todo を書く (置換か挿入)。
@@ -380,6 +401,9 @@ def update_entry_text(cfg: Config, text: str, entry_id: str, msgs: list[dict], r
       見て記録している) ∪ 今回記録する id。
     reset=True (移行): 索引 = record_ids ∪ 既存の行。 ただし thread の root は record_ids に無ければ載せない。
       残る id が無ければ印と索引を外す。
+    どちらも索引は**全行** (今回の thread に無い既存の行 = 別 thread の行を含む) の日付順、 印 = 全行の最新。 1 つの entry が
+    複数の thread の home になる (本文の mid で別 thread の message も拾う) ため、 今回の thread の行だけで並べて印を
+    決めると、 別 thread の行との順が崩れ印が戻る (= 書き込み時の検査で止まった、 実測)。
     """
     lines = text.split("\n")
     span = find_block(lines, entry_id)
@@ -402,7 +426,8 @@ def update_entry_text(cfg: Config, text: str, entry_id: str, msgs: list[dict], r
     for mid in want_ids:
         old = next((x for x in existing if x.startswith(f"mid:{mid} ")), None)
         new_lines.append(old if old is not None else message_line(cfg, by_id[mid]))
-    latest = by_id[want_ids[-1]] if want_ids else None
+    new_lines = merge_order(new_lines)   # 別 thread の既存の行と今回の行を合わせて日付順
+    upto = latest_upto(new_lines)        # 印 = 全行の最新 (今回の thread の最新ではない)
     edits = []
     if reset and not want_ids and not new_lines:
         for f in ("recorded_upto", "messages"):
@@ -412,7 +437,7 @@ def update_entry_text(cfg: Config, text: str, entry_id: str, msgs: list[dict], r
         for a, b, rep in sorted(edits, key=lambda x: (x[0], x[1]), reverse=True):
             lines[a:b] = rep
         return "\n".join(lines)
-    upto_line = f"  recorded_upto: {yaml_str(upto_value(cfg, latest))}" if latest else None
+    upto_line = f"  recorded_upto: {yaml_str(upto)}" if upto else None
     sp = field_span(lines, s, e, "recorded_upto")
     if sp and upto_line:
         edits.append((sp[0], sp[1], [upto_line]))
@@ -1459,6 +1484,51 @@ def _selftest() -> int:
         out_lines.clear()
         rc = run_migrate(cfg, "ledger-a", Ledger(cfg), gm, apply=True, limit=None, only="2026-07-01-thread-only-root", out=pr, remigrate=True)
         check(rc == 0 and _yaml_safe_load(pth7.read_text(encoding="utf-8"))[0] == tr, "t12 --remigrate は冪等")
+        # t18 1 つの entry に 2 thread の行: 別 thread の行が今回の thread より前 / 後の日付でも、 索引は全行の日付順、
+        # 印 = 全行の最新、 既存の行を落とさない (前は今回の thread の行を末尾に足し、 印も今回の thread の最新にしていた = 実測)
+        x1, y1, y2 = "acac000000000001", "adad000000000001", "adad000000000002"
+        z1, z2, w1 = "aeae000000000001", "aeae000000000002", "afaf000000000001"
+        threads[("acct-a", x1)] = [msg(x1, T + 10800000, CP, subj="Fwd: x")]
+        threads[("acct-a", y1)] = [msg(y1, T + 3600000, OW, subj="y"), msg(y2, T + 14400000, CP, subj="Re: y")]
+        threads[("acct-a", z1)] = [msg(z1, T, CP, subj="z"), msg(z2, T + 18000000, OW, subj="Re: z")]
+        threads[("acct-a", w1)] = [msg(w1, T + 7200000, CP, subj="w")]
+        gm = FakeGmail(threads)
+        (td / "ledger-e" / "inbox").mkdir(parents=True)
+        (td / "ledger-e" / "todo").mkdir()
+        pe = td / "ledger-e" / "inbox" / "2026-09.yaml"
+        pe.write_text(
+            f'# e\n\n- id: "2026-09-22-fwd-received"\n  subject: "Fwd: x"\n  account: acct-a\n  threadId: "{x1}"\n'
+            f'  messageId: "{x1}"\n  recorded_upto: "messageId:{x1} (2026-09-22 03:00)"\n  messages:\n'
+            f'    - "mid:{x1} 2026-09-22 03:00 ← Counter Part"\n  category: received\n  related_todo:\n'
+            f'    - "2026-10-10-todo-e2"\n  summary: |\n    the earlier send (mid:{y1}) is another thread.\n\n'
+            f'- id: "2026-09-22-z-received"\n  subject: "z"\n  account: acct-a\n  threadId: "{z1}"\n'
+            f'  recorded_upto: "messageId:{z2} (2026-09-22 05:00)"\n  messages:\n'
+            f'    - "mid:{z1} 2026-09-22 00:00 ← Counter Part"\n    - "mid:{z2} 2026-09-22 05:00 → Counter Part"\n'
+            f'  category: received\n  summary: |\n    z.\n  log:\n    - "confirmation in another thread (mid:{w1})"\n',
+            encoding="utf-8")
+        (td / "ledger-e" / "todo" / "2026-10-10-todo-e2.yaml").write_text(
+            f'id: "2026-10-10-todo-e2"\ntask: |\n  e2\nemail_ref: "threadId:{y1}"\nstatus: open\ncreated: "2026-09-22"\n',
+            encoding="utf-8")
+        cfg_e = Config(**{**vars(cfg), "ledgers": ["ledger-e"]})
+        ns8 = argparse.Namespace(target="2026-10-10-todo-e2", todo=None, account=None, next=None, status=None, summary=None,
+                                 slug=None, id=None, ledger_for_new=None, no_todo=True, apply=True)
+        out_lines.clear()
+        rc = run_record(cfg_e, ns8, Ledger(cfg_e), gm, "2026-09-22", pr)
+        fe = next((x for x in (_yaml_safe_load(pe.read_text(encoding="utf-8")) or []) if x.get("id") == "2026-09-22-fwd-received"), {})
+        check(rc == 0 and fe.get("messages") == [f"mid:{y1} 2026-09-22 01:00 → Counter Part", f"mid:{x1} 2026-09-22 03:00 ← Counter Part",
+                                                  f"mid:{y2} 2026-09-22 04:00 ← Counter Part"]
+              and fe.get("recorded_upto") == f"messageId:{y2} (2026-09-22 04:00)" and not check_entry(fe),
+              "t18 1 entry に 2 thread (項目から 2 thread が同じ entry へ): 既存の行 + 今回の行を日付順、 印 = 全行の最新")
+        out_lines.clear()
+        ns9 = argparse.Namespace(**{**vars(ns8), "target": w1})
+        rc = run_record(cfg_e, ns9, Ledger(cfg_e), gm, "2026-09-22", pr)
+        ze = next((x for x in (_yaml_safe_load(pe.read_text(encoding="utf-8")) or []) if x.get("id") == "2026-09-22-z-received"), {})
+        check(rc == 0 and ze.get("messages") == [f"mid:{z1} 2026-09-22 00:00 ← Counter Part", f"mid:{w1} 2026-09-22 02:00 ← Counter Part",
+                                                  f"mid:{z2} 2026-09-22 05:00 → Counter Part"]
+              and ze.get("recorded_upto") == f"messageId:{z2} (2026-09-22 05:00)" and not check_entry(ze),
+              "t18 別 thread の既存の行が今回の thread より後の日付: 既存の行を落とさず間に挟み、 印は既存の最新のまま")
+        out_lines.clear()
+        check(run_check(Ledger(cfg_e), pr, quiet=True) == 0, "t18 書いた後の --check は緑")
     finally:
         shutil.rmtree(td, ignore_errors=True)
     print(f"selftest: {'ALL PASS' if not fails else f'FAIL {fails}'}")
