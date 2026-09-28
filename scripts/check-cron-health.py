@@ -216,7 +216,13 @@ def selftest() -> int:
            auth_remedies(fx2, P) == ["  🔑 そのマシンの terminal で: CLAUDE_CONFIG_DIR=/nonexistent/.claude-acct"
                                      " claude auth login"])
         ck("--prefix の解釈", prefixes_from(["--prefix", "a.", "--prefix=b."]) == ["a.", "b."])
-        ck("prefix 無しは usage で exit 2", main([]) == 2 if not os.environ.get("CLAUDE_CRON_HEALTH_PREFIX") else True)
+        # usage を確かめる case なので stderr は捨てる。 漏らすと、 通った selftest の
+        # 出力に usage の文が残り、 それを読む側 (run-all-checks を回す local-ci 等) が
+        # 「この検査はこれで落ちた」 と誤って報告する (= 正常な出力が失敗の合図と同じ姿)。
+        import contextlib, io  # noqa: E401  (この case だけで使う)
+        with contextlib.redirect_stderr(io.StringIO()):
+            _usage_rc = main([])
+        ck("prefix 無しは usage で exit 2", _usage_rc == 2 if not os.environ.get("CLAUDE_CRON_HEALTH_PREFIX") else True)
     LOG_DIR, LAUNCH_AGENTS = old
     n = sum(1 for _, c in checks if c)
     for name, c in checks:
