@@ -57,7 +57,8 @@ selftest (= 偽の Gmail + 2 台帳の fixture、 API に触らない): t1 legac
   戻す / t9 status_context は 1 行の JSON 文字列 (t9b 日付は message の日、 記録した日でない) / t10 移行は message として記録した id だけ / t11 root を載せない /
   t12 --remigrate は root の行だけ外す / t13 todo/<id>.yaml の項目 / t14 自分発の相手 = 宛先 (索引と現在地)、
   返事でない message (新規・追送・転送) は --ctx-new-out / --ctx-new-in / t15 --relabel (相手の引き直し・下書きの
-  行を外して印を戻す・Gmail に無い id は残す・他の field は不変・冪等)。
+  行を外して印を戻す・Gmail に無い id は残す・他の field は不変・冪等) / t16 現在地を作る thread = 今回記録する最新を持つ thread /
+  t17 途中で止まったらこの実行の書き込みを全部戻す。
 下書き: Gmail は未送信の下書きも thread の message として返す。 lib/gmail_read が既定で除く (= 記録しない・返事の
   判定に入れない)。 下書きを記録してしまった既存の行は --relabel が外す。
 """
@@ -734,19 +735,35 @@ def apply_plan(cfg: Config, p: dict, ledger: Ledger, todo_id: str | None, args, 
         entry_text = render_new_entry(cfg, c["id"], msgs, rec_ids, p["account"], [todo_id] if todo_id else [], args.summary or "", tid)
         write_verified(c["path"], append_entry_text(text, entry_text), _verify_inbox(c["id"], n_before, True, set(rec_ids)))
         written.append(c["path"])
-    if todo_id and not args.no_todo:
-        _, tpath, _ = ledger.todos[todo_id]
-        ctx = compose_context(cfg, p, today, args.next)
-        if tpath.name == TODO_LEGACY_NAME:   # 旧 list 形 (移行中に残っている TODO.yaml)
-            text = tpath.read_text(encoding="utf-8")   # 書く直前に読み直す (並列 session)
-            n_before = len([x for x in (_yaml_safe_load(text) or []) if isinstance(x, dict)])
-            write_verified(tpath, update_todo_text(text, todo_id, ctx, today, args.status, tid),
-                           _verify_todo(todo_id, n_before, ctx, today, args.status))
-        else:   # todo/<id>.yaml (1 file 1 entry): list 形に戻して同じ編集を当て、 mapping に戻す (= 書式を保つ経路を 1 本に)
-            text = todo_entry_text(tpath)
-            new_text = dedent_entry(update_todo_text(indent_entry(text), todo_id, ctx, today, args.status, tid))
-            write_verified(tpath, new_text, _verify_todo(todo_id, 1, ctx, today, args.status))
-        written.append(tpath)
+    return written
+
+
+def context_plan(plans: list[dict]) -> dict:
+    """項目の現在地 (status_context) を作る thread = 今回記録する message の最新を持つ thread (記録が無ければ全体の最新)。
+    thread ごとに書くと最後に処理した thread が勝ち、 新着の無い thread の古い送信が現在地になった (実測)。"""
+    def last(p, only_rec):
+        ms = [m for m in p["msgs"] if not only_rec or m["id"] in p["record"]]
+        return int(ms[-1].get("internalDate") or 0) if ms else -1
+    with_rec = [p for p in plans if p["record"]]
+    return max(with_rec or plans, key=lambda p: last(p, bool(with_rec)))
+
+
+def apply_todo(cfg: Config, p: dict, ledger: Ledger, todo_id: str, args, today: str) -> list[Path]:
+    """結ぶ項目の現在地を 1 回だけ書く (p = context_plan で選んだ thread)。"""
+    written = []
+    tid = p["tid"]
+    _, tpath, _ = ledger.todos[todo_id]
+    ctx = compose_context(cfg, p, today, args.next)
+    if tpath.name == TODO_LEGACY_NAME:   # 旧 list 形 (移行中に残っている TODO.yaml)
+        text = tpath.read_text(encoding="utf-8")   # 書く直前に読み直す (並列 session)
+        n_before = len([x for x in (_yaml_safe_load(text) or []) if isinstance(x, dict)])
+        write_verified(tpath, update_todo_text(text, todo_id, ctx, today, args.status, tid),
+                       _verify_todo(todo_id, n_before, ctx, today, args.status))
+    else:   # todo/<id>.yaml (1 file 1 entry): list 形に戻して同じ編集を当て、 mapping に戻す (= 書式を保つ経路を 1 本に)
+        text = todo_entry_text(tpath)
+        new_text = dedent_entry(update_todo_text(indent_entry(text), todo_id, ctx, today, args.status, tid))
+        write_verified(tpath, new_text, _verify_todo(todo_id, 1, ctx, today, args.status))
+    written.append(tpath)
     return written
 
 
@@ -806,11 +823,24 @@ def run_record(cfg: Config, args, ledger: Ledger, gmail, today: str, out=print) 
         out("新規 entry が 2 つ以上になる = thread を 1 つずつ (threadId を渡す) (exit 1)")
         return 1
     written: list[Path] = []
+    # 書く前の姿を全部とっておく = 途中の file で止まったら、 先に書いた file も戻す (前は止まった file だけ戻り、
+    # 項目の現在地だけが書き換わって残った = 実測)
+    touch = [p["home"][1] if p["home"] else p["create"]["path"] for p in plans]
+    if todo_id and not args.no_todo:
+        touch.append(ledger.todos[todo_id][1])
+    snap = {t: (t.read_text(encoding="utf-8") if t.exists() else None) for t in dict.fromkeys(touch)}
     try:
         for p in plans:
             written += apply_plan(cfg, p, ledger, todo_id, args, today, out)
+        if todo_id and not args.no_todo:
+            written += apply_todo(cfg, context_plan(plans), ledger, todo_id, args, today)
     except WriteFailed as e:
-        out(f"\n✗ {e} (exit 3)")
+        for t, old in snap.items():
+            if old is None:
+                t.unlink(missing_ok=True)
+            else:
+                t.write_text(old, encoding="utf-8")
+        out(f"\n✗ {e} (exit 3。 この実行で書いた file は全部元に戻した)")
         return 3
     for w in dict.fromkeys(written):
         out(f"✓ 書いた: {w}")
@@ -1218,6 +1248,27 @@ def _selftest() -> int:
         check(late.startswith("2026-09-22 reply from Counter Part"), "t9b 遅れて記録しても status_context の日付は message の日 (記録した日でない)")
         out_lines.clear()
         check(run_record(cfg, ns, Ledger(cfg), gm, "2026-09-22", pr) == 0 and "未記録 0" in "\n".join(out_lines), "2 回目は未記録 0 (冪等)")
+        pa = {"msgs": threads[("acct-a", m1)], "record": {m4}}
+        pb = {"msgs": [msg("bbbb00000000000x", T + 20000000, OW)], "record": set()}
+        pc = {"msgs": [msg("cccc00000000000x", T + 30000000, CP)], "record": {"cccc00000000000x"}}
+        check(context_plan([pa, pb]) is pa and context_plan([pa, pb, pc]) is pc and context_plan([pb]) is pb,
+              "t16 現在地は今回記録する message の最新を持つ thread から (最後に処理した thread・新着の無い thread でない)")
+        m6 = "aaaa000000000006"
+        threads[("acct-a", m1)].append(msg(m6, T + 18000000, CP))
+        snap = {q: q.read_text(encoding="utf-8") for q in td.rglob("*.yaml")}
+        real_apply_todo = globals()["apply_todo"]
+
+        def _fail(*a, **k):
+            raise WriteFailed("test: 項目の書き込みで止まる")
+        globals()["apply_todo"] = _fail
+        try:
+            out_lines.clear()
+            rc17 = run_record(cfg, ns, Ledger(cfg), gm, "2026-09-22", pr)
+        finally:
+            globals()["apply_todo"] = real_apply_todo
+            threads[("acct-a", m1)].pop()
+        check(rc17 == 3 and snap == {q: q.read_text(encoding="utf-8") for q in td.rglob("*.yaml")},
+              "t17 途中で止まったら、 先に書いた inbox も含めてこの実行の書き込みを全部戻す")
         p = td / "ledger-a" / "inbox" / "2026-09.yaml"
         good, stale = f"messageId:{m5} (2026-09-22 04:00)", f"messageId:{m4} (2026-09-22 03:00)"
         p.write_text(p.read_text(encoding="utf-8").replace(good, stale), encoding="utf-8")
