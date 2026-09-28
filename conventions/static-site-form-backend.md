@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき
+when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき + 届いたものを Discord のチャンネルに知らせるとき (#discord-webhook-notify)
 category: web
 summary: 静的ホスティングは送られた内容を受け取れない。mailto は宛先を公開し、別ドメインのフォームサービスへの送信は結果をページ側で読めない (受け口がエラーでも「届いた」と表示してしまう実測)。同じサイトに関数を置ける Cloudflare Pages + Functions + D1 なら、成否を正しく表示できる。Pages は Workers と違い URL にアカウント名が入らない。GitHub 連携はリポ所有者のブラウザ許可が要り、Direct Upload で作ると後から Git 連携に変えられない。Turnstile は wrangler で作れ (challenge-widgets.write)、受け口は success・action・hostname を必須にして確認できなければ拒否する。自動操作のブラウザは Turnstile を通れないので最終確認は人が送る。GitHub Pages の旧 URL は配信元を転送用ブランチに切り替え、組み直しを依頼する
 -->
@@ -65,6 +65,21 @@ summary: 静的ホスティングは送られた内容を受け取れない。ma
   本物の確認を通った送信の最終確認は、人に自分のブラウザから 1 通送ってもらい、保存を確かめる
 - ローカルでは Cloudflare のテスト用の鍵（必ず通る／必ず落ちる）と `.dev.vars` で試す
 
+## <a id="discord-webhook-notify"></a>届いたら Discord に知らせる（Webhook）
+
+受け口が保存した後に、持ち主たちがいるチャンネルへ Webhook で 1 通送ると、管理画面を開かなくても気づける。
+
+- **Webhook の URL は鍵と同じ**（知っていれば誰でもそのチャンネルに書ける）。会話・リポジトリ・画面に出さない。
+  持ち主が Discord で作ってクリップボードにコピー → エージェントは**値を表示せずに**形だけ確かめ（`^https://discord(app)?\.com/api/webhooks/\d+/[\w-]+$`）、
+  `pbpaste | tr -d '\r\n ' | wrangler pages secret put <NAME> --project-name <p>` で**標準入力から**入れる
+- 作る場所は**サーバー設定 → 連携サービス → ウェブフック**（またはチャンネルの編集 → 連携サービス）。ユーザー設定の「連携済みアプリ」ではない（実測で迷った）
+- **Pages の Secret は次のデプロイから効く**。Git 連携のプロジェクトなら空の commit を push して再デプロイし、`wrangler pages deployment list` で新しいデプロイを確かめる
+- 名前とアイコンは Webhook 自体に持たせる: Webhook の URL に `PATCH` で `{"name": …, "avatar": "data:image/png;base64,…"}`（bot も権限も要らない）。
+  ⚠️ 返事の JSON に `token` と `url` が入る = そのまま表示しない（名前とアイコンの有無だけ出す）。サーバーのアイコンは Webhook からは変えられない（画面から）
+- 本文に `@everyone` などが書かれても誰も呼び出さないよう `allowed_mentions: {parse: []}` を付ける。1 通は 2000 字まで
+- 送るのは保存と返事の後（`waitUntil`）。Discord に届かなくても手紙は保存済みにする。Secret が無いあいだは何もしない
+- 最後に本番のフォームから人が 1 通送って、届くことを確かめる（Turnstile があるので機械からは送れない）。試しの 1 通は既読にしておく
+
 ## <a id="local-verification"></a>アカウントに触らずに確かめる
 
 `npm i -D wrangler` → `npx wrangler d1 execute <名前> --local --file=schema.sql` → `npx wrangler pages dev`。
@@ -86,3 +101,4 @@ GitHub Pages はサーバー側の転送ができない。
 ## 変更履歴
 
 - 初版: 静的サイトから同一オリジンの受け口への引っ越し一式（選択肢の壊れ方・Pages・D1・受け口・Turnstile・転送）を実運用から整理
+- 追記: [届いたら Discord に知らせる](#discord-webhook-notify)（Webhook の URL を値を出さずに Secret へ入れる・再デプロイ・名前とアイコン）
