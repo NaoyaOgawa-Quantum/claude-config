@@ -170,7 +170,7 @@ nested directory に `AGENTS.md` / `AGENTS.override.md` を足すのは、その
 | grep / git log で導出可能な事実 | 書かない |
 
 **よくある間違い:**
-- 進行状態をメモリに書く → SESSION.md に書くべき（リポに入り全端末で共有される）
+- 進行状態をメモリに書く → SESSION.md の現在地の行に書く（リポに入り全端末で共有される。 経緯・決定は書かない）
 - `~/Claude/` 内の別リポへのパスをメモリに書く → メモリは `~/.claude/` 配下でマシンローカル（git 同期されない）。cross-repo ポインタは CLAUDE.md 等の git 側に書く。メモリの reference 型は外部 SaaS (Linear, Grafana 等) への参照用
 - 再発防止の feedback（「次からはこうする」系）をメモリに書く → `memory-guard.sh` hook が deny する（[`docs/convention-design-principles.md` §8.3](docs/convention-design-principles.md#precedent-as-training-data) の precedent-as-training-data 問題）。一般化可なら `conventions/*.md`、catastrophic 級なら hook、annoyance 級なら何も書かない（[§8.2](docs/convention-design-principles.md#rule-to-mechanism-shift)・[§9.1](docs/convention-design-principles.md#blast-radius-triage)）
 

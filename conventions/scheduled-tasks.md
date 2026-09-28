@@ -179,7 +179,7 @@ CONVENTIONS.md のルール（人間セッション・手動実行をカバー�
 
 - バックエンドはマシンごとに独立。マシン A で `update_scheduled_task` しても、マシン B のバックエンドは更新されない
 - 新しいマシンで pull 後、そのマシンで使う scheduled task は `update_scheduled_task` で prompt を同期すること
-- SESSION.md にマシン固有の要対応事項を書いておくと pull 後に気づける
+- そのマシンでの要対応を SESSION.md の現在地の 1 行 (「<マシン名> で pull 後に update_scheduled_task」) に置いておくと pull 後に気づける (済んだら行を消す)
 
 ## パス表記について
 
