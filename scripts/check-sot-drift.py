@@ -20,6 +20,10 @@ registry (YAML) に topic ごとに次を登録する:
 点検 (audit_registry、 既定で scan と一緒に回る):
   never-fires / missing-in-home / broad-pointer / term-like-anchor の 4 つ。 語の一覧は持たず、
   構造 (参照判定との包含・正本との結び付き) と実データ (出現回数・頻度) で判定する。
+  置き場の規則 2 つ (home の中身に依らない): home-readme-session (home が README* / SESSION* / SESSION-archive の中) /
+  allow-session-md (allow_globs が SESSION.md を書き写しの許される場所にしている)。 README は入口、 SESSION は現在地と
+  正本への link で、 どちらも正本の置き場にならない (CONVENTIONS.md#session-no-durable-record)。 実測: 登録の道具の既定が
+  SESSION.md を allow に入れていた時期の topic と、 README を home にした topic が registry に残っていた。
 
 判定の原則と、 finding を直すときの順序 (本文でなく registry 側を直す場合がある) =
   claude-config/docs/convention-design-principles.md#literal-anchor-detector
@@ -316,6 +320,23 @@ IDENTIFIER_SHAPE = re.compile(r"^[\x21-\x7e]+$|[_`/\\{}\[\]$<>=]|\.\w{1,5}\b")
 FOIL_REL = "__sot_audit_foil__/foil.md"
 
 
+SESSION_OR_README_HOME = re.compile(r"^(?:README|SESSION)")
+
+
+def home_is_readme_or_session(home: str) -> bool:
+    """home が README* / SESSION* (SESSION-archive/ の中を含む) = 正本の置き場にならない file
+    (README は入口、 SESSION は現在地と正本への link、 archive は記録 = CONVENTIONS.md#session-no-durable-record)。"""
+    parts = Path(str(home)).parts
+    return bool(parts) and (bool(SESSION_OR_README_HOME.match(parts[-1])) or "SESSION-archive" in parts[:-1])
+
+
+def glob_admits_session_md(glob: str) -> bool:
+    """allow_glob が SESSION.md (archive でない) を書き写しの許される場所にしている = SESSION に写った規約が drift として見えない。
+    最後の成分に SESSION を含み、 その成分が `SESSION.md` に当たるものだけ (`*/SESSION-archive.md` / `*/plans/*` は記録なので当たらない)。"""
+    last = str(glob).rsplit("/", 1)[-1]
+    return "SESSION" in last and fnmatch.fnmatch("SESSION.md", last)
+
+
 def _home_text(root: Path, home: str, files) -> str | None:
     for rel, _lines, text in files:
         if rel == home:
@@ -344,6 +365,8 @@ def audit_registry(
                            = 近くにその語があるだけで書き写しが黙認される
       term-like-anchor  🟡 識別子の形でない anchor が home で 3 回以上使われている = 規約の語そのものを
                            目印にしている疑い (定義文なら home に 1 回)
+      home-readme-session 🟠 home が README* / SESSION* (SESSION-archive の中を含む) = 正本の置き場にならない file
+      allow-session-md  🟠 allow_globs が SESSION.md (archive でない) を書き写しの許される場所にしている
     topic の `audit_ack: {<anchor か pointer>: <理由>}` に載せたものは報告しない
     (= 読んで正当と判断したものだけを載せる。 層1 convention-design-principles.md#semantic-detector-ack-ratchet)。
     """
@@ -359,14 +382,21 @@ def audit_registry(
         ack = t.get("audit_ack") or {}
         anchors = [str(a) for a in (t.get("anchor_tokens") or [])]
         ctx = pointer_context(t, basename_count)
+
+        def add(level, kind, subject, detail, topic=topic):
+            if subject not in ack:
+                out.append({"level": level, "topic": topic, "kind": kind, "subject": subject, "detail": detail})
+
+        # 置き場の規則 (home の中身に依らない = home が無くても出す)
+        if home and home_is_readme_or_session(home):
+            add("🟠", "home-readme-session", home, "README / SESSION は正本の置き場にならない (README = 入口、 SESSION = 現在地と正本への link)")
+        for g in t.get("allow_globs") or []:
+            if glob_admits_session_md(g):
+                add("🟠", "allow-session-md", str(g), "SESSION.md への書き写しを drift の検出から外している")
         htext = _home_text(root, home, files)
         if htext is None:
             continue  # home 不在・読めない = scan の config 警告が扱う
         ids = set(re.findall(r'<a id="([^"]+)"', htext))
-
-        def add(level, kind, subject, detail):
-            if subject not in ack:
-                out.append({"level": level, "topic": topic, "kind": kind, "subject": subject, "detail": detail})
 
         present = [a for a in anchors if a in htext]
         if present:  # 全部無いときは scan の config 警告に任せる (二重に出さない)
@@ -754,6 +784,27 @@ def run_selftest() -> int:
             ("audit: pointer tied to home anchor id not broad", ("broad-pointer", "tied-id") in aud, False),
             ("audit: pointer equal to topic not broad", ("broad-pointer", "audited") in aud, False),
         ]
+        # README / SESSION は正本の置き場にならない / SESSION.md (archive でない) を allow しない (home が無くても出す)
+        (aroot / "r").mkdir()
+        (aroot / "r/README.md").write_text("README_HOME_TOKEN\n", encoding="utf-8")
+        rreg = {"topics": [
+            {"topic": "readme-home", "home": "r/README.md", "anchor_tokens": ["README_HOME_TOKEN"]},
+            {"topic": "session-home-gone", "home": "r/SESSION.md", "anchor_tokens": ["GONE"]},
+            {"topic": "allows", "home": "h/rule.md", "anchor_tokens": ["DEFINING_SENTENCE_OK"],
+             "allow_globs": ["*/SESSION.md", "r/SESSION.md", "*/SESSION*", "*/SESSION-archive.md", "*/SESSION-archive/*",
+                             "*/plans/*", "r/scripts/*"]},
+        ]}
+        raud = {(a["kind"], a["subject"]) for a in audit_registry(aroot, rreg)}
+        checks += [
+            ("audit: README home", ("home-readme-session", "r/README.md") in raud, True),
+            ("audit: SESSION home even when the file is missing", ("home-readme-session", "r/SESSION.md") in raud, True),
+            ("audit: */SESSION.md allow", ("allow-session-md", "*/SESSION.md") in raud, True),
+            ("audit: repo-specific SESSION.md allow", ("allow-session-md", "r/SESSION.md") in raud, True),
+            ("audit: */SESSION* allow admits SESSION.md", ("allow-session-md", "*/SESSION*") in raud, True),
+            ("audit: archive allow is a record", ("allow-session-md", "*/SESSION-archive.md") in raud, False),
+            ("audit: archive dir allow is a record", ("allow-session-md", "*/SESSION-archive/*") in raud, False),
+            ("audit: plans / scripts allow untouched", any(s in ("*/plans/*", "r/scripts/*") for _k, s in raud), False),
+        ]
 
         for name, got, want in checks:
             status = "PASS" if got == want else "FAIL"
@@ -803,6 +854,8 @@ AUDIT_ADVICE = {
     "missing-in-home": "home の現行の文に合わせて anchor を直すか、 消えた anchor を外す",
     "broad-pointer": "pointer を home に結び付く形 (file 名・anchor id・topic) に絞る。 外すと隠れていた書き写しが出るので、 出たものは複製か使用かを判定する",
     "term-like-anchor": "語そのものなら anchor を定義文へ移す。 識別子・値・引用として正当なら topic の audit_ack に理由つきで載せる",
+    "home-readme-session": "規則の文を README / SESSION の外 (CLAUDE.md / DESIGN.md / conventions / 台帳) へ移し、 home をそこに付け替える。 README / SESSION には参照だけを残す",
+    "allow-session-md": "allow_globs から SESSION.md を外す (記録の SESSION-archive / plans は残してよい)。 外すと隠れていた写しが出るので、 SESSION の行を正本への link に直す",
 }
 
 
@@ -815,7 +868,7 @@ def report_audit(items: list[dict]) -> None:
     by_kind: dict[str, list[dict]] = {}
     for it in items:
         by_kind.setdefault(it["kind"], []).append(it)
-    for kind in ("never-fires", "missing-in-home", "broad-pointer", "term-like-anchor"):
+    for kind in ("never-fires", "home-readme-session", "allow-session-md", "missing-in-home", "broad-pointer", "term-like-anchor"):
         its = by_kind.get(kind) or []
         if not its:
             continue

@@ -3,6 +3,9 @@
 """sot-registry-add.py — check-sot-drift.py の registry に topic を足す前に検査し、 通ったものだけ registry の書式で末尾に追記する
 
 検査 (1 つでも落ちたら何も書かない):
+  - 置き場: home が README* / SESSION* (SESSION-archive の中を含む) なら拒む、 allow_globs が SESSION.md (archive でない) を
+    入れていれば拒む (--no-preview でも外れない。 述語の正本 = check-sot-drift.py の home_is_readme_or_session /
+    glob_admits_session_md、 README = 入口・SESSION = 現在地と正本への link で、 どちらも規則の置き場にならない)
   - home の実在・anchor id (home_section が slug 形なら `<a id="...">` を要求)・anchor token が home に literal で在る・topic 重複
   - 同じ engine の scan を新 topic だけで回し、 token が home 以外で pointer 無しに既に立っていれば拒否
     (= 登録した日から赤い topic を作らない)
@@ -67,13 +70,55 @@ def scalar(s) -> str:
     return s if re.fullmatch(r"[A-Za-z][A-Za-z0-9._/-]*", s) else q(s)
 
 
-def check(spec: dict, base: Path, registry_text: str) -> list[str]:
+_ENGINE_CACHE: dict = {}
+
+
+def load_engine(engine: Path | None = None):
+    """check-sot-drift.py を module として読む (置き場の述語・scan・点検の正本)。 読めなければ理由の文字列を返す。"""
+    eng = engine or Path(__file__).with_name("check-sot-drift.py")
+    if str(eng) in _ENGINE_CACHE:
+        return _ENGINE_CACHE[str(eng)]
+    if not eng.is_file():
+        mod = f"{eng.name} not found"
+    else:
+        spec = importlib.util.spec_from_file_location("check_sot_drift", eng)
+        mod = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(mod)
+        except SystemExit as e:                 # the engine exits when PyYAML is missing
+            mod = f"{eng.name} did not load: {e}"
+    _ENGINE_CACHE[str(eng)] = mod
+    return mod
+
+
+def placement_errors(spec: dict, engine: Path | None = None) -> list[str]:
+    """README / SESSION を home にする spec と、 SESSION.md を allow_globs に入れる spec を拒む (述語の正本 = check-sot-drift.py)。
+    --no-preview でも外れない。 engine が読めなければ拒む (= 置き場の規則を確かめずに書かない)。"""
+    mod = load_engine(engine)
+    if isinstance(mod, str):
+        return [f"cannot check the placement rules: {mod}"]
+    errs = []
+    if mod.home_is_readme_or_session(spec["home"]):
+        errs.append(f"home is a README / SESSION file ({spec['home']}): README is the entrance and SESSION holds the current"
+                    " position + links, neither is a home for a rule — move the rule to CLAUDE.md / DESIGN.md / conventions/ /"
+                    " a ledger, register that file, and leave only a link in the README / SESSION")
+    for g in spec.get("allow_globs") or []:
+        if mod.glob_admits_session_md(g):
+            errs.append(f"allow_glob {g!r} admits SESSION.md: a rule copied into SESSION would never be reported —"
+                        " drop it (SESSION-archive / plans are records and may stay)")
+    return errs
+
+
+def check(spec: dict, base: Path, registry_text: str, engine: Path | None = None) -> list[str]:
     errs = []
     for key in ("topic", "description", "home", "anchor_tokens"):
         if not spec.get(key):
             errs.append(f"missing {key}")
     if errs:
         return errs
+    placement = placement_errors(spec, engine)
+    if placement:
+        return placement
     home = base / spec["home"]
     if not home.is_file():
         return [f"home not found: {spec['home']}"]
@@ -107,16 +152,9 @@ def render(spec: dict) -> str:
 
 def preview(specs: list[dict], base: Path, registry: Path, engine: Path | None = None) -> list[str]:
     """登録した瞬間に check-sot-drift.py が出す finding を、 書く前に出す (= 初日から赤い topic を作らない)。"""
-    eng = engine or Path(__file__).with_name("check-sot-drift.py")
-    if not eng.is_file():
-        print(f"[info] {eng.name} not found: preview skipped")
-        return []
-    spec = importlib.util.spec_from_file_location("check_sot_drift", eng)
-    mod = importlib.util.module_from_spec(spec)
-    try:
-        spec.loader.exec_module(mod)
-    except SystemExit as e:                 # the engine exits when PyYAML is missing
-        print(f"[info] preview skipped: {e}")
+    mod = load_engine(engine)
+    if isinstance(mod, str):
+        print(f"[info] preview skipped: {mod}")
         return []
     files = mod.load_files(base, registry) if hasattr(mod, "load_files") else None
     findings, _warn = mod.scan(base, {"window_lines": 15, "topics": specs}, registry, files=files) \
@@ -140,7 +178,7 @@ def add(specs: list[dict], base: Path, registry: Path, dry_run: bool, do_preview
     all_errs = {}
     seen = set()
     for s in specs:
-        errs = check(s, base, reg_text)
+        errs = check(s, base, reg_text, engine)
         if s.get("topic") in seen:
             errs.append("topic duplicated within this spec")
         seen.add(s.get("topic"))
@@ -253,6 +291,22 @@ def selftest() -> int:
         for k in range(5):
             (base / "other" / f"n{k}.md").write_text("intro text\n", encoding="utf-8")
         c("a frequent pointer unrelated to home is refused  [broad pointer]", add([z4], base, reg, True, True, eng) == 1)
+        # --- README / SESSION は正本の置き場にならない (README = 入口、 SESSION = 現在地と正本への link) ---
+        for name in ("README.md", "README.ja.md", "SESSION.md", "SESSION-archive.md"):
+            (base / "repo" / name).write_text("the readme phrase lives here\n", encoding="utf-8")
+            rs = dict(good, topic=f"rs-{name}", home=f"repo/{name}", home_section="", anchor_tokens=["the readme phrase"])
+            before = reg.read_text()
+            c(f"a {name} home is refused even with --no-preview", add([rs], base, reg, False, False) == 1
+              and reg.read_text() == before)
+        ses = dict(good, topic="allow-session", home_section="", allow_globs=["*/SESSION.md", "*/plans/*"])
+        c("an allow_glob that admits SESSION.md is refused even with --no-preview", add([ses], base, reg, True, False) == 1)
+        ses2 = dict(ses, topic="allow-session-2", allow_globs=["repo/SESSION.md"])
+        c("a repo-specific SESSION.md allow_glob is refused too", add([ses2], base, reg, True, False) == 1)
+        arch = dict(ses, topic="allow-archive", allow_globs=["*/SESSION-archive.md", "*/SESSION-archive/*", "*/plans/*"])
+        c("archive / plans allow_globs are accepted (records)", add([arch], base, reg, True, False) == 0)
+        c("the default allow_globs do not admit SESSION.md",
+          not any(g.rsplit("/", 1)[-1].startswith("SESSION.") for g in DEFAULT_ALLOW)
+          and "SESSION.md'" not in render(dict(good, topic="d")))
     print("\nALL PASS" if ok else "\nFAILED")
     return 0 if ok else 1
 
