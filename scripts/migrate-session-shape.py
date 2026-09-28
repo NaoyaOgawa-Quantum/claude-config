@@ -9,6 +9,8 @@ SESSION.md の多くは「## 2026-09-28 — 何をした」 の節 (= 変更履�
 規則 (file ごと):
   1. 先頭の見出し (`# …`) から最初の `## ` までを preamble として残す。
   2. top-level `## ` 節のうち見出しに日付 (20YY-MM[-DD]) を含む節 = 移す候補。 `### ` 以下は親の節と一緒に動く。
+     日付を含まない `## ` 節の中に日付つきの `### ` 小節が並ぶ形 (「## 現在の状態」 の下に「### 直近の更新 (日付)」 ×N) も同じ規則で
+     小節ごとに移す (日付を含まない小節が無ければ最新の 1 つを `### 現在地` として残す)。 見るのは `##` と `###` の 2 段まで。
   3. 日付を含まない `## ` 節 (Open items / 次のステップ / 現在の再開点 など) は残す (順序も保つ)。
   4. 日付を含まない節が 1 つも無い file では、 最も新しい日付の節 1 つを `## 現在地` として残す (元の見出しは節の 1 行目に
      「(直近の節: …)」 で残す = 再開に要る状態を消さない)。 日付を含まない節が在れば、 日付つきの節は全部移す。
@@ -66,9 +68,9 @@ def heading_date(text: str):
         return None
 
 
-def split_sections(lines: list[str]) -> tuple[list[str], list[list[str]]]:
-    """preamble と `## ` 節の列に分ける (節 = 見出し行から次の `## ` の直前まで)。"""
-    idx = [i for i, l in enumerate(lines) if H2_RE.match(l)]
+def split_sections(lines: list[str], marker: str = "## ") -> tuple[list[str], list[list[str]]]:
+    """preamble と `## ` 節の列に分ける (節 = 見出し行から次の `## ` の直前まで)。 marker = "### " で小節にも使う。"""
+    idx = [i for i, l in enumerate(lines) if l.startswith(marker)]
     if not idx:
         return lines, []
     preamble = lines[: idx[0]]
@@ -86,10 +88,13 @@ def plan(text: str, today: str, arch_rel: str) -> dict | None:
     preamble, sections = split_sections(lines)
     dated = [s for s in sections if heading_date(s[0])]
     undated = [s for s in sections if not heading_date(s[0])]
-    if not dated:
+    def _has_nested_dated(sec):
+        _, subs = split_sections(sec[1:], "### ")
+        return any(heading_date(x[0]) for x in subs)
+    if not dated and not any(_has_nested_dated(u) for u in undated):
         return None
     kept_current = None
-    if not undated:
+    if not undated and dated:
         newest = max(dated, key=lambda s: (heading_date(s[0]), -dated.index(s)))
         kept_current = newest
         moved = [s for s in dated if s is not newest]
@@ -105,13 +110,40 @@ def plan(text: str, today: str, arch_rel: str) -> dict | None:
         out += ["", "## 現在地", "", f"(直近の節: {kept_current[0][3:].strip()} — 経緯は {arch_rel})"]
         out += body
     for s in undated:
+        s = _lift_nested(s, moved, arch_rel)
         out += [""] + s if (out and out[-1] != "") else list(s)
+    if not moved:
+        return None  # 見出しの書き換えだけの変更は作らない (banner だけの commit を全 repo に撒かない)
     new_text = "\n".join(out).rstrip("\n") + "\n"
     arch_block = [f"## {today} SESSION.md の日付つき節を verbatim MOVE (形の契約 = 案件ごとの現在地、 層1 claude-config/{RULE_DOC}、 道具 = migrate-session-shape.py)", ""]
     for s in moved:
         arch_block += s + [""]
     return {"new_text": new_text, "archive_block": "\n".join(arch_block).rstrip("\n") + "\n",
             "moved": len(moved), "kept_current": kept_current is not None, "before": len(lines), "after": len(new_text.splitlines())}
+
+
+def _lift_nested(section: list[str], moved: list[list[str]], arch_rel: str) -> list[str]:
+    """日付を含まない ## 節の中の、 日付つき ### 小節を moved へ移し、 残りを返す (小節の順序は保つ)。"""
+    head, subs = split_sections(section[1:], "### ")
+    dated = [x for x in subs if heading_date(x[0])]
+    if not dated:
+        return section
+    undated = [x for x in subs if not heading_date(x[0])]
+    keep = None
+    if not undated:
+        keep = max(dated, key=lambda x: (heading_date(x[0]), -dated.index(x)))
+        if len(dated) == 1:
+            return section  # 移すものが無い (見出しの書き換えだけ) = 触らない
+    out = [section[0]] + head
+    for x in subs:
+        if heading_date(x[0]) and x is not keep:
+            moved.append([f"### (from {section[0][3:].strip()}) " + x[0][4:]] + x[1:])
+            continue
+        if x is keep:
+            out += ["### 現在地", "", f"(直近の小節: {x[0][4:].strip()} — 経緯は {arch_rel})"] + x[1:]
+        else:
+            out += x
+    return out
 
 
 def archive_target(repo: Path, today: str) -> Path:
@@ -217,6 +249,15 @@ def run_selftest() -> int:
     check(p2["moved"] == 1 and not p2["kept_current"] and "## 現在の再開点" in p2["new_text"] and "## Open items" in p2["new_text"]
           and p2["new_text"].index("現在の再開点") < p2["new_text"].index("Open items"), "日付なしの節が在れば日付つきは全部移し、 残りの順序を保つ")
     check(plan("# S\n\n## 現在地\n\n- a\n", today, "x") is None, "日付つき節が無ければ None")
+    t3 = "# S\n\n## 現在の状態\n\nlead\n\n### 直近の更新 (2026-01-10: a)\n\n- a\n\n### 直近の更新 (2026-01-20: b)\n\n- b\n\n### 次の判定点\n\n- j\n\n## 残タスク\n\n- t\n"
+    p3 = plan(t3, today, "SESSION-archive.md")
+    check(p3 is not None and p3["moved"] == 2 and "### 直近の更新" not in p3["new_text"] and "### 次の判定点" in p3["new_text"]
+          and "## 残タスク" in p3["new_text"] and "(from 現在の状態) 直近の更新 (2026-01-20: b)" in p3["archive_block"],
+          "日付なし ## の中の日付つき ### 小節を移し、 日付なしの小節と後続の ## は残す")
+    t4 = "# S\n\n## 現在の状態\n\n### 更新 (2026-01-10)\n\n- a\n\n### 更新 (2026-01-20)\n\n- b\n"
+    p4 = plan(t4, today, "SESSION-archive.md")
+    check(p4 is not None and p4["moved"] == 1 and "### 現在地" in p4["new_text"] and "- b" in p4["new_text"] and "- a" in p4["archive_block"],
+          "日付つき ### だけなら最新の小節を 現在地 として残す")
     # end-to-end: 一時 repo で apply + gate + commit
     with tempfile.TemporaryDirectory(prefix="migrate-session-shape-") as tmp:
         repo = Path(tmp) / "repo"
