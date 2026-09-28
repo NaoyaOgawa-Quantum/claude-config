@@ -98,6 +98,7 @@
 - **[class_meetings.mutants.json](class_meetings.mutants.json)** — lib/class_meetings.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[claude-app-bundle.py](claude-app-bundle.py)** — Claude desktop app の挙動を、 docs や推測でなく app 本体 (画面の JS bundle・翻訳・main process の app.asar・埋込 engine) から確かめる検索道具
 - **[claude-app-notify-diagnose.py](claude-app-notify-diagnose.py)** — Claude for Mac の通知が鳴らない・来ない原因を層ごとに read-only 診断する (conventions/macos-claude-app-notifications.md)。
+- **[claude-app-thinking-diagnose.py](claude-app-thinking-diagnose.py)** — Claude for Mac (Code タブ) で思考 (thinking) の要約が画面に出ない原因を read-only で診断する (conventions/macos-claude-app-thinking-display.md)。
 - **[claude-notify.sh](claude-notify.sh)** — macOS 通知を出す唯一の入口 (= 押すと行き先がある通知)。
 - **[claude-session-whoami.py](claude-session-whoami.py)** — session の host / surface (desktop|CLI) / account を機械同定する probe。
 - **[clip-copy.sh](clip-copy.sh)** — 貼り付け用の文面をクリップボードに入れ、読み戻して一致を確かめる (macOS。 日本語などの非 ASCII も通す)
