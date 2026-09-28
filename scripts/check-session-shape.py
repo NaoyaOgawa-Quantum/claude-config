@@ -20,7 +20,7 @@ SESSION.md の形の契約 (規約の正本 = CONVENTIONS.md#session-no-durable-
 
 README.md / CLAUDE.md / AGENTS.md にも同じ gate が「生成器」 を見る:
   - README が自分を正本と宣言する行 (`本 README が正本` 等) = 非公開 repo (.claude/public-repo.marker 無し) では止める、
-    公開 repo では warn (build / quickstart の home は README、 CONVENTIONS.md#readme-style の判別軸)
+    公開 repo では warn (build / quickstart / deploy の手順の置き場は CONVENTIONS.md#readme-style)
   - README に日付の節・commit hash = warn (変更履歴は git log)
   - README に値の出典の表 (見出し行のどれかの列が「出典」 で始まり、 次の行が区切り) か `<!-- formcase:history -->` 区間を
     足す行 (kind readme-source-table / readme-history-region) = 非公開 repo では止める、 公開 repo と不明は warn。 README は
@@ -47,18 +47,20 @@ README / SESSION を正本と書く行 (kind sot-claim、 README / SESSION 以�
   「手順は README.md §X が正本」「経緯の正本 = SESSION.md の entry」「Y は web/README.md が正本」 の形 = 同じ文 (。 と表の | で区切る)
   の中で、 README / SESSION の直後 40 字以内に「が / は (〜の) 正本」 か「を正本と / に」、 または「正本 = / は / :」 の直後 40 字以内の
   最初の file が README / SESSION。 間に主語の助詞 (は / が / 、)・別の file (`*.md` 等)・「でない / から / 以外」 を挟むもの、 正本の後が
-  「への / に / を / の」 (= 正本は目的語)、 README / SESSION の後が「から / でなく / 参照」 のものは除く。
+  「への / に / を / の」 (= 正本は目的語)、 README / SESSION の後が「から / でなく / 参照」 のものは除く。 ただし別の file が並列
+  (「notes/README.md と X.md が正本」「正本は … の CLAUDE.md / SESSION.md だけ」) のときは README / SESSION も正本の一部として拾う
+  (「正本は X.md / README は入口」 のように並列の後で文が続くものは拾わない)。
   除く行: 否定 (置かない / しない 等が一致の近くにある)・規則の記述 (禁止 / 違反 / 宣言 / 検出 / 例外 / 公開リポでは)・過去の記述
   (旧 / だった / ていた / 撤回 / 廃止)・引用 (「」『』“” "" `` の中に「正本」 がある span は伏せる。 無い span は中身を残す = path の backtick)・
   code fence・markdown link は表示文字に畳む・「現在地」 を指す SESSION (契約どおりの役割)。
   除く file: 記録 (plans/ と archive/ の中、 SESSION-archive*、 *-archive.md)・自動生成 (先頭 5 行に AUTO-GENERATED 等)・locked (暗号文)。
   重さ: 非公開 repo の --staged = BLOCK、 公開 repo と不明 = WARN (README の自称正本と同じ扱い。 公開 repo の build / quickstart /
-  deploy は CONVENTIONS.md#readme-style の例外なので fleet の行にそう書く)。 README の自称正本 (readme-self-sot) と同じ行は二重に
+  deploy の手順の置き場は CONVENTIONS.md#readme-style)。 README の自称正本 (readme-self-sot) と同じ行は二重に
   出さない。 CLAUDE.md の home-redirect とも二重に出さない。 --text (書く瞬間の hook) は従来の 4 種の file 名だけ (hook の射程の宣言
   と揃える)、 それ以外の md は --staged と --fleet が見る。
   実測: 語が近いだけの行 (「README に正本を置かない」「正本は X で、 README は入口」「正本への link」 など) は fleet の追跡 md に多く、
   述語はそれを全部落とした。 述語を通った行は全部読んで判定した = 誤検出 0 (残るのは README / SESSION を正本にしている本物の行と、
-  公開 repo の build 手順を README に置く例外の行)。 直前に直された違反の行 (上の 3 形と「義務は SESSION.md が正本」) は全部拾う。
+  公開 repo の build の手順を README に置く行)。 直前に直された違反の行 (上の 3 形と「義務は SESSION.md が正本」) は全部拾う。
 
 使い方:
   check-session-shape.py --staged [--repo DIR]     commit gate (pre-commit から)。 staged の追加行と、 SESSION.md の行数と、 暗号化の一致を見る
@@ -316,11 +318,15 @@ SOT_FWD_RE = re.compile(
 SOT_BWD_RE = re.compile(r"正本\s*(?:は|=|＝|:|：|が)\s*(?P<mid>[^。|]{0,40}?)$")
 SOT_R_AFTER_BAD_RE = re.compile(r"^\S{0,2}\s*(?:から|でなく|ではなく|ではない|でない|以外|じゃな|に正本|に置|へ|を?参照|を見)")
 SOT_MID_BAD_RE = re.compile(r"[はが、，,]|でなく|ではなく|でない|ではない|じゃな|から|より|以外|[\w-]+\.(?:md|py|ya?ml|json|txt|sh|tex|toml)\b")
+# 並列 (「notes/README.md と X.md が正本」「正本は … の CLAUDE.md / SESSION.md だけ」) = 別の file を挟んでも README / SESSION は正本の一部
+_SOT_FILE = r"[\w./-]+\.(?:md|py|ya?ml|json|txt|sh|tex|toml)\b"
+SOT_CONJ_FWD_RE = re.compile(r"^\s*(?:と|・)\s*" + _SOT_FILE + r"\s*$")
+SOT_CONJ_BWD_RE = re.compile(r"^(?:[^\s、,は]{0,12}の\s*)?" + _SOT_FILE + r"\s*(?:と|・|/|／)\s*$")
+SOT_CONJ_BWD_END_RE = re.compile(r"^(?:\.md)?\s*(?:だけ|のみ|$|[)）]|の\s)")  # 並列の最後の R で文が閉じる (「/ README は入口」 は別の文)
 SOT_CLAUSE_BAD_RE = re.compile(r"禁止|違反|誤り|訂正|宣言|検出|例外|公開リポでは|公開 repo では|旧|だった|でした|ていた|以前|かつて|撤回|廃止")
 SOT_LOCAL_NEG_RE = re.compile(r"置かない|書かない|持たない|置くな|書くな|しない|させない|ならない|いけない|てはな")
 SOT_QUOTE_RE = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”|\"[^\"\n]*\"|`[^`]*`")
 SOT_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)\s]*\)")
-SOT_BUILD_RE = re.compile(r"build|quickstart|deploy|install|setup|ビルド|デプロイ|セットアップ|インストール|使い方|動作確認|起動|実行", re.I)
 RECORD_DIR_NAMES = {"plans", "archive", "archives", ARCHIVE_DIR_NAME}
 RECORD_FILE_RE = re.compile(r"^SESSION-archive.*\.md$|-archive(?:[-.][\w-]+)?\.md$")
 
@@ -347,13 +353,16 @@ def sot_claim(line: str) -> str | None:
             continue
         for rm in SOT_R_RE.finditer(clause):
             m = SOT_FWD_RE.match(clause, rm.end())
-            if m and not SOT_MID_BAD_RE.search(m.group("mid")):
+            if m and (not SOT_MID_BAD_RE.search(m.group("mid")) or SOT_CONJ_FWD_RE.match(m.group("mid"))):
                 if ("現在地" not in (m.group("qual") or "") + m.group("mid")
                         and not SOT_LOCAL_NEG_RE.search(clause[rm.start(): m.end() + 14])):
                     return clause.strip()
             head = clause[: rm.start()][-60:]
             hm = SOT_BWD_RE.search(head)
-            if hm and not SOT_MID_BAD_RE.search(hm.group("mid")) and not SOT_R_AFTER_BAD_RE.match(clause[rm.end():]):
+            after = clause[rm.end():]
+            if hm and not SOT_R_AFTER_BAD_RE.match(after) and (
+                    not SOT_MID_BAD_RE.search(hm.group("mid"))
+                    or (SOT_CONJ_BWD_RE.match(hm.group("mid")) and SOT_CONJ_BWD_END_RE.match(after))):
                 if "現在地" not in head[: hm.start()][-12:] and not SOT_LOCAL_NEG_RE.search(clause[rm.start(): rm.end() + 14]):
                     return clause.strip()
     return None
@@ -420,8 +429,8 @@ def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bo
             msg = ("README / SESSION を正本と書いた行 = 非公開 repo の正本は CLAUDE.md / DESIGN.md / conventions / 台帳"
                    " (README は入口、 SESSION は現在地と正本への link)"
                    if public is False else
-                   "README / SESSION を正本と書いた行 = 公開 repo で README を正本にできるのは build / quickstart / deploy の"
-                   "手順だけ (CONVENTIONS.md#readme-style)、 SESSION は正本にならない")
+                   "README / SESSION を正本と書いた行 = 公開 repo は warn (build / quickstart / deploy の手順の置き場は"
+                   " CONVENTIONS.md#readme-style)、 SESSION は正本にならない")
             out.append(Finding(sev, path, lineno, "sot-claim", msg, claim))
         if kind == "doc":
             continue
@@ -443,7 +452,7 @@ def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bo
                 sev = "WARN" if public else "BLOCK"
                 msg = ("README が自分を正本と宣言 = 非公開 repo では正本は CLAUDE.md / DESIGN.md / 台帳 (README は入口)"
                        if not public else
-                       "README が自分を正本と宣言 = 公開 repo で正本にできるのは build / quickstart / deploy の手順だけ (CONVENTIONS.md#readme-style)")
+                       "README が自分を正本と宣言 = 公開 repo は warn (build / quickstart / deploy の手順の置き場は CONVENTIONS.md#readme-style)")
                 if public is None:
                     sev = "WARN"
                 out.append(Finding(sev, path, lineno, "readme-self-sot", msg, text))
@@ -676,9 +685,7 @@ def sot_fleet_rows(root: Path) -> list[str]:
             if not hits:
                 continue
             i, c = hits[0]
-            note = ("公開 repo: build / quickstart / deploy の手順なら CONVENTIONS.md#readme-style の例外"
-                    if public and SOT_BUILD_RE.search(c) else
-                    "公開 repo = 正本にできるのは build / quickstart / deploy の手順だけ" if public else
+            note = ("公開 repo = warn、 手順の置き場は CONVENTIONS.md#readme-style" if public else
                     "非公開 repo = 正本は CLAUDE / DESIGN / conventions / 台帳")
             rows.append(f"🟡 {d.name}/{rel}:{i}: README / SESSION を正本と書いた行 {len(hits)} 件 ({note})  「{c[:60]}」")
     return rows
@@ -737,7 +744,7 @@ def mode_fleet(root: Path, limit: int = 15) -> int:
         public = is_public_repo(rr)
         for i, l in enumerate(head.splitlines(), 1):
             if README_SELF_SOT_RE.search(l):
-                rows.append((1, f"🟡 {f.relative_to(root)}:{i}: README が自分を正本と宣言 ({'公開 repo = build/quickstart なら可' if public else '非公開 repo = 正本は CLAUDE/DESIGN/台帳'})"))
+                rows.append((1, f"🟡 {f.relative_to(root)}:{i}: README が自分を正本と宣言 ({'公開 repo = warn、 手順の置き場は CONVENTIONS.md#readme-style' if public else '非公開 repo = 正本は CLAUDE/DESIGN/台帳'})"))
                 break
     for f in iter_repo_readmes(root):
         try:
@@ -1086,6 +1093,8 @@ def run_selftest() -> int:
             ("notes/x.md", "経緯の正本 = SESSION.md 08-08 entry、 送信記録は台帳\n"),
             ("docs/web.md", "verify / public release は [`web/README.md`](web/README.md) が正本。\n"),
             ("CLAUDE.md", "- 未決着の義務は **`SESSION.md` が正本**\n"),
+            ("DESIGN.md", "- note と検算の対応は [`notes/README.md`](notes/README.md) と `CALC.md` が正本。\n"),
+            ("DESIGN.md", "- (正本は作業場の `CLAUDE.md` / `SESSION.md` だけ)\n"),
         ]
         for rel, body in claims:
             stage(rel, "# x\n\n" + body)
@@ -1100,6 +1109,8 @@ def run_selftest() -> int:
             ("DESIGN.md", "```\nREADME が正本\n```\n"),
             ("DESIGN.md", "識別子は正本 (plan / 台帳) に置き、 SESSION には正本への link だけ\n"),
             ("DESIGN.md", "経緯は README でない file (経緯.md) が正本\n"),
+            ("DESIGN.md", "正本は DESIGN.md / README は入口\n"),
+            ("DESIGN.md", "現在地の正本 = SESSION.md §現在地\n"),
             ("plans/2026-01-01-x.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
             ("SESSION-archive.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
             ("SESSION-archive/2026-01.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
