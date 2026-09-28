@@ -37,7 +37,7 @@ spec.json は 1 topic の object か、 その list:
 - `home` は --base からの相対 path。
 - `home_section` は任意。省略時は registry に空の field を書かない。slug 形 (英小文字・数字・`-`) でないとき
   (見出し文言や § 番号) は anchor id の存在検査をしない。
-- `allow_globs` を省くと SESSION-archive / plans の 2 つを入れる (SESSION.md は入れない = SESSION は現在地と正本への link だけを持つ契約
+- `allow_globs` を省くと SESSION-archive (file 形と dir 形) / plans を入れる (SESSION.md は入れない = SESSION は現在地と正本への link だけを持つ契約
   〔CONVENTIONS.md#session-no-durable-record〕 なので、 規約の目印が SESSION に写っていれば drift として見える)。 `pointer_patterns` を省くと topic 名。
 - `--no-preview` で scan と点検を省く。
 """
@@ -56,7 +56,8 @@ def _yaml_safe_load(stream):  # yaml.safe_load と同じ結果を C 版 (libyaml
     return yaml.load(stream, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
 
 
-DEFAULT_ALLOW = ["*/SESSION-archive.md", "*/plans/*"]  # SESSION.md は exempt しない (2026-09-28、 上の docstring)
+DEFAULT_ALLOW = ["*/SESSION-archive.md", "*/SESSION-archive/*", "*/plans/*"]  # SESSION.md は exempt しない (上の docstring)。
+# archive は file 形と dir 形の両方 (片方だけだと命名差で誤検出 = conventions/memory-file-slimming.md#archive-detector-exemption)
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
@@ -304,6 +305,8 @@ def selftest() -> int:
         c("a repo-specific SESSION.md allow_glob is refused too", add([ses2], base, reg, True, False) == 1)
         arch = dict(ses, topic="allow-archive", allow_globs=["*/SESSION-archive.md", "*/SESSION-archive/*", "*/plans/*"])
         c("archive / plans allow_globs are accepted (records)", add([arch], base, reg, True, False) == 0)
+        c("the default allow_globs cover both archive forms (file + dir) and plans",
+          {"*/SESSION-archive.md", "*/SESSION-archive/*", "*/plans/*"} <= set(DEFAULT_ALLOW))
         c("the default allow_globs do not admit SESSION.md",
           not any(g.rsplit("/", 1)[-1].startswith("SESSION.") for g in DEFAULT_ALLOW)
           and "SESSION.md'" not in render(dict(good, topic="d")))
