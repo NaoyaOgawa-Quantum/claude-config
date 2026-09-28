@@ -299,15 +299,18 @@ def report_lines(rep: dict, spec: dict | None = None) -> tuple:
                 # (誤検出と判断したもの、 "sheet!cell" か cell) だけ ⚠️ に下げる
                 acc = {str(x).strip().upper().replace("$", "") for x in ((spec or {}).get("meta") or {}).get("accept_missing_labels") or []}
                 sheet_key = str(r.get("sheet") or "").strip().upper()
-                bad = [m for m in r["missing_labels"]
-                       if str(m["cell"]).upper() not in acc and f"{sheet_key}!{str(m['cell']).upper()}" not in acc]
-                accepted = len(r["missing_labels"]) - len(bad)
-                ms = ", ".join(f"{m['cell']}「{m['text'][:14]}」" for m in r["missing_labels"][:6])
+                def is_acc(m):
+                    return str(m["cell"]).upper() in acc or f"{sheet_key}!{str(m['cell']).upper()}" in acc
+                bad = [m for m in r["missing_labels"] if not is_acc(m)]
+                acc_ms = [m for m in r["missing_labels"] if is_acc(m)]
+
+                def names(ms):  # 行に並べる cell 名 (先頭 6 つ)。 🔴 行は受けていない cell だけ、 ⚠️ 行は受けた cell だけ
+                    return ", ".join(f"{m['cell']}「{m['text'][:14]}」" for m in ms[:6])
                 if bad:
-                    lines.append(f"🔴 {where}: 雛形の見出し (書き換えていない cell) が紙に無い {len(bad)}/{r['labels_checked']} — {ms}")
+                    lines.append(f"🔴 {where}: 雛形の見出し (書き換えていない cell) が紙に無い {len(bad)}/{r['labels_checked']} — {names(bad)}")
                     label_bad.append(f"{where} {len(bad)} cell")
-                else:
-                    lines.append(f"⚠️ {where}: 雛形の見出しが紙に無い {accepted} cell は spec の accept_missing_labels で受けた — {ms}")
+                if acc_ms:
+                    lines.append(f"⚠️ {where}: 雛形の見出しが紙に無い {len(acc_ms)} cell は spec の accept_missing_labels で受けた — {names(acc_ms)}")
             else:
                 ok(f"見出し {r['labels_checked']} cell")
         # checkbox の箱 (D9): 印のある箱の数と、 紙で読める印の数 (両方 = 選んだ数)。 素刷りが無くても出力の箱は数える (検収 F2)

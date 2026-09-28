@@ -1310,6 +1310,16 @@ def _fidelity_tests(tmp, inst, expect) -> None:
     lines3b, stop3b = FD.report_lines(rep3, {"meta": {"accept_missing_labels": ["s!b3"]}})
     expect("D3: accept_missing_labels で名指しした cell は ⚠️ で止めない",
            stop3b is None and any(x.startswith("⚠️") and "accept_missing_labels" in x for x in lines3b), (lines3b, stop3b))
+    # 一部の cell だけを受けた時: 🔴 行には受けていない cell だけ、 ⚠️ 行には受けた cell だけを並べる (止める判定は変えない)
+    rep3c = _rep9(2, 2)
+    rep3c["targets"][0].update({"labels_checked": 5, "missing_labels": [{"cell": "B3", "text": "所属"}, {"cell": "C4", "text": "氏名"}]})
+    lines3c, stop3c = FD.report_lines(rep3c, {"meta": {"accept_missing_labels": ["B3"]}})
+    red3c = [x for x in lines3c if x.startswith("🔴") and "見出し" in x]
+    warn3c = [x for x in lines3c if x.startswith("⚠️") and "見出し" in x]
+    expect("D3: 一部だけ受けた時は 🔴 行に受けていない cell だけ、 ⚠️ 行に受けた cell だけ (止める)",
+           stop3c is not None and "見出し" in stop3c
+           and len(red3c) == 1 and "1/5" in red3c[0] and "C4" in red3c[0] and "B3" not in red3c[0]
+           and len(warn3c) == 1 and "B3" in warn3c[0] and "C4" not in warn3c[0], (lines3c, stop3c))
     rep9d = _rep9(2, 2)
     rep9d["targets"][0]["boxes"].update({"out_shifted": 1, "shifted": [([300.0, 290.0, 318.0, 308.0], 0.0, 1.4)]})
     lines9d, stop9d = FD.report_lines(rep9d, {"meta": {}})
