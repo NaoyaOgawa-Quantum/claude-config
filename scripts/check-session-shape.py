@@ -86,6 +86,7 @@ HOME_REDIRECT_RE = re.compile(
 NEGATION_RE = re.compile(
     r"置かない|書かない|しない|ではない|でない|複製しない|正本を置|pointer|ポインタ|参照だけ|参照のみ|リンクだけ|揮発|現在地|禁止|止め|gate|検査|警告|warn"
     r"|索引|index|一覧|目次"  # README の索引・一覧への追記は入口の役割そのもの
+    r"|廃止|持たない|旧 step"  # 過去の手順を廃止したと述べる行は生成器でない
 )
 FIX_HINT = (
     "  → SESSION.md は案件ごとの現在地 1〜2 行 + 正本への link (置き換える、 足さない)。 何をした・commit・結果・承認は"
