@@ -33,6 +33,14 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 - **発火**: PDF の**視覚 QA で実物確認**が第一(doc 記載だけでは発火しない)。より確実には pre-commit / build で `\mathbb\s*\{?\s*[0-9]` を grep する mechanical guard を足す(= doc rule より発火信頼度が高い)。
 - 実例: ある物理ノートの式で $\gamma_5^2=\,$`\mathbb 1` が化けていた(`\mathbbm{1}` で修正)。`\mathbb` を識別子マクロのつもりで数字に当てると起きる。
 
+## <a id="uppercase-protect-symbols"></a>`\MakeUppercase` は記号の小文字も大文字にする — 物理量の文字は `\NoCaseChange{…}` で守る
+
+見出しや英題を template 側で `\MakeUppercase{…}` にして all-caps で組むと、 題に入っている物理量・単位の記号 (`1/f` の f、 `pH`、 `mV` など) も大文字に化ける。 compile は通るので目視でしか見えない (実測)。
+
+- LaTeX 2022-06 以降の `\MakeUppercase` は expl3 の case changing で、 `\NoCaseChange{f}` の中身を変えない (それより古い kernel は `textcase` package の `\NoCaseChange`)。
+- template に値を流す生成器は、 大文字化から守る字を指定できる入口 (例 = 題の LaTeX 版を上書きする設定の key) を持つ。 公開用の plain な題には `\NoCaseChange` を入れない (web や一覧に命令が漏れる)。
+- PDF の文字層で題を照合する検査が大文字小文字を無視していると、 この誤りは通る = 大文字化した版の検査では「守った字が小文字で残っているか」 を別に見る。
+
 ## <a id="cite-set-after-commentout"></a>comment-out 流儀の編集後は live `\cite` 集合を照合する
 
 旧文を `%...` で残して次行に新文を書く「comment-out keep」 流儀で編集すると、 行末まで `%` が
