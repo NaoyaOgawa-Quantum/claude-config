@@ -568,6 +568,27 @@ PY
 _check "canary は判定と呼び元を state に書く" \
   "$(_live --canary --caller synthetic >/dev/null; _state 'str(d["armed"]) + " " + ",".join(sorted(d["callers"]))')" "True synthetic"
 _check "健全なら --liveness は沈黙" "$(_live --liveness | wc -l | tr -d ' ')" 0
+# auto mode で承認 CLI を通す狭い allow が無い機械は 🟡 (conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli)
+_perm() {  # $1 = defaultMode, $2… = allow rule -> settings.json に permissions を足す
+  python3 - "$LH/.claude/settings.json" "$@" <<'PY'
+import json, sys
+path, mode, *allow = sys.argv[1:]
+d = json.load(open(path)); d["permissions"] = {"defaultMode": mode, "allow": allow}; json.dump(d, open(path, "w"))
+PY
+}
+_perm auto
+_check "auto mode で承認 CLI を通す allow が無ければ 🟡 で出す" "$(_live --liveness | grep -c '🟡.*承認 CLI')" 1
+_perm auto 'Bash(*)' 'Bash(python3 *)'
+_check "広い rule (Bash(*) / interpreter だけ) は数えない" "$(_live --liveness | grep -c '🟡.*承認 CLI')" 1
+_perm auto 'Bash(python3 /h/Claude/claude-config/scripts/agent-rule-guard.py *)'
+_check "片方の engine だけの allow では 🟡 のまま (manuscript-claim-guard.py を名指す)" \
+  "$(_live --liveness | grep -c '🟡.*manuscript-claim-guard.py) を通す')" 1
+_perm auto 'Bash(python3 /h/Claude/claude-config/scripts/agent-rule-guard.py *)' \
+  'Bash(python3 /h/Claude/claude-config/scripts/manuscript-claim-guard.py *)'
+_check "両方の engine の allow が在れば沈黙" "$(_live --liveness | grep -c '🟡.*承認 CLI')" 0
+_perm default
+_check "auto でなければ allow が無くても沈黙" "$(_live --liveness | grep -c '🟡.*承認 CLI')" 0
+_wire "Edit Write MultiEdit Bash"
 # 承認なしで入った規則の文書への追記 (agent-rule-ownership.md#additive-and-free-zones) は同じ面に出る
 printf '%s\n' '{"kind": "insert", "file": "conventions/x.md", "repo": "/r/demo", "sha": "0", "text": "t", "session": "claude:s", "at": "2999-01-01T00:00:00+00:00"}' \
   > "$MANUSCRIPT_CLAIM_GUARD_STATE_DIR/additive-log.jsonl"

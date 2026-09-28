@@ -17,7 +17,9 @@ the manifest has no exclusion/disable switch. Callers must union HEAD, index
 and worktree declarations. A code file that mentions an engine is locked as a
 whole unless every mention sits inside an explicit begin/end block; then the
 blocks carry the lock and the rest is ordinary code (decision record and the
-holes this leaves: conventions/agent-rule-ownership.md#wiring-scope). This is
+holes this leaves: conventions/agent-rule-ownership.md#wiring-scope). A
+data-format file (JSON / TOML / YAML / rules) is locked by its location, the
+built-in control paths and the manifest; a mention alone does not lock it. This is
 not isolation from a malicious agent with write access to the checker/runtime
 itself and does not interpret all prose.
 
@@ -33,8 +35,8 @@ into a fence or comment, no new heading files the lines under it as history, the
 document is not emptied, and it is not a brand-new entry document (judge_change).
 Removed, replaced and flipped sentences pass; the dispatcher logs every such
 change for the owner to read afterwards. Whether an edit strengthens or weakens a rule is not
-decided here; the inserted-only shape and the vocabulary tripwire are proxies
-with known holes (conventions/agent-rule-ownership.md#additive-and-free-zones).
+decided here; the vocabulary tripwire, the hiding markup and the history heading
+are proxies with known holes (conventions/agent-rule-ownership.md#additive-and-free-zones).
 Callers pass manifest patterns as extra_paths, never the expanded set of every
 protected path (that set contains every tracked rule document).
 """
@@ -57,7 +59,12 @@ RULE_REF_TOKENS = tuple(name + "#rule" for name in (
 ))
 ENGINE_TOKENS = ("agent-rule-guard", "agent_rule_guard",
                  "manuscript-claim-guard", "manuscript_claim_guard")
-WIRING_SUFFIXES = {".py", ".sh", ".js", ".ts", ".json", ".toml", ".yaml", ".yml", ".rules", ""}
+# A code file that mentions an engine is wiring (locked as a whole, see authority_regions). A data-format file
+# (JSON / TOML / YAML / rules) is locked by its location, the built-in control paths and the manifest, not by a
+# mention: ledgers, board events and evidence manifests cite engine names without wiring anything (measured),
+# while every data file that does wire an engine sits under a control path or a manifest pattern.
+WIRING_SUFFIXES = {".py", ".sh", ".js", ".ts", ""}
+DATA_SUFFIXES = {".json", ".toml", ".yaml", ".yml", ".rules"}
 ENTRYPOINT_NAMES = {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CONVENTIONS.md"}
 CONTROL_PATTERNS = (
     "conventions/*.md", ".claude/settings*.json", ".codex/config*.toml",
@@ -963,6 +970,17 @@ def selftest() -> int:
         check("enforcement configuration protected: " + path, changed(path, old, new))
     for path in ("README.md", "SESSION.md", "src/app.py", "docs/progress.md", "data/config.json"):
         check("ordinary content is not a control file: " + path, not changed(path, "Old value\n", "New value\n"))
+    mention = "notes: the deny came from scripts/manuscript-claim-guard.py and agent-rule-guard.py\n"
+    for path in ("todo/2026-10-06-note.yaml", "events/post.json", "plans/manifest.json", "config/site.toml", "policy.rules"):
+        check("a data file that only mentions an engine is not wiring: " + path,
+              not changed(path, mention, mention + "status: done\n"))
+    hook_line = '{"command": "manuscript-claim-guard.py"}\n'
+    check("a data file under a control path stays locked with an engine mention",
+          changed(".codex/hooks.json", hook_line, '{"command": "other"}\n'))
+    check("a declared data file stays locked with an engine mention",
+          changed("hooks/settings-entries.json", hook_line, '{"command": "other"}\n', ["hooks/*"]))
+    check("a code file that mentions an engine is wiring: scripts/check.py",
+          changed("scripts/check.py", "# see manuscript-claim-guard.py\nx = 1\n", "# see manuscript-claim-guard.py\nx = 2\n"))
     check("declared gate implementation protected", changed("scripts/check-release.py", "check()\n", "pass\n", ["scripts/check-*.py"]))
     check("additive declaration does not remove builtin protection", protected_path("AGENTS.md", []))
     marker = "<!-- agent-authority:begin id=retention -->\nKeep backups.\n<!-- agent-authority:end id=retention -->\n"
