@@ -20,6 +20,8 @@ OPS = {"<topic>": {"anchor_remove": [...], "anchor_add": [...],
   - anchor_add が pointer 判定 (pointer_patterns・home の file 名・home_section) に含まれない (= 永久に鳴らない anchor を作らない)
   - 書き換え後に anchor が 0 にならない / YAML として読め、 topic 数が変わらず、 各 field が期待どおり
 操作後は check-sot-drift.py (scan と点検) を回して finding を確かめる。
+⚠️ 多数の topic に同じ `note` を書くと、 同一の comment 行が topic の数だけ並び、 check-degenerate-text (1 行の異常な繰り返し) が
+   commit を止める。 一括の allow_remove 等では note を省き、 理由は registry 冒頭の comment 1 行と設計の記録に置く (実測)。
 """
 from __future__ import annotations
 

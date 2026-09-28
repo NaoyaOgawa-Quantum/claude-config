@@ -239,3 +239,5 @@ engine の selftest が git の呼び出し回数を数える (件数に依ら�
 4. **観測の意味を限定する**: Stop入力の診断が示すkeyの存在と、その値を区別する。存在を表すtrueは値がtrueである証拠ではない。本文やpathを採取せず、必要なkeyの有無・最終回答が非空かといった性質で検証する。Codexのphase付き応答ではfinal_answerを確認し、commentaryを最終報告の証拠にしない。
 5. **監査と発火を分ける**: hooks/listの有効なprompt・agent・MCP handlerはcommand fieldを持たないことがある。正常な別形式を故障と扱わず、同時にそれを必須command hookの代わりにも数えない。構成の信頼状態・合成fixtureの挙動・実際のhook発火は、それぞれ確認した範囲を記録する。
 6. **保存と受領を分ける**: 必要な証拠への参照がcommitにも含まれていることを確かめる。logのignoreによる保存漏れや、一時pathにだけ残る依存を点検する。完了gateの基準差分に別作業が含まれた場合は、[Git gateの例外](../CONVENTIONS.md#completion-git-gate)としてrepo・残状態・理由を明示する。候補hashの承認、適用、提出、独立した受領は別の段階として扱う。
+7. **mode と生成物も別の変更として数える**: 候補を写した後に実行権限 (chmod) を変えると `authority:mode` の別の変更になる = 候補を作る時点で mode を合わせるか、 mode の承認を別に記録する。 保護 glob の下の生成物 (hooks の索引 README 等) を再生成したら、 その file も承認が要る = 生成の後に記録する (実測: 同じ発言で file・mode・生成物の 3 種を順に記録した)。
+8. **候補の hook を本番の前に走らせる**: 候補 dir に engine への symlink を置き、 test が期待する相対 path (`../scripts/<engine>`) を満たしてから test を回す。 本番 path に写す前に赤を見つける (実測: 存在しない dir に書く場合の repo 解決の誤りを候補の段で捕まえた)。

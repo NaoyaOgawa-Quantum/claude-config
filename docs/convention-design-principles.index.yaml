@@ -673,6 +673,10 @@ sections:
     legacy: "19.7"
     level: 3
     title: "19.7 時間を key にした状態 file は追記しかできない — 現在地は案件を key にし、 形を gate で守る"
+  - id: demoted-defense-reversal
+    legacy: "19.8"
+    level: 3
+    title: "19.8 見送った防御には、 それを戻す観測を書く — 宣言した盲点は次の再発の予測として読む"
   - id: premise-bound-rule-expiry
     legacy: "20"
     level: 2

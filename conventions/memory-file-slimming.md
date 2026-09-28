@@ -248,6 +248,8 @@ gate ([`scripts/check-session-shape.py`](../scripts/check-session-shape.py)、 p
 
 意図した例示・fixture で止まったときだけ `CLAUDE_SESSION_SHAPE_GUARD=0` で通す (出力に「何が止めたか」 が残る)。 fleet の状態は `check-session-shape.py --fleet` (dashboard) で見る。
 
+既存の file を一括で寄せる = [`scripts/migrate-session-shape.py`](../scripts/migrate-session-shape.py) (dry-run 既定。 日付つきの `##` 節と、 日付を含まない `##` の中の日付つき `###` 小節を archive へ verbatim MOVE し、 日付を含まない節と最新の状態は残し、 gate を通してから commit)。 archive が subdir のときは移した文の相対 link が段数ずれで壊れる = commit を止められたら `fix-md-links.py --files <archive file> --fix` で新しい base に合わせて commit し直す。 一括で寄せた後に残るのは、 日付の無い節の中に溜まった経緯 (形が同じで機械で区別できない) = その repo を次に触る commit で行数の予算が止める。
+
 ## 実測 evidence (2026-07-29/30)
 
 個人層 memory file 276 KiB (= headless routine 全滅の実害) →

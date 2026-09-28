@@ -61,6 +61,7 @@
 2. **発火面は 2 つ** = 全 repo の pre-commit ([`scripts/pre-commit-bib`](scripts/pre-commit-bib) と公開 repo の [`scripts/public-precommit-runner.sh`](scripts/public-precommit-runner.sh)、 Claude / Codex / 人の commit に共通) + 書き込み hook ([`hooks/session-shape-guard.sh`](hooks/session-shape-guard.sh)、 PreToolUse Edit/Write/MultiEdit で deny)。 fleet の状態は `--fleet` (dashboard)。
 3. **生成器を同じ検出器で warn する**: README が自分を正本と宣言する行 (非公開 repo では止める、 公開 repo は warn)、 CLAUDE.md / AGENTS.md の「README / SESSION に (決定・成果物・状態を) 書け」 の行。 層1 §3 の文言と memory-guard の deny 文言は行き先を種類別 (決定 → DESIGN、 状態 → 台帳、 SESSION は現在地の行を置き換える) に言い直した。
 4. **registry の既定から SESSION.md の exempt を外す** ([`scripts/sot-registry-add.py`](scripts/sot-registry-add.py) の `DEFAULT_ALLOW`)。
+5. **既存の file は一括で寄せる** = [`scripts/migrate-session-shape.py`](scripts/migrate-session-shape.py) (dry-run 既定、 日付つきの節を archive へ verbatim MOVE、 日付なしの節と最新の状態は残す、 gate を通してから commit。 archive が subdir なら相対 link を `fix-md-links.py` で合わせる)。 寄せた後に残るのは日付の無い節の中の経緯 (機械で区別できない) = 次に触る commit で行数の予算が止める。 見送った防御に戻す観測を書く規律 = [§19.8](docs/convention-design-principles.md#demoted-defense-reversal)。
 
 **採らなかった案**: (a) 検出器に prose を足す = 6 月と同じ (recall 依存、 [§8.12](docs/convention-design-principles.md#firing-surface-hierarchy))。 (b) check-session-sot.py の閾値を下げる = proxy の軸が違う (byte でなく形)。 (c) 行数だけを止める = 日付の節を小さく足し続ける形が残る。 (d) SESSION.md を廃して他の file に統合 = 「今どこにいるか」 の入口は要る、 要らないのは変更履歴の形。
 

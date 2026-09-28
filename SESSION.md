@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- **SESSION / README の形の gate** — engine・書き込み hook・全 repo の pre-commit への配線・規約の言い直しまで済 (この machine は hook 配線済、 他の machine は次の session の bootstrap が配線)。 次 = 育った SESSION.md を各 repo で次に触る commit で案件ごとの現在地へ組み直す (一覧 = `scripts/check-session-shape.py --fleet`) → [DESIGN.md#session-shape-gate](DESIGN.md#session-shape-gate)
+- **SESSION / README の形の gate** — engine・書き込み hook・全 repo の pre-commit・規約・一括移行の道具 (`migrate-session-shape.py`) まで済、 既存 file は寄せた。 残り = 他の machine での hook と pre-commit の実走の観測 (bootstrap と pull で入る) → [DESIGN.md#session-shape-gate](DESIGN.md#session-shape-gate)
 - **規則保護の gate (agent-rule-guard)** — 運用中。 残りは下の Open items (SSO 実走 / cwd 解決 / Codex hook の timeout / transcript の user 役の穴 / liveness の観察) → [agent-rule-ownership.md](conventions/agent-rule-ownership.md) / [DESIGN.md#rule-doc-change-by-vocabulary-not-form](DESIGN.md#rule-doc-change-by-vocabulary-not-form)
 - **Codex integration** — 正本 = [codex/PARITY.md#codex-integration-sot](codex/PARITY.md#codex-integration-sot) (SESSION には pointer だけ、 実装の語は書かない)
 - **formcase / record-reply / SSO client / 通知 / 音声の道具** — 直近の変更は各 script の docstring と conventions が正本、 索引は SESSION-archive.md の 09-22〜09-28 の節
