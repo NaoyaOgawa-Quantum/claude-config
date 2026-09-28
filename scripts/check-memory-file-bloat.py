@@ -25,7 +25,7 @@ CLAUDE.md 連鎖は毎 session + 毎 headless routine が払う税で、 肥大�
   行数 (登録制): LINE_LIMITS に載せた file だけ 🟡 / 🔴 を行数で出す。 byte は auto-load されない SESSION.md の
              再肥大を拾わない (2026-09-11 の claude-config/SESSION.md は 506 行でも 91 KB)。 縮退した file を縮退と
              同じ turn で登録する (= 層1 claude-config/conventions/memory-file-slimming.md#regrowth-backstop)。
-             claude-config/SESSION.md = 🟡 100 / 🔴 200 行 (目安 ~80 + slack。 縮退直後の 47 行 = 健康 floor では点かない)。
+             claude-config/SESSION.md = 🟡 120 / 🔴 200 行 (目安 ~80 + slack、 形の gate check-session-shape.py と同じ値。 縮退直後の 47 行 = 健康 floor では点かない)。
              同じ閾値で、 claude-config の .claude/pre-commit-extra.sh 検査 5 が `--staged` で commit 時に本人へ warn する
              (値は LINE_LIMITS だけが持つ)。
 
@@ -65,7 +65,7 @@ CRIT_FILE_KB = 200
 WARN_REPO_KB = 200
 CRIT_REPO_KB = 300
 LINE_LIMITS = {  # root 相対の file → (🟡 行, 🔴 行)。 縮退した file を登録する
-    "claude-config/SESSION.md": (100, 200),
+    "claude-config/SESSION.md": (120, 200),  # 2026-09-28: 形の gate (check-session-shape.py の 120 / 200) と同じ値に揃えた
 }
 TARGETS = ("CLAUDE.md", "SESSION.md")
 SLIM_DOC = "claude-config/conventions/memory-file-slimming.md"
