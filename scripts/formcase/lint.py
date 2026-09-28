@@ -15,7 +15,10 @@ token は spec から導出する (人が一覧を書かない):
     (実測: 案件 README の過半に写しがあり、 2 か月前の「残 = 提出」 が残っていた)。 file 名 (backtick の中) は見ない
   - ``region``: 区間 marker (generated view / history) の入れ子・閉じ忘れ・宙に浮いた閉じ (``views.region_problems``)。
     区間は除外範囲そのものなので、 崩れると後ろの行が黙って lint から外れる / 戻る。 承認できない (全対象 doc)
-除外: generated view の中 / ``<!-- formcase:history -->`` 区間 (経緯・理由) / 案件の値の出典表 / 理由つき承認一覧
+除外: generated view の中 / ``<!-- formcase:history -->`` 区間 (手順書・規則の理由の doc に残す経緯・理由) / 値の出典表
+(見出し行に「出典」) / 理由つき承認一覧。 ⚠️ 案件の README には history 区間も出典表も置かない (経緯 = 案件 dir の README でない
+file、 出典 = 記入 script の値の行の ``# 出典:``。 README に足す commit は層1 ``check-session-shape.py`` が止める = form-case-pipeline.md
+#case-readme)
 (設定の ``lint.ack``)。 走査対象 = 設定の ``lint.targets`` (手順・入口・案件の doc)。 規則の理由・経緯の home
 (spec の ``meta.history_home``) は superseded と statement だけ (= 経緯は history 区間で囲む)。
 claims の網羅 = ``claims_coverage()`` (値・yes/no の規則に claims が無いと ``formcase.py lint`` が落ちる)。
@@ -602,8 +605,8 @@ def render(findings) -> None:
               " 崩れたままだと、 後ろの行が lint から黙って外れたり戻ったりする")
     if any(k == "state" for *_x, k in findings):
         print("   → 状態の正本 = submission.yaml (README には <!-- formcase:view kind=status --> を置いて views --write) と"
-              " 案件の TODO (未決の問い・約束・返事待ちは TODO の notes)。 README は file の説明・経緯"
-              f" (経緯は <!-- formcase:history --> で囲む) だけ (値の出典は fill_<doc>.py の各行の `# 出典:`)。 状態でない語なら {ack_path()} に file と語と理由")
+              " 案件の TODO (未決の問い・約束・返事待ちは TODO の notes)。 README は file の説明と正本への参照だけ"
+              f" (経緯は案件 dir の README でない file = 経緯.md、 値の出典は fill_<doc>.py の各行の `# 出典:`)。 状態でない語なら {ack_path()} に file と語と理由")
     if any(k not in ("state", "region") for *_x, k in findings):
-        print("   → 直し方: その行を規則 id への pointer か generated view (formcase:view) にする。 経緯として残すなら "
-              f"<!-- formcase:history --> で囲む。 どれも違うなら {ack_path()} に理由つきで承認")
+        print("   → 直し方: その行を規則 id への pointer か generated view (formcase:view) にする。 経緯として残すなら、 手順書では "
+              f"<!-- formcase:history --> で囲み、 案件の README なら案件 dir の経緯.md へ移す。 どれも違うなら {ack_path()} に理由つきで承認")

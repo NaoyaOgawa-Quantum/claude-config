@@ -146,16 +146,18 @@ def stub_text(spec, case_label, case_rel, doc, name, only_group: str | None = No
     return head + "\n".join(lines) + "\n" + STUB_TAIL
 
 
+# 案件の README の雛形 = 説明と正本への参照だけ (経緯・出典・規則の本文を README に置かない = form-case-pipeline.md#case-readme)。
+# ⚠️ この定型文自体に状態の語を並べない = new した案件の最初の commit を lint が止める (2026-09-22)
 README_TMPL = """# {case}
 
 <!-- formcase:view kind=status -->
 <!-- /formcase:view -->
 
-- 状態 (どの書類を・いつ刷り・送り・出したか、 何を待っているか) の正本 = [`submission.yaml`](submission.yaml)。 上の表はその生成物で、 freeze / annotate / reopen が描き直す。 状態を README に手で書かない (`formcase.py lint` と pre-commit が止める。 状態の説明は `annotate --note`、 決まっていない問い・約束は案件の TODO)。 ⚠️ この定型文自体に状態の語を並べない = new した案件の最初の commit を lint が止める (2026-09-22)
+- 状態 (どの書類を・いつ刷り・送り・出したか、 何を待っているか) の正本 = [`submission.yaml`](submission.yaml)。 上の表はその生成物で、 freeze / annotate / reopen が描き直す。 状態を README に手で書かない (`formcase.py lint` と pre-commit が止める。 状態の説明は `annotate --note`、 決まっていない問い・約束は案件の TODO)
 - 何を書くか = お手本 spec `{spec_hint}` (`formcase.py rules`){process_hint}
 - 記入 = `python3 fill_{doc}.py`、 PDF = `formcase.py build {case_rel} --doc {doc}`
 
-値の出典 = [`fill_{doc}.py`](fill_{doc}.py) の各行の `# 出典:` (README に正本を置かない)。
+値の出典 = [`fill_{doc}.py`](fill_{doc}.py) の各行の `# 出典:`、 経緯 = 案件 dir の `経緯.md` (README に正本を置かない)。
 """
 
 

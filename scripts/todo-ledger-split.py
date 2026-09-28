@@ -7,7 +7,8 @@
   2. 読み直し照合 = 各 file を parse した mapping が元の list の該当 entry と == (全 entry)、 かつ分割後の
      `load_todos(repo)` が元の list と同じ集合 (id で照合)。 1 つでも違えば書いた file を消して exit 1。
   3. 元の `TODO.yaml` を消す (git の repo なら `git rm`、 それ以外は unlink)。 `todo/` は `git add` する。
-  4. 冒頭の注釈行は `todo/README.md` に写す (置き場・書式・1 entry の例・手で足すときの手順)。
+  4. 冒頭の注釈行は `todo/FORMAT.md` に写す (置き場・書式・1 entry の例・手で足すときの手順)。 `todo/README.md` は FORMAT.md への
+     参照だけ (README に正本を置かない = CONVENTIONS.md#readme-style / form-case-pipeline.md#case-readme と同じ役割分担)。
 
 止まる条件 (書かずに exit 1): id の重複 / file 名にできない id / 照合の不一致 / `todo/<id>.yaml` が既に在って中身が違う /
   `TODO.yaml` に未 commit の変更がある / **暗号化の不一致** = `TODO.yaml` に filter (git-crypt) が付いているのに
@@ -16,7 +17,7 @@
 使い方:
   python3 todo-ledger-split.py <repo>            # dry-run (何を書くか・止まる理由を出す)
   python3 todo-ledger-split.py <repo> --apply    # 書く → 照合 → TODO.yaml を消す → todo/ を git add
-  python3 todo-ledger-split.py <repo> --apply --no-readme   # README を書かない
+  python3 todo-ledger-split.py <repo> --apply --no-readme   # README と FORMAT.md を書かない
   python3 todo-ledger-split.py <repo> --apply --no-git      # git を触らない (unlink だけ)
   python3 todo-ledger-split.py --selftest
 
@@ -44,7 +45,12 @@ from todo_ledger import (DIR_NAME, LEGACY_NAME, TodoLedgerError, entry_text, loa
                          split_legacy, todo_path, write_todo)
 
 README_NAME = "README.md"
+FORMAT_NAME = "FORMAT.md"   # 置き場・書式・例の正本 (README は参照だけ)
 README_TMPL = """# todo/ — TODO 台帳 (1 entry 1 file)
+
+`todo/<id>.yaml` = 1 file 1 entry の TODO 台帳。 置き場・書式・手で足すときの手順・1 entry の例の正本 = [`FORMAT.md`](FORMAT.md)、 読み書きの部品 = 層1 `claude-config/scripts/lib/todo_ledger.py`。
+"""
+FORMAT_TMPL = """# todo/ — TODO 台帳 (1 entry 1 file)
 
 - 置き場 = `todo/<id>.yaml`。 **1 file = 1 entry の mapping** (list ではない)。 file 名 = entry の `id` + `.yaml`
   (id は一意・日付始まり・`[A-Za-z0-9._-]` だけ)。
@@ -137,7 +143,7 @@ def run(repo_arg, apply: bool = False, readme: bool = True, use_git: bool = True
     carried = sum(1 for _, t in parts if t.startswith("#"))
     out(f"  {legacy.name}: entry {len(parts)} 件 (bytes {len(text.encode('utf-8')):,}) → {DIR_NAME}/<id>.yaml "
         f"{len(to_write)} 件を書く / {len(same)} 件は同じ中身で既に在る")
-    out(f"  冒頭の注釈 {sum(1 for h in header if h.strip())} 行 → {DIR_NAME}/{README_NAME}" + ("" if readme else " (--no-readme = 書かない)"))
+    out(f"  冒頭の注釈 {sum(1 for h in header if h.strip())} 行 → {DIR_NAME}/{FORMAT_NAME} (README は参照だけ)" + ("" if readme else " (--no-readme = 書かない)"))
     if carried:
         out(f"  節の見出し注釈を頭に持つ file: {carried} 件 (= 元の file で直前にあった注釈)")
     if problems:
@@ -153,9 +159,12 @@ def run(repo_arg, apply: bool = False, readme: bool = True, use_git: bool = True
         for eid, t, p in to_write:
             write_todo(p, t)
             written.append(p)
-        if readme and not (tdir / README_NAME).exists():
+        if readme and not (tdir / FORMAT_NAME).exists():
             body = "\n".join(h for h in header if h.strip()) or "(無し)"
-            (tdir / README_NAME).write_text(README_TMPL.format(header=body, date=today or _today()), encoding="utf-8")
+            (tdir / FORMAT_NAME).write_text(FORMAT_TMPL.format(header=body, date=today or _today()), encoding="utf-8")
+            written.append(tdir / FORMAT_NAME)
+        if readme and not (tdir / README_NAME).exists():
+            (tdir / README_NAME).write_text(README_TMPL, encoding="utf-8")
             written.append(tdir / README_NAME)
         # 読み直し照合 (旧 file がまだ在る = todo/ が勝つ順で読み、 集合を id で照合)
         got = load_todos(repo)
@@ -279,9 +288,12 @@ def _selftest() -> int:
         check({e["id"]: e for e in load_todos(repo)} == {e["id"]: e for e in orig}, "T4 apply: load_todos == 元の list (id で照合)")
         check((repo / DIR_NAME / "2026-01-01-first.yaml").read_text(encoding="utf-8").startswith("# ── section ──\nid: 2026-01-01-first\n"),
               "T4 apply: 節の注釈は次の entry の file の頭に残る")
-        rd = (repo / DIR_NAME / README_NAME).read_text(encoding="utf-8")
+        rd = (repo / DIR_NAME / "FORMAT.md").read_text(encoding="utf-8") if (repo / DIR_NAME / "FORMAT.md").exists() else ""
         check("# TODO — fixture ledger" in rd and "2026-01-10" in rd and "todo/** filter=git-crypt" in rd,
-              "T4 apply: README に冒頭の注釈と暗号化の行")
+              "T4 apply: FORMAT.md に冒頭の注釈と暗号化の行")
+        rm = (repo / DIR_NAME / README_NAME).read_text(encoding="utf-8")
+        check("FORMAT.md" in rm and "filter=git-crypt" not in rm and "# TODO — fixture ledger" not in rm,
+              "T4 apply: README は FORMAT.md への参照だけ (README に正本を置かない)")
         check(g("check-attr", "filter", "--", f"{DIR_NAME}/2026-01-01-first.yaml").stdout.strip().endswith("git-crypt"),
               "T4 apply: todo/*.yaml に filter が付いている")
         # T5 冪等 (TODO.yaml が無い)
@@ -308,7 +320,7 @@ def _selftest() -> int:
         (plain / LEGACY_NAME).write_text(FIXTURE, encoding="utf-8")
         log.clear()
         rc = run(plain, apply=True, use_git=False, readme=False, out=pr, today="2026-01-10")
-        check(rc == 0 and not (plain / LEGACY_NAME).exists() and not (plain / DIR_NAME / README_NAME).exists()
+        check(rc == 0 and not (plain / LEGACY_NAME).exists() and not (plain / DIR_NAME / README_NAME).exists() and not (plain / DIR_NAME / "FORMAT.md").exists()
               and len(load_todos(plain)) == 3, "T7 --no-git --no-readme: unlink だけ、 README 無し")
         # T8 id の重複 / 壊れた YAML は書かない
         bad = Path(td) / "bad"
