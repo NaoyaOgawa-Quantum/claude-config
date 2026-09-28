@@ -30,7 +30,7 @@
 - [ ] **Claude desktop session の commit trailer で model 欄が unknown** (2d5cc14 / session f7ca7877) — その session の provenance cache が無かった原因 (起動時入力に model が無いのか、 cache を書く hook が走らないのか) は未切り分け。 lift 元 = archive の 09-11 set -e entry。
 - [ ] **CI red は走行中の session には次の session 開始まで届かない** — 定期実行 + OS 通知は未実装 (判断材料 = owner 個人層の CI red surface results §6)。 lift 元 = 同上。
 - [ ] **Remote Control 配下の whoami 表示 (`rc/<label>`) が実 RC session で未確認** — 次にスマホから入った session の冒頭 stamp で確認。 lift 元 = archive の 2026-09-05b entry。
-- [ ] **iMac の Codex integration audit が未検証** — iMac で audit を回して bootstrap 状態を判定 (手順 = owner 個人層の codex/README.md)。 lift 元 = archive の 2026-09-01i entry。
+- [ ] **iMac の Codex integration audit が未検証** — iMac で audit を回して bootstrap 状態を判定 (手順 = owner 個人層の dev-environment.md §Codex personal-layer bootstrap)。 lift 元 = archive の 2026-09-01i entry。
 - [ ] **Windows ネイティブで `--selftest` 2 本が未実機検証** (= 45407fa で追加した [`scripts/check-inbound-refs.py`](scripts/check-inbound-refs.py) + [`scripts/generate-doc-index.py`](scripts/generate-doc-index.py))。 macOS で開発、 後者は in-memory string で OS 非依存だが前者は tempfile + `os.path.relpath` (backslash) と forward-slash literal の混在経路を持ち、 fallback の `os.path.exists` が mixed separator を resolve できれば通る理屈。 Windows 機会あれば実走 or 受領 PR で close。
 - [ ] **DESIGN.md の更なる縮減候補は owner 判断待ち** — archive-first 再編 (2026-07-10b) で残した live 要素含みの節 (= 「公開リポ leak 防止」 節の sub-doc 分割等) は候補列挙どまりで未着手。 候補 list は起票元 plan の results (個人層) 側、 判断基準は [`DESIGN.md #design-reorg-archive-first`](DESIGN.md#design-reorg-archive-first) の「迷ったら残す」 (経緯 = [`SESSION-archive.md`](SESSION-archive.md) の 2026-07-10b entry)
 - [ ] **dropbox-refs.md の narrative 量監視** — 類似 narrative style の convention が他に波及したら系統 pattern として review
