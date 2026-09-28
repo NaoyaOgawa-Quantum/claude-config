@@ -660,3 +660,21 @@ origin: 2026-09-12、長く改稿を重ねた原稿で、共著者が外部 tool
   どちらを消しても同じ自由度。 ループがその 2 次形式に固有の運動項を書き足す」。 最初に ③ の 2 次形式を書いていれば 1 往復。
 - 隣接: [#headline-claim-budget-check](#headline-claim-budget-check) (中心主張を模型の形式に依らない収支で検算) /
   [#convention-difference-closure](#convention-difference-closure) (語で済ませた差を写像で閉じる)。
+
+## <a id="symbol-collision-sweep"></a>記号の衝突の走査 — 同じ文字が 2 つの量 / 分野の標準記号との衝突 / 添字順の規約 (2026-09)
+
+「別物には別の名前を」。 査読の巡は記号の**呼び名**を見るが**文字**の衝突はまず見ない (実測)。 投稿前に 1 回、 読み手側で走査する。
+
+衝突の 3 型:
+- **(i) 原稿の中**: 1 文字が 2 つの量 (Mandelstam の s と Bloch 成分の s / helicity 差の c と不等式の分母の c / witness の値 W と
+  演算子 W / Pauli の σ と特異値の σ と断面積の σ と統計の σ)。 三つ組の文字が揃っていない (Bloch 成分を r, s, z と書く)。
+- **(ii) 分野の標準との衝突**: 原稿が式を借りてくる分野の標準記号 (PDG の中性メソン混合は x = Δm/Γ、 y = ΔΓ/2Γ。 隣の分野の
+  標準比 R_ll と小文字 r。 核子の A_ij と重陽子のテンソル解析能 A_ij)。 その分野の読者は自分の意味で読む。
+- **(iii) 添字順・軸名の規約**: 節ごとに「前がビーム / 前が標的 / 前が qubit」 が違う、 軸名が (S, N, L) と (x, y, z) で辞書の
+  1 文が無い。
+
+手順: [`scripts/tex-rename-symbols.py scan`](../scripts/tex-rename-symbols.py) で standalone な 1 文字を列挙 → 各文字の意味を
+数える → **借りている分野の標準に揃える**提案 (PDG の規約を第一に) → 提案する文字が原稿で未使用かを `grep` で確かめてから出す
+(χ² の χ、 相対 CP 偶奇の η、 ξ_a の ξ、 レプトン方向の n̂ は使用済み、 のように) → 採否は著者。 改名の実施は
+[latex.md#symbol-rename](latex.md#symbol-rename)。 読み手の note には「見てほしい点」 の 1 項として衝突の list を置く
+([manuscript-value-triage.md](manuscript-value-triage.md))。

@@ -1404,3 +1404,24 @@ latexdiff old.tex new.tex | sed '1s/^/\\PassOptionsToPackage{normalem}{ulem}\n/'
 - 本文には `\red{[check]}` のような ASCII の見える印だけを置く。 PDF で場所が分かり、 組版は壊れない。
 - bib の照合メモは entry の外の `%` 行に。 BibTeX は entry の外の行を読まない。
 - latexmk が `exit 12` で止まるのに `main.log` に `!` が無いときは、 古い `.bbl` を掴んでいる。 `.bbl` `.aux` `.blg` を消して回し直す。
+
+## <a id="symbol-rename"></a>1 文字記号の一括改名 (y→x、 r→\zeta_x の類) の手順 (2026-09)
+
+原稿の 1 文字記号は素の置換ができない。 同じ文字が `\frac` `\right` `\sqrt` の中、 `\cite`/`\ref` の key、 別の記号の添字
+(`\sigma_z`)、 英単語、 別の量 (Mandelstam の s と Bloch 成分の s、 Yukawa の y と Δm/Γ の y)、 `\%` の後ろに現れる。
+道具 = [`scripts/tex-rename-symbols.py`](../scripts/tex-rename-symbols.py) (standalone な文字だけを対象にする `scan` / `apply`)。
+
+1. **走査**: `scan FILE --letters ryz` で standalone な出現を行番号つきで全部見る。 「同じ文字で別の量」 (Mandelstam の s、
+   Yukawa の y) をここで見つけ、 exact 置換の list か `--keep` の正規表現に分ける。 `ry^2` のような 2 文字連結は standalone
+   でないので exact list に入れる。
+2. **exact → standalone** の順で `apply`。 `\bar r` は `\bar{\zeta}_x` に整う。 置換が後続の英字と連結すると止まる。
+3. **再走査**で残り 0 (keep した文字だけが残る) を確かめる。 ⚠️ コメントを `%.*` で消す自作 script は `\%` 以後の記号を黙って
+   残す (実測)。 `(?<!\\)%` を使う。
+4. **図の label は別**: matplotlib の `r'$y=\Delta m/\Gamma$'` などは図の script 側。 再生成に走査の cache が要る図は、
+   cache の有無を先に確かめる (無ければ再走査に時間が掛かる = 同じ日に組み直せない可能性を先に言う)。
+5. **再組版** → PDF の text を PyMuPDF で引いて旧記号 0 件・新記号 N 件を数え、 頁を PNG に描いて目視。
+6. **commit は承認と同じ turn で** ([manuscript-claim-ownership.md#commit-in-approval-turn](manuscript-claim-ownership.md#commit-in-approval-turn))。
+   図の再生成を待つなら、 承認済みの tex を先に commit し、 生成物は後の commit にする (主張の承認の対象は text であって生成物ではない)。
+7. 旧記号のまま残るもの (日付つきの査読依頼・報告書・作業記録・probe の変数名) は触らない。 commit message に列挙する。
+
+記号の**選び方** (衝突の検査) は [paper-audit.md#symbol-collision-sweep](paper-audit.md#symbol-collision-sweep)。
