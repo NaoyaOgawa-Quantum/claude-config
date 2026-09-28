@@ -248,7 +248,7 @@ def report(findings: list[Finding], *, escape: bool) -> int:
         if escape:
             print(f"{HEADING} ({ENV_ESCAPE}=0 で BLOCK を WARN に落として通す)")
             return 0
-        print(f"{HEADING} commit を止めた (BLOCK {len(blocks)} 件。 意図した縮退や例示なら {ENV_ESCAPE}=0 で通す)")
+        print(f"{HEADING} 止めた (BLOCK {len(blocks)} 件。 意図した縮退や例示なら {ENV_ESCAPE}=0 で通す)")
         return 1
     return 0
 
