@@ -22,6 +22,9 @@ scripts/public-precommit-runner.sh から呼ぶ同じ engine。
 agent-authority の block で守る (= その file の他の行は普通に直せる)。 block の外側からの迂回 (手前の exit 0・
 helper 関数の差し替え = canary が走らない / `|| true` = 失敗が消える) は止めずに、 ここで「報告が途絶えた」
 「NOT ARMED」 として表に出す。 判断の記録と残る穴 = conventions/agent-rule-ownership.md#wiring-scope。
+同じ面で、 permission mode が auto なのに承認 CLI (engine 2 本) を通す狭い allow rule が settings.json に無い機械には
+🟡 1 行を出す (= auto mode の classifier が記録の command を止めうる。 宣言の届いていない Mac を session の開始で見せる。
+見るのは ~/.claude/settings.json だけ = 宣言を当てる層の書き先。 conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli)。
 同じ面で、 承認なしで入った規則の文書への変更のうち、 その場の返事で伝わっていないもの (engine の
 `additive-log --surface`) を、 人のいる session の開始に割り当てて出す (その session の Stop が返事に書かせる。
 人のいない session = CLAUDE_CODE_ENTRYPOINT が sdk-* には渡さない、 conventions/agent-rule-ownership.md#additive-and-free-zones)。
@@ -170,6 +173,30 @@ def canary(caller: str | None) -> int:
     return 0 if armed else 1
 
 
+APPROVAL_CLI = ("agent-rule-guard.py", "manuscript-claim-guard.py")
+
+
+def approval_route_gap() -> str | None:
+    """auto mode で承認 CLI を通す狭い allow が無ければ 🟡 の 1 行、 それ以外 (読めない settings を含む) は None (fail-open)。"""
+    try:
+        with open(os.path.join(os.path.expanduser("~"), ".claude", "settings.json"), encoding="utf-8") as fh:
+            conf = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    perm = conf.get("permissions") if isinstance(conf, dict) else None
+    if not isinstance(perm, dict) or perm.get("defaultMode") != "auto":
+        return None
+    allow = [r for r in (perm.get("allow") or []) if isinstance(r, str)]
+    # 狭い rule だけを数える (Bash(*) や interpreter だけの広い rule は auto mode で suspend される)
+    missing = [cli for cli in APPROVAL_CLI
+               if not any(r.startswith("Bash(python3 ") and cli in r for r in allow)]
+    if not missing:
+        return None
+    return ("🟡 manuscript-claim-guard: permission mode が auto で、 承認 CLI (" + " / ".join(missing) + ") を通す allow rule が"
+            " ~/.claude/settings.json に無い = classifier が記録の command を止めうる。 宣言 = 個人層の permission-rules.json"
+            " (session 開始の auto-apply が当てる)、 正本 = conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli")
+
+
 def liveness(max_age_hours: float, silent_days: float, session: str | None = None, source: str | None = None) -> int:
     state = load_state()
     if state is None or age_hours(state.get("at")) > max_age_hours:
@@ -194,6 +221,9 @@ def liveness(max_age_hours: float, silent_days: float, session: str | None = Non
                 lines.append(f"🟡 manuscript-claim-guard: {caller} からの canary の報告が {shown} 無い (最後 = {str(stamp)[:10]})。"
                              " その呼び出しが外れたか、 手前で止まっている (呼び元 script の agent-authority block の外側を見る:"
                              " conventions/agent-rule-ownership.md#wiring-scope)")
+    gap = approval_route_gap()
+    if gap:
+        lines.append(gap)
     # 承認なしで入った規則の文書への追記 = 本人が後で読む面 (conventions/agent-rule-ownership.md#additive-and-free-zones)
     try:
         r = subprocess.run([sys.executable, ENGINE, "additive-log", "--surface"] + (["--session", session] if session else [])
