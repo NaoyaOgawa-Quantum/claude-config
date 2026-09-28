@@ -128,7 +128,9 @@ def stub_text(spec, case_label, case_rel, doc, name, only_group: str | None = No
         for e in ctl:
             if only_group and (e.get("group") or _default_group(spec)) != only_group:
                 continue
-            lines.append(f"    #   {e.get('sheet') or main}!{e.get('anchor')} {e.get('label', e.get('id', ''))} = {e.get('state')}")
+            lines.append(f"    #   {e.get('sheet') or main}!{e.get('anchor')} {e.get('label', e.get('id', ''))} = {e.get('state')}"
+                         + (f"  (案件ごとに変える箱 = submission.yaml の document に controls: {{{e.get('id')}: {{state: 'on', why: …}}}})"
+                            if e.get("per_case") else ""))
     n = spec.get("nittei") if only_group in (None, _default_group(spec)) else None
     if n:
         lines.append("    # --- 1 日 1 block の表 (block は日数に応じて上から使う) -------------------------------")

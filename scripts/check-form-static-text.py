@@ -27,7 +27,9 @@ WHAT (xlsx の雛形):
     紙で読める印の数 (box_ink ≥ INK_READABLE) の両方を N と比べ、 違えば exit 1。 --blank があれば素刷りの箱の位置に在る画像だけを
     箱に数え、 置き場から見た箱の上端・左端の offset が BOX_SHIFT_PT を超えれば「shifted」 (exit 1) = 枠を広げて箱が下がる型。
     --mark-checked = 印の入った箱 (辺 3 本以上の画像だけ) の内側を白で塗り太い ✓ を vector で重ねて上書きする (検査はしない、
-    ✓ は開いた折れ線 2 本)。 一般形 = office-automation.md#excel-form-control-render
+    ✓ は開いた折れ線 2 本)。 一般形 = office-automation.md#excel-form-control-render。
+    平らな checkbox (ctrlProp の noThreeD) は Excel が画像でなく vector で刷る (黒の細い枠の正方形 + 内側の短い線 2 本の ✓、
+    実測 2026-09-28) = _vector_boxes が同じ箱として数え、 同じ ✓ を重ねる
   - 対象 = --target の sheet (と印刷範囲)。 範囲を書かなければ雛形の印刷範囲、 それも無ければ sheet 全体。
     範囲の外に anchor がある図形 (記入例・作成上の注意など横に置かれた注記) は数えない
   - 対象ごとに PDF の頁を 1 つ選ぶ = 雛形のその範囲の cell の字 (label) が一番多く出ている頁
@@ -543,6 +545,50 @@ def _small_images(page, doc):
     return out
 
 
+VBOX_PT = (5.0, 16.0)   # vector で描かれる箱の一辺 (pt) の範囲 (実測 = 平らな checkbox 8.2pt 角)
+
+
+def _dark(c) -> bool:
+    return c is not None and len(c) > 0 and max(c) <= 0.35
+
+
+def _vector_boxes(page) -> list:
+    """頁の vector の箱 = [(箱の矩形, box_pixels と同じ key の dict + vector=True)]。 Excel は平らな checkbox (ctrlProp の
+    noThreeD) を画像でなく vector で刷る (実測 2026-09-28: 白の塗りの矩形 + 黒の細い枠の矩形 〔0.68pt、 8.2pt 角〕、 control
+    自身の ✓ は箱の内側の短い線 2 本 = 紙で約 1 mm、 box_ink ≈ 0.07 = 読めない)。 画像の箱と同じく数え・✓ を重ねる。
+    箱 = 項目 1 つの矩形 ('re') を黒で細く描いた正方形 (一辺 VBOX_PT)。 印 = 箱の内側 (枠から 0.3pt) に収まる、 黒で描いた
+    別の path (線・塗り) が 1 つ以上。 同じ矩形を 2 度描いたものは 1 つに数える。"""
+    drs = page.get_drawings()
+    out, seen = [], set()
+    for dr in drs:
+        items = dr.get("items") or []
+        r = dr["rect"]
+        if len(items) != 1 or items[0][0] != "re" or "s" not in (dr.get("type") or ""):
+            continue
+        if not _dark(dr.get("color")) or (dr.get("width") or 0) > 1.5:
+            continue
+        if not (VBOX_PT[0] <= r.width <= VBOX_PT[1] and abs(r.width - r.height) <= 1.0):
+            continue
+        key = tuple(round(v, 1) for v in r)
+        if key in seen:
+            continue
+        seen.add(key)
+        ix0, iy0, ix1, iy1 = r.x0 + 0.3, r.y0 + 0.3, r.x1 - 0.3, r.y1 - 0.3
+        marks = 0
+        for x in drs:
+            if x is dr:
+                continue
+            q = x["rect"]
+            if not (q.x0 >= ix0 and q.y0 >= iy0 and q.x1 <= ix1 and q.y1 <= iy1):
+                continue
+            t = x.get("type") or ""
+            if ("s" in t and _dark(x.get("color"))) or ("f" in t and _dark(x.get("fill"))):
+                marks += 1
+        out.append((r, {"size": None, "box": None, "edges": "tblr", "clipped": False, "checked": marks >= 1,
+                        "mark_px": marks, "vector": True}))
+    return out
+
+
 def mark_checked_boxes(pdf, pages=None) -> dict:
     """印の入った箱 (control 自身の ✓ が在る = box_pixels の checked) に、 太い黒の ✓ を PDF の vector で重ねる (検収 F1、 2026-09-25):
     Mac Excel の control の ✓ は枠の raster の中の 5 px ほどの灰色で、 紙では約 1 mm の点にしかならない (実測)。 既に読める印
@@ -564,6 +610,11 @@ def mark_checked_boxes(pdf, pages=None) -> dict:
                     continue
                 _draw_check(p, br)
                 n += 1
+            for r, bp in _vector_boxes(p):     # vector の箱 (平らな checkbox): 印が在って読めなければ同じ ✓ を重ねる
+                if not bp["checked"] or box_ink(p, r) >= INK_READABLE:
+                    continue
+                _draw_check(p, r)
+                n += 1
             if n:
                 per[pno] = n
                 marked += n
@@ -577,7 +628,7 @@ def page_visuals(pdf) -> list:
     大きさの箱は同じ bitmap = 1 つの xref を何度も置くので、 xref の数でなく置いた数で数える = 実測 2026-09-25)。
     get_image_info (描かれた回数) は点線の pattern の tile まで数えて体裁で増減する (実測: 日程表 11 → 0) = 使わない。
     boxes = 小さい画像 (≤ 40pt 角 = checkbox の箱) の画素の検査 (box_pixels) を置いた場所ごとに + 紙の上の箱の矩形 (box_rect) と
-    印の読める大きさ (ink = box_ink、 readable = ink ≥ INK_READABLE)。"""
+    印の読める大きさ (ink = box_ink、 readable = ink ≥ INK_READABLE)。 vector で刷られた箱 (_vector_boxes、 vector=True) も同じ形で足す。"""
     import pymupdf as fitz
 
     out = []
@@ -585,7 +636,7 @@ def page_visuals(pdf) -> list:
         for p in d:
             n_img = sum(len(p.get_image_rects(img[0])) for img in p.get_images(full=True))
             boxes = []
-            for r, bp in _small_images(p, d):
+            for r, bp in _small_images(p, d) + _vector_boxes(p):
                 br = box_rect(r, bp)
                 ink = box_ink(p, br)
                 boxes.append(dict(bp, bbox=[round(v, 1) for v in r], box_rect=[round(v, 1) for v in br],
@@ -1342,6 +1393,38 @@ def selftest() -> int:
     ok = ms["marked"] == 0
     fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} mark_checked_boxes: 辺の無い小さい画像 (印影の形) には重ねない = {ms['marked']} 個")
+    # vector の箱 (平らな checkbox、 2026-09-28): Excel は白の塗り + 黒の細い枠の正方形 (8.2pt) を描き、 印は内側の短い線 2 本。
+    # 印のある箱・空の箱・大きい枠 (文字の枠 = 箱でない) を置き、 箱は 2 個・印は 1 個・重ねる前は読めない → ✓ を重ねると読める
+    vpdf = os.path.join(d, "vbox.pdf")
+    vdoc = fitz.open()
+    vpg = vdoc.new_page()
+    for x0, mark in ((100, True), (200, False)):
+        r = fitz.Rect(x0, 100, x0 + 8.2, 108.2)
+        sh = vpg.new_shape()
+        sh.draw_rect(r)
+        sh.finish(color=None, fill=(1, 1, 1))
+        sh.draw_rect(r)
+        sh.finish(color=(0, 0, 0), width=0.68)
+        if mark:                                        # Excel の ✓ の実測の形 = 内側の短い線 2 本
+            sh.draw_line(fitz.Point(x0 + 2.7, 105.0), fitz.Point(x0 + 3.4, 105.7))
+            sh.draw_line(fitz.Point(x0 + 4.1, 103.6), fitz.Point(x0 + 5.5, 106.3))
+            sh.finish(color=(0, 0, 0), width=0.68)
+        sh.commit()
+    big = vpg.new_shape()
+    big.draw_rect(fitz.Rect(300, 100, 330, 130))        # 30pt 角 = 箱の大きさでない (textbox の枠など)
+    big.finish(color=(0, 0, 0), width=0.68)
+    big.commit()
+    vdoc.save(vpdf)
+    vdoc.close()
+    vb0 = [b for b in page_visuals(vpdf)[0]["boxes"] if b.get("vector")]
+    mk = mark_checked_boxes(vpdf)
+    vb1 = [b for b in page_visuals(vpdf)[0]["boxes"] if b.get("vector")]
+    ok = (len(vb0) == 2 and [b["checked"] for b in vb0] == [True, False] and not vb0[0]["readable"]
+          and mk["marked"] == 1 and len(vb1) == 2 and vb1[0]["checked"] and vb1[0]["readable"] and not vb1[1]["checked"]
+          and mark_checked_boxes(vpdf)["marked"] == 0)
+    fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} vector の箱: 2 個 (30pt の枠は箱でない)、 印 {[b['checked'] for b in vb0]}、 重ねる前 ink="
+          f"{vb0[0]['ink'] if vb0 else None} → 後 {vb1[0]['ink'] if vb1 else None}、 重ねた {mk['marked']} 個、 二度目 0 個")
     # 箱の位置 (検収 F7): 置き場が同じでも画像の中の箱が動く = 見える範囲の上端・左端を素刷りと比べる。 素刷りで欠けた辺の側は比べない
     bl = [{"bbox": [100, 100, 116, 118], "box_rect": [104.0, 103.0, 115.0, 114.0], "edges": "tblr"},
           {"bbox": [200, 100, 216, 118], "box_rect": [204.0, 103.0, 216.0, 114.0], "edges": "tbl"}]

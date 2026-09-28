@@ -50,7 +50,27 @@ def record_frozen(m: M.Manifest, doc_id: str, group_id: str, issue: dict) -> dic
         if missing:
             raise M.ManifestError(f"workbook {wb.name} に sheet {missing} が無い (spec の group 定義と合わない)")
         fr["sheet_digest_v3"] = FP.sheet_digests_v3(wb, S.group_sheets(spec, group_id), fr["sheet_digest"])
+    if spec is not None:
+        # 箱 (form control) の案件ごとの上書き (document の controls:) のうち、 この group の箱の分を記録する
+        # (箱の値そのものは workbook = fingerprint v3 の VML の Checked に入る。 こちらは「どの宣言で刷ったか」 = 凍結の後に
+        # 上書きを書き換えると check が止める)。 上書きの無い group は何も書かない (= 既存の記録と同じ形)
+        try:
+            ov = S.case_controls_for_group(spec, doc, group_id)
+        except ValueError as e:
+            raise M.ManifestError(f"{doc_id}: 箱の案件ごとの上書き (controls:) が不正 = {e}") from None
+        if ov:
+            fr["controls"] = ov
     return fr
+
+
+def control_override_drift(spec: dict, doc: dict, group_id: str, fr: dict) -> bool:
+    """凍結の記録 (fr の controls = 凍結した時の、 この group の箱の上書き) と今の submission.yaml の上書きが違うか。
+    記録が無い issue は「上書き無しで凍結した」 と読む (= 上書きの仕組みより前の issue も上書き無し)。 上書きが不正なら違うと読む。"""
+    try:
+        now = S.case_controls_for_group(spec, doc, group_id)
+    except ValueError:
+        return True
+    return dict(fr.get("controls") or {}) != now
 
 
 PAPER_FIELDS = ("paper", "paper_diff", "paper_basis", "paper_commit")
@@ -101,6 +121,9 @@ def freeze(m: M.Manifest, doc_id: str, group_id: str, state: str, date: str | No
         wbp = m.workbook(doc_id)
         vals, fmts = M.frozen_sheet_changes(old, wbp) if (wbp is not None and wbp.exists()) else ([], [])
         drift = vals + [f"{s} (書式)" for s in fmts]
+        spec = S.get(m.doc(doc_id).get("form"))
+        if spec is not None and control_override_drift(spec, m.doc(doc_id), group_id, old):
+            drift.append("controls (箱の案件ごとの上書き)")
         for k, v in (old.get("sha256") or {}).items():
             p = m.case_dir / str((cur.get("outputs") or {}).get(k, ""))
             if not p.is_file() or M.file_sha256(p) != v:

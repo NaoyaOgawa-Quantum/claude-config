@@ -25,6 +25,7 @@ import os
 import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from . import layout as LY
@@ -170,12 +171,37 @@ def group_blank(spec: dict, group: str, tmp: Path):
 # ---------------------------------------------------------------------------
 # 出力 PDF の照合
 # ---------------------------------------------------------------------------
-def controls_on(spec: dict, sheet: str, rng: str):
-    """spec の controls (form control の箱、 D9) のうち sheet!rng に載る on の数。 controls の無い spec は None (= 期待を置かない)。"""
+@lru_cache(maxsize=64)
+def _template_control_sheets(tpl: str, mtime: float) -> frozenset:
+    """雛形の form control が載る sheet 名 (strip)。 読めなければ空。"""
+    try:
+        return frozenset(c["sheet"].strip() for c in OC.form_controls(tpl))
+    except Exception:  # noqa: BLE001  読めない雛形 = 箱の在る sheet を知らない (spec の entry だけで決める)
+        return frozenset()
+
+
+def _sheet_has_controls(spec: dict, sheet: str, ctl: list) -> bool:
+    """その sheet に数える箱が在るか = spec の controls の entry が在る、 または雛形のその sheet に form control が在る。"""
+    if any(e["sheet"].strip() == str(sheet).strip() for e in ctl):
+        return True
+    try:
+        tpl = S.template_path(spec)
+    except (KeyError, TypeError):
+        return False
+    if not tpl.exists():
+        return False
+    return str(sheet).strip() in _template_control_sheets(str(tpl), tpl.stat().st_mtime)
+
+
+def controls_on(spec: dict, sheet: str, rng: str, doc: dict | None = None):
+    """spec の controls (form control の箱、 D9) のうち sheet!rng に載る on の数 (doc = 案件の document を渡すと、 その
+    ``controls:`` の案件ごとの上書きを当てた state で数える = fill と gate と同じ state)。 controls の無い spec は None (= 期待を
+    置かない)。 **箱の無い sheet も None** (spec に entry が無く、 雛形のその sheet に form control も無い = 数える箱が無い。
+    箱でない塗りの小さな正方形の画像を持つ sheet で、 検出器がそれを「印のある箱」 と数え、 期待 0 を置くとそれで止まる = 実測)。"""
     from openpyxl.utils.cell import column_index_from_string, coordinate_from_string, range_boundaries
 
-    ctl = S.controls(spec)
-    if not ctl:
+    ctl = S.controls(spec, doc)
+    if not ctl or not _sheet_has_controls(spec, sheet, ctl):
         return None
     c0, r0, c1, r1 = range_boundaries(str(rng).replace("$", ""))
     n = 0
@@ -207,12 +233,12 @@ def mark_boxes(spec: dict, pdf) -> dict:
         return {"error": r.stdout[-300:]}
 
 
-def check_group(spec: dict, group: str, pdf, filled=None, blank=None) -> dict:
-    """check-form-static-text --json。 走らなかった時は {"error": …}。"""
+def check_group(spec: dict, group: str, pdf, filled=None, blank=None, doc: dict | None = None) -> dict:
+    """check-form-static-text --json。 走らなかった時は {"error": …}。 doc = 案件の document (箱の案件ごとの上書きを期待数に当てる)。"""
     args = [sys.executable, str(STATIC_TEXT), str(S.template_path(spec)), str(pdf), "--json"]
     for sh, rng in _group_targets(spec, group):
         args += ["--target", f"{sh}!{rng}"]
-        n = controls_on(spec, sh, rng)
+        n = controls_on(spec, sh, rng, doc)
         if n is not None:
             args += ["--expect-checked", f"{sh}!{rng}={n}"]     # 選んだ箱の印が紙に在るか (D9)
     for dr in _drops(spec):

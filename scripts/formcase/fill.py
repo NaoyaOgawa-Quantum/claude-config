@@ -120,17 +120,17 @@ def run_docx(stub_file, doc_id, fields, choices, texts) -> int:
 
 
 def control_edits(doc: dict, targets) -> list:
-    """spec の controls (form control の箱、 D9) のうち、 この fill の対象 group のもの = [(sheet, "G9" | "G9#1", on, entry)]。"""
+    """spec の controls (form control の箱、 D9) のうち、 この fill の対象 group のもの = [(sheet, "G9" | "G9#1", on, entry)]。
+    on / off = この案件の state (= spec の既定に、 document の ``controls:`` の案件ごとの上書きを当てたもの、 specs.controls)。
+    上書きの不正 (spec に無い箱・per_case でない箱) は ValueError。"""
     from . import specs as S
 
     spec = S.get(doc.get("form"))
     if spec is None:
         return []
-    groups = list(spec.get("groups") or {})
-    first = groups[0] if groups else None
     out = []
-    for e in S.controls(spec):
-        if (e.get("group") or first) not in targets:
+    for e in S.controls(spec, doc):
+        if S.control_group(spec, e) not in targets:
             continue
         cell = e["anchor"] + (f"#{e['index']}" if e["index"] else "")
         out.append((e["sheet"], cell, e["state"] == "on", e))
@@ -233,7 +233,11 @@ def run(stub_file, doc_id, edits) -> int:
     edits4 = [(s, c, k, v) for s, c, k, v, _g in rows if _writes((s, c, k, v))]
     wb = m.workbook(doc_id)
     targets = [only] if only else [g for g in groups if g not in frozen]
-    ctl = control_edits(m.doc(doc_id), targets)          # form control の箱 (spec の controls、 D9) = Excel で on / off を書く
+    try:
+        ctl = control_edits(m.doc(doc_id), targets)      # form control の箱 (spec の controls + 案件の上書き、 D9) = Excel で on / off を書く
+    except ValueError as e:
+        print(f"🔴 箱の宣言が不正 = {e}。 何も書かない")
+        return 2
     if edits4 or ctl:
         try:
             X.write_cells(wb, edits4 + [(s, c, "checkbox", v) for s, c, v, _e in ctl])
@@ -249,6 +253,11 @@ def run(stub_file, doc_id, edits) -> int:
     bad = bad + bad_ctl
     if ctl:
         print(f"   ☑ 箱: {sum(1 for _s, _c, v, _e in ctl if v)} 個に印、 {sum(1 for _s, _c, v, _e in ctl if not v)} 個は空 (spec の controls)")
+        for s, c, v, e in ctl:
+            if e.get("override"):
+                o = e["override"]
+                print(f"   ☑ 案件の上書き {s}!{c} ({e.get('label', e.get('id'))}) = {'on' if v else 'off'} (spec の既定 {o['default']}"
+                      + (f"、 理由: {o['why']}" if o.get("why") else "、 理由 (why) が無い") + ")")
     ok = GT.run_scoped(m, doc_id, targets, raise_on_fail=False)
     print("✅ 記入と gate が通った → formcase.py build で PDF" if ok and not bad and not todo else
           "🔴 まだ直すところがある (上の 未記入 / FAIL / 読み戻し)")
