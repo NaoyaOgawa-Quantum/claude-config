@@ -274,3 +274,6 @@ sections:
   - id: notation-first-use
     level: 2
     title: "記法は初めて使う箇所で説明するか、 そこから定義の式を指す (2026-09-13)"
+  - id: author-notes-as-comments
+    level: 2
+    title: "著者への注記は `%` comment + 見える印で置く (pdflatex は日本語の脚注を通さない)"
