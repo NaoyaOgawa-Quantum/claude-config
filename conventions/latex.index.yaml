@@ -13,6 +13,9 @@ sections:
   - id: mathbb-digits
     level: 2
     title: "`\\mathbb{数字}` は黙って化ける — 単位行列は `\\mathbbm{1}` (bbm)"
+  - id: uppercase-protect-symbols
+    level: 2
+    title: "`\\MakeUppercase` は記号の小文字も大文字にする — 物理量の文字は `\\NoCaseChange{…}` で守る"
   - id: cite-set-after-commentout
     level: 2
     title: "comment-out 流儀の編集後は live `\\cite` 集合を照合する"
