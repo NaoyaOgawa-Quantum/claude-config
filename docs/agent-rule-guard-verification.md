@@ -210,3 +210,15 @@ engine の selftest が git の呼び出し回数を数える (件数に依ら�
 | source | SHA-256 |
 |---|---|
 | `scripts/approval-source-census.py` | `8e1279ee1eac9ef1c0bd5286726a53b8e3affb7ad65a07fdd95a7dab562dc4be` |
+
+## <a id="acceptance-procedure"></a>適用後の再検収の手順 (実 Stop と approve CLI の合成対照)
+
+実装者と別の session (別 vendor でもよい) が、 suite の緑を信じずに本物の hook と CLI を自分で駆動する。 fixture は合成、 state は一時 dir (`MANUSCRIPT_CLAIM_GUARD_STATE_DIR` / `MANUSCRIPT_CLAIM_GUARD_HOME`)。 本番の承認 state・本人の会話本文を使わない。
+
+1. **範囲**: commit が触った file が依頼の柵の中か (`git show --stat`)。 保護 file の内容が候補の hash と byte 一致するか。 rule engine・manifest・hook 配線が base から不変か (`git diff --stat`)。
+2. **suite**: engine / rule / audit / census の selftest、 両製品の hook suite を HEAD で自分で回す。 新 test が直す前の commit で赤だった証拠 (実装者の log) を読む。
+3. **Stop の実発火 (Claude 側)**: scratchpad に git repo を作り、 `conventions/*.md` を Write で置いて commit し、 本物の Edit で規則の文を 1 つ消す (= 事前の門で通る変更、 additive-log に記録が残る)。 本物の Stop hook (`~/.claude/hooks/manuscript-claim-guard.py --stop`) に、 自 session の id と transcript path を持つ合成 event を stdin で渡し、 `last_assistant_message` を変えて対照する: 「Done.」 = block / file 名 + 動詞だけ = block / 記録 1 件分の `additive_line` = block (残りの案内だけ出る) / 全件の行 = allow + handled。 ⚠️ この記録は自分の session のものになる = 検収の返事にもその行を書く (Stop が確かめる)。 ⚠️ CLAUDE.md を Bash で作ると事前の門が「検査不能」 で止める (新しい入口の文書) = `conventions/*.md` を Write で置く。
+4. **承認の引用元 (approve CLI)**: 合成 rollout (Codex = `response_item` / `event_msg` の 2 carrier、 Claude = `type=user` + `turnOrigin=human`) を `--transcript` で渡し、 `approve --latest` が本人の発言だけを引くか、 `--quote <生成文>` が exit 4 で state 不変か、 生成文だけの rollout で exit 4 になるか。 session id は `[A-Za-z0-9_-]` の範囲で、 transcript の file 名と揃える (揃わないと「transcript が見つからない」 = exit 3 になる = 検収手順側の誤り)。
+5. **監査の配線**: dashboard の段を単独で回して沈黙 (ready) を見る → cache を `not_armed` に書き換えて SessionStart hook を**stdin に event を渡して**回し 🔴 を見る (stdin 無しで叩くと待ち続ける) → 古い日付で ⚠️ → 元に戻す。 binary の探索は `--codex auto` の出力の `binary_source` と版を読む。
+6. **公開 gate と trust**: 追加行に識別子 (実名・所属・repo 名・home path) が無いか grep、 CI の結果、 `~/.codex/config.toml` の `[hooks.state]` の件数と mtime が変わっていないか。
+7. **受領の記録**: 条件ごとの表 (✓ と、 自分で回したか実装者の証拠を信じたか) + 見ていない範囲を書き、 掲示板の `accept` にその所在を付ける。
