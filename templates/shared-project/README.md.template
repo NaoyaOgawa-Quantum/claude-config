@@ -12,7 +12,7 @@
 
 <!-- build/quickstart/deploy の置き場は「README-only 読者が居るか」で決まる:
      ・本テンプレは private + CLAUDE.md を読む collaborator 前提 → build は CLAUDE.md / SETUP.md 側が正本、README は薄い玄関のまま。
-     ・もし public 化する / CLAUDE.md を読まない利用者・contributor・forker が想定されるなら、build の実コマンドはこの README に置く（= 正本）、CLAUDE.md は README へ pointer する。
+     ・もし public 化する / CLAUDE.md を読まない利用者・contributor・forker が想定されるなら、build の実コマンドをこの README にも利用者向けの写しとして載せる（正本は CLAUDE.md / SETUP.md のまま、変えたら同じ commit で両方を直す）。
      判別軸: claude-config CONVENTIONS §README の流儀
      https://github.com/<owner>/claude-config/blob/main/CONVENTIONS.md#readme-style -->
 

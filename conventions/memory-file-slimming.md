@@ -243,9 +243,9 @@ gate ([`scripts/check-session-shape.py`](../scripts/check-session-shape.py)、 p
 | `commit-hash` / `message-id` | 識別子は正本 (plan / DESIGN / 台帳 / inbox) に置き、 SESSION には正本への link だけ。 `最終更新: … (sweep 済: <hash>)` の 1 行は通る |
 | `long-line` (1000 byte 超) | 経緯を正本へ移し、 SESSION の行は現在地と次の一手に絞る |
 | `line-budget` (200 行を超えて育つ) | 案件ごとの現在地に組み直す。 残す価値のある経緯は SESSION-archive.md へ verbatim MOVE ([#verbatim-retreat](#verbatim-retreat))。 **縮める commit は通る** (予算 gate と同じ形 = [#commit-budget-gate](#commit-budget-gate)) |
-| `readme-self-sot` | 非公開 repo: 中身を CLAUDE.md / DESIGN.md / 台帳へ移し README は入口の link に。 公開 repo (warn): build / quickstart / deploy 以外の中身は同じく移す ([CONVENTIONS.md#readme-style](../CONVENTIONS.md#readme-style)) |
+| `readme-self-sot` | 非公開 repo: 中身を CLAUDE.md / DESIGN.md / 台帳へ移し README は入口の link に。 公開 repo (warn): 中身は同じく移す。 build / quickstart / deploy の手順は README に利用者向けの写しとして残し、 正本の宣言は CLAUDE.md に置く ([CONVENTIONS.md#readme-style](../CONVENTIONS.md#readme-style)) |
 | `home-redirect` (CLAUDE.md の「SESSION / README に書け」) | 行き先を種類で書き直す: 決定 → DESIGN.md、 成果物・状態 → 台帳 / 案件の記録、 SESSION は現在地の行を置き換える |
-| `sot-claim` (README / SESSION 以外の file も含め、 「README / SESSION が正本」 と書いた行) | 指している中身を CLAUDE.md / DESIGN.md / conventions / 台帳へ移し、 その行は移した先を正本と書き直す。 README / SESSION には参照だけを残す。 公開 repo の build / quickstart / deploy の手順は [CONVENTIONS.md#readme-style](../CONVENTIONS.md#readme-style) の範囲 |
+| `sot-claim` (README / SESSION 以外の file も含め、 「README / SESSION が正本」 と書いた行) | 指している中身を CLAUDE.md / DESIGN.md / conventions / 台帳へ移し、 その行は移した先を正本と書き直す。 README / SESSION には参照だけを残す。 公開 repo の build / quickstart / deploy の手順も正本は CLAUDE.md で、 README は利用者向けの写し ([CONVENTIONS.md#readme-style](../CONVENTIONS.md#readme-style)) |
 | `archive-plaintext` / `session-decrypted` (暗号化している SESSION.md の中身が平文で入る) | `.gitattributes` で archive (`SESSION-archive.md` と `SESSION-archive/**`) にも SESSION.md と同じ filter を付けて同じ commit に入れる。 filter の driver が無い clone (未 unlock) では書かない。 平文で push した版は履歴に残る = 履歴から落とすのは別の作業。 この gate は形の escape hatch では外れない |
 
 意図した例示・fixture で止まったときだけ `CLAUDE_SESSION_SHAPE_GUARD=0` で通す (出力に「何が止めたか」 が残る)。 fleet の状態は `check-session-shape.py --fleet` (dashboard) で見る。
