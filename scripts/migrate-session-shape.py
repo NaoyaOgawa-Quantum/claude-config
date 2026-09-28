@@ -8,7 +8,8 @@ SESSION.md の多くは「## 2026-09-28 — 何をした」 の節 (= 変更履�
 
 規則 (file ごと):
   1. 先頭の見出し (`# …`) から最初の `## ` までを preamble として残す。
-  2. top-level `## ` 節のうち見出しに日付 (20YY-MM[-DD]) を含む節 = 移す候補。 `### ` 以下は親の節と一緒に動く。
+  2. top-level `## ` 節のうち見出しに日付 (20YY-MM[-DD]) を含む節 = 移す候補。 ただし日付が今日より後 (= 期限) の節と、
+     未完了の `[ ]` を持つ節は記録でなく現在地 = 移さない (`### ` 小節も同じ。 見出しの期限は gate が止めるので人が本文へ移す)。 `### ` 以下は親の節と一緒に動く。
      日付を含まない `## ` 節の中に日付つきの `### ` 小節が並ぶ形 (「## 現在の状態」 の下に「### 直近の更新 (日付)」 ×N) も同じ規則で
      小節ごとに移す (日付を含まない小節が無ければ最新の 1 つを `### 現在地` として残す)。 見るのは `##` と `###` の 2 段まで。
   3. 日付を含まない `## ` 節 (Open items / 次のステップ / 現在の再開点 など) は残す (順序も保つ)。
@@ -68,6 +69,30 @@ def heading_date(text: str):
         return None
 
 
+OPEN_BOX_RE = re.compile(r"^\s*[-*+]\s+\[ \]")
+
+
+def record_date(section: list[str], today_d):
+    """節の見出しの日付を「記録の日付」 として返す。 記録でない節 (= 現在地) は None。
+    今日より後の日付 (= 期限。 例「(<未来の日付> 締切)」) の見出しと、 未完了の `[ ]` を持つ節は、 日付があっても現在地 = 移さない
+    (見出しの期限の日付は gate が引き続き止めるので、 人が日付を本文へ移す)。"""
+    d = heading_date(section[0])
+    if d is None:
+        return None
+    if today_d is not None and d > today_d:
+        return None
+    if any(OPEN_BOX_RE.match(l) for l in section[1:]):
+        return None
+    return d
+
+
+def _today_date(today: str):
+    try:
+        return _dt.date.fromisoformat(today)
+    except ValueError:
+        return None
+
+
 def split_sections(lines: list[str], marker: str = "## ") -> tuple[list[str], list[list[str]]]:
     """preamble と `## ` 節の列に分ける (節 = 見出し行から次の `## ` の直前まで)。 marker = "### " で小節にも使う。"""
     idx = [i for i, l in enumerate(lines) if l.startswith(marker)]
@@ -86,11 +111,12 @@ def plan(text: str, today: str, arch_rel: str) -> dict | None:
     if lines and lines[-1] == "":
         lines = lines[:-1]
     preamble, sections = split_sections(lines)
-    dated = [s for s in sections if heading_date(s[0])]
-    undated = [s for s in sections if not heading_date(s[0])]
+    td = _today_date(today)
+    dated = [s for s in sections if record_date(s, td)]
+    undated = [s for s in sections if not record_date(s, td)]
     def _has_nested_dated(sec):
         _, subs = split_sections(sec[1:], "### ")
-        return any(heading_date(x[0]) for x in subs)
+        return any(record_date(x, td) for x in subs)
     if not dated and not any(_has_nested_dated(u) for u in undated):
         return None
     kept_current = None
@@ -110,7 +136,7 @@ def plan(text: str, today: str, arch_rel: str) -> dict | None:
         out += ["", "## 現在地", "", f"(直近の節: {kept_current[0][3:].strip()} — 経緯は {arch_rel})"]
         out += body
     for s in undated:
-        s = _lift_nested(s, moved, arch_rel)
+        s = _lift_nested(s, moved, arch_rel, td)
         out += [""] + s if (out and out[-1] != "") else list(s)
     if not moved:
         return None  # 見出しの書き換えだけの変更は作らない (banner だけの commit を全 repo に撒かない)
@@ -122,13 +148,14 @@ def plan(text: str, today: str, arch_rel: str) -> dict | None:
             "moved": len(moved), "kept_current": kept_current is not None, "before": len(lines), "after": len(new_text.splitlines())}
 
 
-def _lift_nested(section: list[str], moved: list[list[str]], arch_rel: str) -> list[str]:
-    """日付を含まない ## 節の中の、 日付つき ### 小節を moved へ移し、 残りを返す (小節の順序は保つ)。"""
+def _lift_nested(section: list[str], moved: list[list[str]], arch_rel: str, td=None) -> list[str]:
+    """日付を含まない ## 節の中の、 日付つき ### 小節を moved へ移し、 残りを返す (小節の順序は保つ)。
+    記録でない小節 (期限の日付・未完了の [ ]) は record_date が None を返す = 現在地として残る。"""
     head, subs = split_sections(section[1:], "### ")
-    dated = [x for x in subs if heading_date(x[0])]
+    dated = [x for x in subs if record_date(x, td)]
     if not dated:
         return section
-    undated = [x for x in subs if not heading_date(x[0])]
+    undated = [x for x in subs if not record_date(x, td)]
     keep = None
     if not undated:
         keep = max(dated, key=lambda x: (heading_date(x[0]), -dated.index(x)))
@@ -136,7 +163,7 @@ def _lift_nested(section: list[str], moved: list[list[str]], arch_rel: str) -> l
             return section  # 移すものが無い (見出しの書き換えだけ) = 触らない
     out = [section[0]] + head
     for x in subs:
-        if heading_date(x[0]) and x is not keep:
+        if record_date(x, td) and x is not keep:
             moved.append([f"### (from {section[0][3:].strip()}) " + x[0][4:]] + x[1:])
             continue
         if x is keep:
@@ -258,6 +285,17 @@ def run_selftest() -> int:
     p4 = plan(t4, today, "SESSION-archive.md")
     check(p4 is not None and p4["moved"] == 1 and "### 現在地" in p4["new_text"] and "- b" in p4["new_text"] and "- a" in p4["archive_block"],
           "日付つき ### だけなら最新の小節を 現在地 として残す")
+    # 見出しの日付が記録の日付でない節 = 現在地 (移さない): 今日より後の日付 (期限) / 未完了の [ ] を持つ節
+    t5 = "# S\n\n## 現在の再開点\n\n- x\n\n## 申請書の提出 (2026-06-30 締切)\n\n- 残 = 提出\n\n## 2026-01-05: log\n\n- y\n"
+    p5 = plan(t5, today, "SESSION-archive.md")
+    check(p5 is not None and p5["moved"] == 1 and "## 申請書の提出 (2026-06-30 締切)" in p5["new_text"]
+          and "締切" not in p5["archive_block"] and "## 2026-01-05: log" in p5["archive_block"],
+          "見出しの日付が今日より後 (期限) の節は現在地として残し、 過去の記録の節だけ移す")
+    t6 = "# S\n\n## 現在の状態\n\n### 手続き (2026-01-10)\n\n- [x] 署名\n- [ ] 郵送\n\n### 更新 (2026-01-12)\n\n- done\n\n### 次\n\n- j\n"
+    p6 = plan(t6, today, "SESSION-archive.md")
+    check(p6 is not None and p6["moved"] == 1 and "- [ ] 郵送" in p6["new_text"] and "- [ ] 郵送" not in p6["archive_block"]
+          and "- done" in p6["archive_block"],
+          "未完了の [ ] を持つ節 (小節) は日付が過去でも現在地として残す")
     # end-to-end: 一時 repo で apply + gate + commit
     with tempfile.TemporaryDirectory(prefix="migrate-session-shape-") as tmp:
         repo = Path(tmp) / "repo"
