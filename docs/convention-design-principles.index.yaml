@@ -669,6 +669,10 @@ sections:
     legacy: "19.6"
     level: 3
     title: "19.6 凍結した記録は「渡した物そのもの」 として引用される — 一致するかを機械可読な field で宣言させ、 無宣言の凍結を拒否する"
+  - id: time-keyed-file-appends-only
+    legacy: "19.7"
+    level: 3
+    title: "19.7 時間を key にした状態 file は追記しかできない — 現在地は案件を key にし、 形を gate で守る"
   - id: premise-bound-rule-expiry
     legacy: "20"
     level: 2

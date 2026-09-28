@@ -265,6 +265,37 @@ expect_pass "pass-degenerate-text-under-threshold" \
 CLAUDE_DEGENERATE_TEXT_GUARD=0 expect_pass "pass-degenerate-text-escape-hatch-proves-which-gate" \
   "$(for _ in $(seq 1 250); do printf '%s\n' "$DGT_LINE"; done)"
 
+# --------------------------------------------------------------------
+# SESSION.md の形の gate (2026-09-28 追加): 日付を見出しにした節 (= 変更履歴の形) を SESSION.md に足す commit を止める。
+# 述語と閾値の SoT = check-session-shape.py docstring。 ここは配線の固定 = 止まる / 案件の pointer 行は通る /
+# escape hatch で通る (= 止めたのがこの gate だという証拠)。 file 名が SESSION.md のときだけ効くので専用 helper で stage する。
+# --------------------------------------------------------------------
+expect_named() { # <name> <expected exit> <file name> <content>
+  local name="$1" want="$2" fname="$3" content="$4" exit_code
+  printf '%s' "$content" > "$MOCK_REPO/$fname"
+  (
+    cd "$MOCK_REPO"
+    git add "$fname" 2>/dev/null
+    "$RUNNER" >/dev/null 2>&1
+    echo "$?"
+    git reset HEAD "$fname" >/dev/null 2>&1
+    rm -f "$fname"
+  ) > "$TMPDIR_TEST/_rc.txt"
+  exit_code="$(cat "$TMPDIR_TEST/_rc.txt")"
+  if [ "$exit_code" != "$want" ]; then
+    FAIL=$((FAIL+1))
+    FAILED_CASES="${FAILED_CASES}  [exit!=$want] $name (exit=$exit_code)\n"
+    return
+  fi
+  PASS=$((PASS+1))
+}
+expect_named "block-session-shape-dated-heading" 1 "SESSION.md" \
+  "$(printf '# SESSION\n\n## 2026-09-28 — what was done\n\n- done\n')"
+expect_named "pass-session-shape-pointer-line" 0 "SESSION.md" \
+  "$(printf '# SESSION\n\n- case A — next = X -> [design](DESIGN.md)\n')"
+CLAUDE_SESSION_SHAPE_GUARD=0 expect_named "pass-session-shape-escape-hatch-proves-which-gate" 0 "SESSION.md" \
+  "$(printf '# SESSION\n\n## 2026-09-28 — what was done\n')"
+
 # 編集時の hook (hooks/public-leak-guard.sh) と本 runner は同じ email allowlist を持つ。
 # 2026-09-12: runner だけ 2026-08-28 に例示 domain を足し、 hook は古いまま test fixture の
 # Write ごとに確認 dialog を出していた → 片側だけの修正が再発しないよう一致を固定する。
