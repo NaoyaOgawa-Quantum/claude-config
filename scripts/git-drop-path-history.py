@@ -175,7 +175,9 @@ def cmd_apply(a) -> int:
     print(f"{a.name}: remote と手元: {a.branch} = {new[:7]} (旧 {old[:7]})")
     cm = work / f"{a.name}.commit-map"
     if a.map_out and cm.exists():
-        shutil.copy(cm, Path(a.map_out).expanduser())
+        dst = Path(a.map_out).expanduser()
+        if dst.resolve() != cm.resolve():  # 写し先が work の対応表そのものなら写さない (同じ file への copy は例外で落ちる、 実測 = push の後に落ちた)
+            shutil.copy(cm, dst)
         print(f"  旧 → 新 SHA の対応表: {a.map_out}")
     print(f"  手元の .git は旧 object を reflog が掴んだまま (30 日後の自動 gc まで)。 今すぐ縮めるなら shrink --local {local}")
     return 0
