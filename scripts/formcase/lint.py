@@ -602,8 +602,8 @@ def render(findings) -> None:
               " 崩れたままだと、 後ろの行が lint から黙って外れたり戻ったりする")
     if any(k == "state" for *_x, k in findings):
         print("   → 状態の正本 = submission.yaml (README には <!-- formcase:view kind=status --> を置いて views --write) と"
-              " 案件の TODO (未決の問い・約束・返事待ちは TODO の notes)。 README は file の説明・値の出典・経緯"
-              f" (経緯は <!-- formcase:history --> で囲む) だけ。 状態でない語なら {ack_path()} に file と語と理由")
+              " 案件の TODO (未決の問い・約束・返事待ちは TODO の notes)。 README は file の説明・経緯"
+              f" (経緯は <!-- formcase:history --> で囲む) だけ (値の出典は fill_<doc>.py の各行の `# 出典:`)。 状態でない語なら {ack_path()} に file と語と理由")
     if any(k not in ("state", "region") for *_x, k in findings):
         print("   → 直し方: その行を規則 id への pointer か generated view (formcase:view) にする。 経緯として残すなら "
               f"<!-- formcase:history --> で囲む。 どれも違うなら {ack_path()} に理由つきで承認")

@@ -1034,6 +1034,10 @@ def _recipe_tests(tmp, inst, expect) -> None:
     readme = (c2 / "README.md").read_text(encoding="utf-8")
     expect("README 枠は kind=status の生成表 + 設定の spec_hint / process_hint",
            "formcase:view kind=status" in readme and "reference/fx.yaml" in readme and "<手順 doc>" in readme, readme)
+    expect("値の出典は README でなく stub の各行の `# 出典:` (README は 1 行の参照だけ、 出典の表を作らない)",
+           "| 出典 |" not in readme and "## 値の出典" not in readme
+           and "[`fill_d1.py`](fill_d1.py) の各行の `# 出典:`" in readme
+           and "`# 出典: …`" in stub1 and "値の出典の正本 = この file" in stub1, readme)
     from . import lint as LI
     hits = [(ln, LI.state_hits(ln)) for ln in readme.splitlines() if LI.state_hits(ln)]
     expect("new が書いた README の定型文は状態の lint に掛からない (掛かると new した案件の最初の commit が止まる)",

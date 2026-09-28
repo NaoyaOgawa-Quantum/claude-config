@@ -4,7 +4,7 @@
   - <dir>/<workbook> = spec の配布雛形の copy (値は空)
   - <dir>/submission.yaml = document + spec の全 group (state draft、 出力名は recipe の既定)
   - <dir>/fill_<doc>.py = spec の「書く欄」 を全部並べた記入 stub (値は空 = 一次情報から埋める)
-  - <dir>/README.md = 値の出典表の枠 (無ければ)
+  - <dir>/README.md = 状態の生成表と記入・PDF の入口 (無ければ)。 値の出典は README に置かない = stub の各行の `# 出典:`
 既に同じ document がある manifest には足さない (上書きしない)。
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ STUB_HEAD = '''#!/usr/bin/env python3
     python3 {name} [--group G] --dry-run  # 書かずに、 空のまま残っている欄を一覧
   --group = その group の行だけ書き、 gate もその group だけ裁く (= 先に出す group / 後で出す group を分ける)
 
-- 値は**一次情報** (主催者 program・本人回答・財源の登録値) から入れる。 前の案件の xlsx / driver から運ばない。
+- 値は**一次情報** (主催者 program・本人回答・財源の登録値) から入れ、 その行の後ろに `# 出典: …` を書く (値の出典の正本 = この file。 README に置かない)。 前の案件の xlsx / driver から運ばない。
 - 何を書くか・なぜ = お手本 spec ({spec}) の規則 (`formcase.py rules`)。 下の各行の comment は spec の label / summary の写しで、
   規則が変わったら spec が正 (= comment は生成時点の案内)。
 - kind = text | number | date | textfmt (数値に見える文字列) | clear | formula | general (書式) | fontsize。 value=None の行は未記入 = 実行を止める。
@@ -155,10 +155,7 @@ README_TMPL = """# {case}
 - 何を書くか = お手本 spec `{spec_hint}` (`formcase.py rules`){process_hint}
 - 記入 = `python3 fill_{doc}.py`、 PDF = `formcase.py build {case_rel} --doc {doc}`
 
-## 値の出典 (規則は書かない = spec が正本。 ここは「その値をどこから取ったか」 だけ)
-
-| 欄 | 値 | 出典 |
-|---|---|---|
+値の出典 = [`fill_{doc}.py`](fill_{doc}.py) の各行の `# 出典:` (README に正本を置かない)。
 """
 
 
@@ -293,7 +290,7 @@ DOCX_STUB_HEAD = '''#!/usr/bin/env python3
     python3 {name}             # 雛形から docx を作り直して FIELDS を打ち、 CHOICES / TEXTS を {doc}.overlay.yaml に書く → 読み戻し → gate
     python3 {name} --dry-run   # 書かずに、 空のまま残っている欄を一覧
 
-- 値は**一次情報** (主催者の program・本人回答・財源の登録値) から入れる。 前の案件の docx / driver から運ばない。
+- 値は**一次情報** (主催者の program・本人回答・財源の登録値) から入れ、 その行の後ろに `# 出典: …` を書く (値の出典の正本 = この file。 README に置かない)。 前の案件の docx / driver から運ばない。
 - FIELDS = docx に打つ値 / CHOICES = PDF の上で ○ で囲む選択肢 / TEXTS = PDF の上で罫線の右に書く短い値
   (docx に打つと表の列幅が動いて頁がはみ出す欄。 置き方の正本 = お手本 spec {spec} の docx:)。
 - 各行の comment は spec の label と例の写し (例は前の案件の値 = 同じとは限らない。 必ず直す)。 None の欄は未記入 = 実行が止まる。
