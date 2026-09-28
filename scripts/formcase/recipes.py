@@ -59,15 +59,16 @@ class BuildError(Exception):
 _CURRENT: dict = {"spec": None, "temp": None}
 
 
-def static_text_lines(spec: dict, group: str, pdf, filled=None, blank=None) -> tuple:
+def static_text_lines(spec: dict, group: str, pdf, filled=None, blank=None, doc: dict | None = None) -> tuple:
     """雛形との照合 (fidelity.check_group = check-form-static-text --json)。 返り値 = (行, 止める理由 or None)。
 
     雛形の図形の字 (標題・区分の枠・様式番号・㊞) が無ければ**止める** (2026-09-25、 それまでは warn。 他の gate は
     書いたもの 〔記入値・字の切れ・記入要領〕 しか見ず、 雛形が元から紙に出す図形が消えても全部通った =
     form-case-pipeline.md#fidelity)。 書き換えていない cell の見出し・素刷りとの画像の数・増えた字は行に出す (warn)。
     filled = 体裁を当てた temp (無ければ案件の workbook) / blank = 素刷り。 docx 様式は雛形 docx で照合。
-    検査が走らなかった時も黙らず ⚪ の行を出す (止めない = 検査の故障を違反と同じにしない)。"""
-    rep = FD.check_group(spec, group, pdf, filled=filled, blank=blank)
+    検査が走らなかった時も黙らず ⚪ の行を出す (止めない = 検査の故障を違反と同じにしない)。
+    doc = 案件の document (箱の案件ごとの上書き = 選んだ箱の数の期待に当てる、 fill・gate と同じ state)。"""
+    rep = FD.check_group(spec, group, pdf, filled=filled, blank=blank, doc=doc)
     lines, stop = FD.report_lines(rep, spec)
     return lines, stop, rep
 
@@ -711,9 +712,9 @@ def _build(m, doc_id, groups, out_dir=None) -> dict:
     if unsupported:
         raise BuildError(f"recipe {rc.form} は group {unsupported} を作れない (form-case-pipeline.md #scope)")
     try:
-        S.controls(spec)                                 # controls: の state / anchor の不正は build の前にきれいに止める (検収 H8)
-    except ValueError as e:
-        raise BuildError(f"spec の controls: が不正 = {e}")
+        S.controls(spec, doc)                            # controls: の state / anchor と、 案件の上書き (document の controls:) の
+    except ValueError as e:                              # 不正は build の前にきれいに止める (検収 H8)
+        raise BuildError(f"spec の controls: か案件の上書き (submission.yaml の controls:) が不正 = {e}")
     role_probs = S.page_role_problems(spec)              # 刷る頁の宣言の矛盾 (form-case-pipeline.md #page-roles)
     if role_probs:
         raise BuildError("spec の頁の役割が矛盾している: " + " / ".join(role_probs))
@@ -748,7 +749,7 @@ def _build(m, doc_id, groups, out_dir=None) -> dict:
                 else:
                     print(f"   ☑ 印の入った箱に ✓ を重ねた {mk.get('marked', 0)} 個 (control 自身の ✓ は紙で読めない = 実測)")
             # 雛形との照合: 図形の字が無ければ止める / 見出し・素刷りとの画像の差・増えた字は行に (form-case-pipeline.md#fidelity)
-            lines, stop, rep = static_text_lines(spec, g, plain, filled=_CURRENT.get("temp") or wb, blank=blank)
+            lines, stop, rep = static_text_lines(spec, g, plain, filled=_CURRENT.get("temp") or wb, blank=blank, doc=doc)
             for line in lines:
                 print("   " + line)
             log_fidelity(m, doc_id, g, rep, stop, out_dir)   # D3 の carrier (見出しの ⚠️ / ✅ の記録)

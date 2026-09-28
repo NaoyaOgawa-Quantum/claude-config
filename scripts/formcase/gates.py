@@ -3,6 +3,8 @@
 - 対象 group の sheet は照合する
 - 凍結 group の sheet は ``--frozen=`` (🧊 凍結 = 照合対象外 と表示)
 - build 対象でない draft group の sheet は ``--out-of-scope=`` (🧊 この build の対象外 と表示)
+- 箱 (form control) の案件ごとの上書き (document の ``controls:``) は ``--control=<箱の id>=on|off`` (fill が書いた state と同じ宣言。
+  scope_flags を持たない gate には渡さない = 知らない gate は spec の既定で裁く = 上書きした箱は FAIL に倒れる、 黙って通さない)
 gate 本体は engine が持たない (= 様式の記入規則は instance のもの): 設定の ``gates`` が script を宣言し、
 様式ごとにどれを回すかを spec の ``meta.gates`` / 設定の ``gates_by_form`` / ``default_gates`` が決める。
 docx 様式は docx の欄と overlay を spec と照合する内蔵 gate (docx_form.gate) だけ。
@@ -54,6 +56,16 @@ def run_scoped(m: M.Manifest, doc_id: str, targets, raise_on_fail: bool = True) 
     _tgt, frozen, other = scope_sheets(m, doc_id, targets)
     flags = [f"--frozen={s}" for s in frozen] + [f"--out-of-scope={s}" for s in other]
     flags.append("--scoped")                  # group を明示した = 未着手 group の推定をさせない
+    try:
+        ov = S.case_controls(spec, m.doc(doc_id))
+    except ValueError as e:
+        msg = f"箱の案件ごとの上書き (submission.yaml の controls:) が不正 = {e}"
+        if raise_on_fail:
+            raise BuildError(msg)
+        print(f"── 記入内容 gate: 🔴 {msg}")
+        return False
+    # 箱 (form control) の案件ごとの上書き = gate にも同じ値を渡す (fill が書いた state と gate の期待を 1 つの宣言から引く)
+    flags += [f"--control={cid}={o['state']}" for cid, o in ov.items()]
     ok = True
     gates = CF.gates_for(form, spec)
     if not gates:

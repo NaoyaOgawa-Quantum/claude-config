@@ -12,8 +12,30 @@ from . import manifest as M
 from . import specs as S
 
 
+def control_override_findings(m: M.Manifest) -> list:
+    """document の ``controls:`` (箱の案件ごとの上書き) の形: 不正 (spec に無い箱・per_case でない箱・on/off 以外) = FAIL、
+    理由 (why) の無い上書き = WARN (= 様式の既定を案件で変えた根拠が記録に無い)。"""
+    f = []
+    for doc_id, doc in m.documents.items():
+        if not doc.get("controls"):
+            continue
+        spec = S.get(doc.get("form"))
+        if spec is None:
+            continue
+        try:
+            ov = S.case_controls(spec, doc)
+        except ValueError as e:
+            f.append((M.FAIL, doc_id, str(e)))
+            continue
+        for cid, o in ov.items():
+            if not o["why"]:
+                f.append((M.WARN, doc_id, f"controls: {cid} = {o['state']} に理由 (why) が無い = spec の既定を案件で変えた根拠を"
+                                          " {state: …, why: …} の形で書く"))
+    return f
+
+
 def check_case(m: M.Manifest, digests: bool = True) -> list:
-    f = list(M.validate(m, S.get))
+    f = list(M.validate(m, S.get)) + control_override_findings(m)
     for doc_id, doc, gid, g in m.iter_groups():
         spec = S.get(doc.get("form"))
         cur = g.get("current") or {}
@@ -32,6 +54,15 @@ def check_case(m: M.Manifest, digests: bool = True) -> list:
             continue
         fr = cur.get("frozen") or {}
         label = f"{st} {cur.get('date', '')}".strip()
+        # --- 箱 (form control) の案件ごとの上書き: 凍結した時の宣言から変わっていないか -----------------------
+        if spec is not None:
+            from .lifecycle import control_override_drift
+
+            if control_override_drift(spec, doc, gid, fr):
+                f.append((M.FAIL, where,
+                          f"{st} ({label}) の後に submission.yaml の controls: (箱の案件ごとの上書き) が変わった "
+                          f"(凍結の記録 = {dict(fr.get('controls') or {})}) = 紙の箱は凍結した時の state のまま。 "
+                          "宣言を戻すか、 意図した作り直しなら formcase.py reopen"))
         # --- 凍結出力の bytes ---------------------------------------------------------------
         for role, rel in (cur.get("outputs") or {}).items():
             p = m.case_dir / rel

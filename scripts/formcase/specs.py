@@ -68,22 +68,77 @@ def template_path(spec: dict) -> Path:
     return (CF.template_root() / spec["meta"]["template"]).resolve()
 
 
-def controls(spec: dict) -> list:
+def _on_off(raw, what: str) -> str:
+    st = {True: "on", False: "off"}.get(raw, str(raw).lower())     # YAML 1.1 は裸の on / off を bool に読む = 両方受ける
+    if st not in ("on", "off"):
+        raise ValueError(f"{what}: state は on / off ({raw!r})")
+    return st
+
+
+def case_controls(spec: dict, doc: dict | None) -> dict:
+    """案件の document (submission.yaml の documents.<doc>) の ``controls:`` = 箱の案件ごとの上書き (2026-09-28) を正規化する:
+    {control id: {"state": on|off, "why": str}}。 書き方は ``{id: "on"}`` か ``{id: {state: "on", why: …}}``。
+    上書きできるのは spec の entry が ``per_case: true`` の箱だけ (= どの箱が案件で変わるかは spec が決める。 それ以外の箱の state は
+    様式の規則で、 案件の宣言で変えない)。 spec に無い id / per_case でない箱 / on・off 以外 = ValueError。 上書きが無ければ {}。"""
+    raw = (doc or {}).get("controls")
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"document の controls: は {{箱の id: on / off}} の mapping ({type(raw).__name__})")
+    known = {str(e.get("id")): e for e in (spec or {}).get("controls") or []}
+    out = {}
+    for cid, v in raw.items():
+        cid = str(cid)
+        e = known.get(cid)
+        if e is None:
+            raise ValueError(f"document の controls: {cid!r} は spec {(spec or {}).get('meta', {}).get('id')!r} の controls に無い"
+                             f" (在るのは {sorted(known)})")
+        if not e.get("per_case"):
+            raise ValueError(f"document の controls: {cid!r} は spec で per_case: true でない = 案件ごとに変えない箱"
+                             " (変えるなら spec の規則を直す)")
+        body = v if isinstance(v, dict) else {"state": v}
+        out[cid] = {"state": _on_off(body.get("state", ""), f"document の controls: {cid!r}"),
+                    "why": str(body.get("why") or "").strip()}
+    return out
+
+
+def controls(spec: dict, doc: dict | None = None) -> list:
     """spec の ``controls:`` (form control の箱 = checkbox、 D9 2026-09-25) を正規化する:
     [{id, sheet, anchor, index, state, label, rule, group, why, …}]。 anchor = 箱が載る cell (雛形の controlPr の from、 A1 形式)、
-    index = 同じ cell に載る箱の並び (既定 0)、 state = on (選んだ側 = 印を入れる) / off (入れない)。 sheet の既定 = meta.sheet。"""
+    index = 同じ cell に載る箱の並び (既定 0)、 state = on (選んだ側 = 印を入れる) / off (入れない)。 sheet の既定 = meta.sheet。
+    doc = 案件の document (submission.yaml の documents.<doc>) を渡すと、 その ``controls:`` の上書き (``case_controls``) を
+    state に当てた「この案件の state」 を返す (上書きした entry は ``override = {"state", "why", "default"}`` を持つ)。
+    fill・gate・build の期待数・凍結の記録はどれもこの関数で state を引く = 同じ上書きを見る (form-case-pipeline.md の
+    「form control の箱」 の案件ごとの上書き)。 上書きの不正は ValueError (case_controls)。"""
     out = []
     main = (spec.get("meta") or {}).get("sheet")
+    ov = case_controls(spec, doc) if doc is not None else {}
     for e in spec.get("controls") or []:
-        raw = e.get("state", "")
-        st = {True: "on", False: "off"}.get(raw, str(raw).lower())     # YAML 1.1 は裸の on / off を bool に読む = 両方受ける
-        if st not in ("on", "off"):
-            raise ValueError(f"controls {e.get('id')!r}: state は on / off ({e.get('state')!r})")
+        st = _on_off(e.get("state", ""), f"controls {e.get('id')!r}")
         if not e.get("anchor"):
             raise ValueError(f"controls {e.get('id')!r}: anchor (箱が載る cell) が無い")
-        out.append(dict(e, sheet=str(e.get("sheet") or main), anchor=str(e["anchor"]).upper().replace("$", ""),
-                        index=int(e.get("index") or 0), state=st))
+        ent = dict(e, sheet=str(e.get("sheet") or main), anchor=str(e["anchor"]).upper().replace("$", ""),
+                   index=int(e.get("index") or 0), state=st)
+        o = ov.get(str(e.get("id")))
+        if o is not None:
+            ent.update(state=o["state"], override={"state": o["state"], "why": o["why"], "default": st})
+        out.append(ent)
     return out
+
+
+def control_group(spec: dict, entry: dict) -> str | None:
+    """箱の entry が属する group (``group:`` が無ければ spec の最初の group)。"""
+    groups = list((spec or {}).get("groups") or {})
+    return entry.get("group") or (groups[0] if groups else None)
+
+
+def case_controls_for_group(spec: dict, doc: dict | None, group: str) -> dict:
+    """その group の箱への上書きだけ = {id: on|off} (凍結の記録と、 凍結後に上書きが変わったかの照合が使う)。"""
+    ov = case_controls(spec, doc)
+    if not ov:
+        return {}
+    return {str(e.get("id")): ov[str(e.get("id"))]["state"] for e in (spec or {}).get("controls") or []
+            if str(e.get("id")) in ov and control_group(spec, e) == group}
 
 
 def history_homes() -> set:

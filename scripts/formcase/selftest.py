@@ -377,6 +377,7 @@ def run() -> int:
         _excel_tests(tmp, expect)
         _layout_tests(tmp, expect)
         _fidelity_tests(tmp, inst, expect)
+        _control_override_tests(tmp, inst, expect)
         _view_lint_tests(tmp, expect)
         _case_readme_tests(tmp, expect)
         _value_from_tests(tmp, expect)
@@ -1328,6 +1329,287 @@ def _fidelity_tests(tmp, inst, expect) -> None:
     finally:
         if bf.exists():
             bf.unlink()
+
+
+# ---------------------------------------------------------------------------
+# 箱 (form control) の案件ごとの上書き (2026-09-28) — fill / gate / build の期待数 / 凍結の記録が同じ上書きを見る
+# ---------------------------------------------------------------------------
+BOX_SHEET, BOX_OTHER, BOX_EXTRA = "合成 請求書", "合成 別票", "合成 付表"
+SPEC9 = {
+    "meta": {"id": "fx9", "sheet": BOX_SHEET, "template": "templates/fx9.xlsx", "title": "箱の様式", "form": "fx9-template"},
+    "groups": {"b1": {"sheets": [BOX_SHEET], "pages": [1]}, "b2": {"sheets": [BOX_OTHER, BOX_EXTRA], "pages": [2, 3]}},
+    "controls": [{"id": "box9", "sheet": BOX_SHEET, "anchor": "G9", "group": "b1", "state": "off", "per_case": True,
+                  "label": "合成の箱", "why": "講師ごとに変わる箱 (合成)"}],
+    "cells": [],
+}
+
+
+def _reorder_rels(xml: bytes) -> bytes:
+    """openpyxl の rels は Id が Target の後 → Excel の順 (Id が先) に並べ直す (office_census は Excel の保存形を読む)。"""
+    import re
+
+    return re.sub(rb'<Relationship ([^>]*?)Id="([^"]+)"([^>]*?)/>', rb'<Relationship Id="\2" \1\3/>', xml)
+
+
+def _inject_control(path: Path, sheet: str, col0: int, row0: int, n: int) -> None:
+    """workbook の sheet に form control (checkbox、 off) を 1 つ足す (zip の XML だけ = Excel の保存形。 office_census が読む)。"""
+    import io as _io
+    import zipfile
+
+    R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    part = "xl/worksheets/" + _sheet_part(path, sheet)
+    rels = part.rsplit("/", 1)[0] + "/_rels/" + part.rsplit("/", 1)[1] + ".rels"
+    ctrl = (f'<controls xmlns:r="{R}" xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing">'
+            f'<control shapeId="{1024 + n}" r:id="rIdCtl{n}" name="Check Box {n}"><controlPr><anchor moveWithCells="1">'
+            f'<from><xdr:col>{col0}</xdr:col><xdr:colOff>9525</xdr:colOff><xdr:row>{row0}</xdr:row><xdr:rowOff>9525</xdr:rowOff></from>'
+            f'<to><xdr:col>{col0 + 1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{row0}</xdr:row><xdr:rowOff>200000</xdr:rowOff></to>'
+            '</anchor></controlPr></control></controls>')
+    rel = (f'<Relationship Id="rIdCtl{n}" Type="http://schemas.microsoft.com/office/2006/relationships/ctrlProp"'
+           f' Target="../ctrlProps/ctrlProp{n}.xml"/>')
+    zin = zipfile.ZipFile(path)
+    names = zin.namelist()
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+        for it in zin.infolist():
+            d = zin.read(it.filename)
+            if it.filename == part:
+                d = d.replace(b"</worksheet>", ctrl.encode("utf-8") + b"</worksheet>")
+            elif it.filename == rels:
+                d = d.replace(b"</Relationships>", rel.encode("utf-8") + b"</Relationships>")
+            if it.filename.endswith(".rels"):
+                d = _reorder_rels(d)
+            zout.writestr(it, d)
+        if rels not in names:
+            zout.writestr(rels, '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                                + rel + "</Relationships>")
+        zout.writestr(f"xl/ctrlProps/ctrlProp{n}.xml",
+                      '<formControlPr xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" objectType="CheckBox"/>')
+    zin.close()
+    Path(path).write_bytes(buf.getvalue())
+
+
+def _set_control(path: Path, sheet: str, anchor: str, on: bool) -> None:
+    """(fill の Excel の代わり) 箱の ctrlProp の checked を書き換える。 見つからなければ例外 (= Excel の script も箱を探して書く)。"""
+    import io as _io
+    import re
+    import zipfile
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    import office_census as OC
+
+    c = OC.find_control(OC.form_controls(path), sheet, anchor)
+    if c is None:
+        raise AssertionError(f"箱が無い {sheet}!{anchor}")
+    zin = zipfile.ZipFile(path)
+    buf = _io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
+        for it in zin.infolist():
+            d = zin.read(it.filename)
+            if it.filename == c["part"]:
+                d = re.sub(rb'\s*checked="[^"]*"', b"", d)
+                if on:
+                    d = d.replace(b'objectType="CheckBox"', b'objectType="CheckBox" checked="Checked"', 1)
+            zout.writestr(it, d)
+    zin.close()
+    Path(path).write_bytes(buf.getvalue())
+
+
+def _control_override_spec_tests(spec9, on_ov, expect) -> None:
+    """specs: 既定は spec のまま / 上書きを当てた state / 不正は ValueError / group ごとの上書き。"""
+    try:
+        base = S.controls(spec9)
+        cs = S.controls(spec9, {"controls": on_ov})
+        expect("箱の上書き specs: 既定は spec の off、 doc の controls: を当てると on (override に既定と理由)",
+               base[0]["state"] == "off" and "override" not in base[0] and cs[0]["state"] == "on"
+               and cs[0]["override"] == {"state": "on", "why": "非居住の講師 (合成)", "default": "off"}, (base, cs))
+        expect("箱の上書き specs: 短い形 {id: on} と YAML の bool (True) も受ける",
+               S.controls(spec9, {"controls": {"box9": True}})[0]["state"] == "on"
+               and S.case_controls(spec9, {"controls": {"box9": "on"}}) == {"box9": {"state": "on", "why": ""}})
+        fixed = dict(SPEC9, controls=[dict(SPEC9["controls"][0], per_case=False)])
+        expect("箱の上書き specs: spec に無い箱・per_case でない箱・on/off 以外の上書きは ValueError",
+               _raises(ValueError, S.case_controls, spec9, {"controls": {"nope": "on"}})
+               and _raises(ValueError, S.case_controls, fixed, {"controls": {"box9": "on"}})
+               and _raises(ValueError, S.case_controls, spec9, {"controls": {"box9": "yes"}}))
+        expect("箱の上書き specs: group ごとの上書き (凍結の記録の単位) = b1 だけに出る",
+               S.case_controls_for_group(spec9, {"controls": on_ov}, "b1") == {"box9": "on"}
+               and S.case_controls_for_group(spec9, {"controls": on_ov}, "b2") == {})
+    except Exception as e:  # noqa: BLE001  直す前の実装 (上書きの関数が無い) で落ちても test を赤にして続ける
+        expect("箱の上書き specs: 例外なく回る", False, f"{type(e).__name__}: {e}")
+
+
+def _control_override_tests(tmp, inst, expect) -> None:
+    """案件ごとの上書き (submission.yaml の document の controls:) を、 fill (箱に書く + 読み戻す) / gate (--control=) /
+    build の期待数 (--expect-checked) / 凍結の記録 (frozen.controls) / check (凍結後の変更・不正な上書き) の全部が見ること。
+    Excel は使わない (fill の Excel の書き込みは ctrlProp を書き換える代役、 gate と照合は subprocess の代役で argv を見る)。"""
+    import types
+
+    import openpyxl
+    import yaml
+
+    from . import fidelity as FD
+    from . import fill as FL
+    from . import gates as GT
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+    import office_census as OC
+
+    spec_file = inst / "reference" / "fx9.yaml"
+    spec_file.write_text(yaml.safe_dump(SPEC9, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    tpl = inst / "templates" / "fx9.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = BOX_SHEET
+    ws.print_area = "A1:K20"
+    ws["A1"] = "合成の見出し"
+    for name in (BOX_OTHER, BOX_EXTRA):
+        s = wb.create_sheet(name)
+        s.print_area = "A1:K20"
+        s["A1"] = name
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        wb.save(tpl)
+    _inject_control(tpl, BOX_SHEET, 6, 8, 1)            # G9 = spec の箱 (per_case)
+    _inject_control(tpl, BOX_EXTRA, 2, 2, 2)            # C3 = spec に entry の無い箱 (雛形にだけ在る)
+    S.invalidate()
+    case = tmp / "box-case"                              # case_roots の外 (lint・README の test の対象外)
+    case.mkdir()
+    book = case / "book9.xlsx"
+    shutil.copy2(tpl, book)
+    _mark_mac(book)
+    (case / "b1.pdf").write_bytes(b"%PDF-b1")
+    (case / "b2.pdf").write_bytes(b"%PDF-b2")
+    (case / "fill_d9.py").write_text("# 合成の stub (test は formcase.fill.run を直接呼ぶ)\n", encoding="utf-8")
+
+    def manifest(ctl):
+        doc = {"form": "fx9", "workbook": book.name,
+               "groups": {"b1": {"current": {"state": "draft", "outputs": {"print": "b1.pdf"}}},
+                          "b2": {"current": {"state": "draft", "outputs": {"print": "b2.pdf"}}}}}
+        if ctl is not None:
+            doc["controls"] = ctl
+        data = {"schema": M.SCHEMA, "case": case.name, "documents": {"d9": doc}}
+        (case / M.MANIFEST_NAME).write_text(M.dump_text(data), encoding="utf-8")
+        return M.load(case)
+
+    def box_on() -> bool:
+        c = OC.find_control(OC.form_controls(book), BOX_SHEET, "G9")
+        return bool(c and c["checked"])
+
+    def run_fill(m):
+        saved = (FL.X.write_cells, sys.argv)
+        FL.X.write_cells = lambda x, edits: [_set_control(Path(x), s, c.partition("#")[0], bool(v)) for s, c, k, v in edits
+                                              if k == "checkbox"]
+        sys.argv = ["fill_d9.py"]
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                rc = FL.run(str(case / "fill_d9.py"), "d9", [])
+        finally:
+            FL.X.write_cells, sys.argv = saved
+        return rc, out.getvalue()
+
+    on_ov = {"box9": {"state": "on", "why": "非居住の講師 (合成)"}}
+    spec9 = S.get("fx9")
+    try:
+        _control_override_spec_tests(spec9, on_ov, expect)
+        # --- fill: 上書き on → 箱に on を書いて読み戻す / 上書き無し → off のまま / 不正 → 書かない ------------------------
+        try:
+            rc, out = run_fill(manifest(on_ov))
+            expect("箱の上書き fill: 上書き on → 箱を on に書き、 読み戻しが通る (rc 0)", rc == 0 and box_on(), (rc, out[-600:]))
+            expect("箱の上書き fill: 案件の上書きを行に出す (既定と理由つき)", "案件の上書き" in out and "既定 off" in out, out[-600:])
+            rc, out = run_fill(manifest(None))
+            expect("箱の上書き fill: 上書き無し → spec の既定 off に書き戻す (rc 0)", rc == 0 and not box_on(), (rc, out[-600:]))
+            _set_control(book, BOX_SHEET, "G9", True)
+            rc, out = run_fill(manifest({"nope": "on"}))
+            expect("箱の上書き fill: 不正な上書き (spec に無い箱) = rc 2、 箱を書かない", rc == 2 and box_on(), (rc, out[-400:]))
+            _set_control(book, BOX_SHEET, "G9", False)
+        except Exception as e:  # noqa: BLE001  直す前の実装で落ちても test を赤にして続ける
+            expect("箱の上書き fill: 例外なく回る", False, f"{type(e).__name__}: {e}")
+        # --- gate: 上書きを --control= で渡す (scope_flags の gate だけ) --------------------------------------------------
+        argvs = []
+
+        def fake_gate_run(argv, **_kw):
+            argvs.append(list(argv))
+            return types.SimpleNamespace(returncode=0, stdout="")
+
+        saved_gate = (GT.subprocess, GT.CF.gates_for)
+        GT.subprocess = types.SimpleNamespace(run=fake_gate_run, PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        GT.CF.gates_for = lambda form, spec=None: [
+            {"id": "probe", "script": book, "label": "probe", "args": [], "scope_flags": True},
+            {"id": "plain", "script": book, "label": "plain", "args": [], "scope_flags": False}]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                GT.run_scoped(manifest(on_ov), "d9", ["b1"], raise_on_fail=False)
+                GT.run_scoped(manifest(None), "d9", ["b1"], raise_on_fail=False)
+                bad_ok = GT.run_scoped(manifest({"nope": "on"}), "d9", ["b1"], raise_on_fail=False)
+            expect("箱の上書き gate: 上書き on → scope_flags の gate に --control=box9=on、 scope_flags の無い gate には渡さない",
+                   len(argvs) >= 2 and "--control=box9=on" in argvs[0] and not any(a.startswith("--control=") for a in argvs[1]),
+                   argvs[:2])
+            expect("箱の上書き gate: 上書き無し → --control= を渡さない (従来どおり)",
+                   len(argvs) >= 4 and not any(a.startswith("--control=") for a in argvs[2] + argvs[3]), argvs[2:4])
+            expect("箱の上書き gate: 不正な上書き → gate を回さず False", bad_ok is False and len(argvs) == 4, len(argvs))
+        except Exception as e:  # noqa: BLE001
+            expect("箱の上書き gate: 例外なく回る", False, f"{type(e).__name__}: {e}")
+        finally:
+            GT.subprocess, GT.CF.gates_for = saved_gate
+        # --- build の期待数: controls_on / check_group の --expect-checked ------------------------------------------------
+        try:
+            doc_on = {"controls": on_ov}
+            expect("箱の上書き build: 期待数 = 上書き on で 1、 上書き無しで 0 (spec の既定)",
+                   FD.controls_on(spec9, BOX_SHEET, "A1:K20", doc_on) == 1 and FD.controls_on(spec9, BOX_SHEET, "A1:K20") == 0,
+                   (FD.controls_on(spec9, BOX_SHEET, "A1:K20", doc_on), FD.controls_on(spec9, BOX_SHEET, "A1:K20")))
+            expect("箱の上書き build: 箱の無い sheet (entry も雛形の箱も無い) は期待を置かない / 雛形にだけ箱が在る sheet は 0",
+                   FD.controls_on(spec9, BOX_OTHER, "A1:K20", doc_on) is None
+                   and FD.controls_on(spec9, BOX_EXTRA, "A1:K20", doc_on) == 0,
+                   (FD.controls_on(spec9, BOX_OTHER, "A1:K20", doc_on), FD.controls_on(spec9, BOX_EXTRA, "A1:K20", doc_on)))
+            cargs = []
+
+            def fake_check_run(argv, **_kw):
+                cargs.append(list(argv))
+                return types.SimpleNamespace(returncode=0, stdout='{"targets": [], "missing_total": 0}', stderr="")
+
+            saved_fd = FD.subprocess
+            FD.subprocess = types.SimpleNamespace(run=fake_check_run, PIPE=subprocess.PIPE,
+                                                  SubprocessError=subprocess.SubprocessError)
+            try:
+                FD.check_group(spec9, "b1", case / "b1.pdf", doc=doc_on)
+                FD.check_group(spec9, "b1", case / "b1.pdf")
+                FD.check_group(spec9, "b2", case / "b2.pdf", doc=doc_on)
+            finally:
+                FD.subprocess = saved_fd
+            exp = [[a[i + 1] for i, x in enumerate(a) if x == "--expect-checked"] for a in cargs]
+            expect("箱の上書き build: check_group の --expect-checked = 上書き on で 1 / 無しで 0 / 箱の無い sheet には付けない",
+                   exp == [[f"{BOX_SHEET}!A1:K20=1"], [f"{BOX_SHEET}!A1:K20=0"], [f"{BOX_EXTRA}!A1:K20=0"]], exp)
+        except Exception as e:  # noqa: BLE001
+            expect("箱の上書き build: 例外なく回る", False, f"{type(e).__name__}: {e}")
+        # --- 凍結の記録と check: 凍結した時の上書きを記録 / 凍結後に変えたら止める / 上書きの無い group は記録の形が同じ -------
+        try:
+            m = manifest(on_ov)
+            cur = L.freeze(m, "d9", "b1", "printed", paper="same", paper_basis="合成")
+            cur2 = L.freeze(m, "d9", "b2", "printed", paper="same", paper_basis="合成")
+            m.save()
+            expect("箱の上書き freeze: b1 の記録に controls = {box9: on}、 上書きの無い b2 の記録には controls の key が無い",
+                   (cur.get("frozen") or {}).get("controls") == {"box9": "on"} and "controls" not in (cur2.get("frozen") or {}),
+                   (cur.get("frozen"), cur2.get("frozen")))
+            f_same = [x for x in C.check_case(M.load(case)) if x[0] == M.FAIL]
+            expect("箱の上書き check: 凍結の後に上書きを変えていなければ FAIL なし", not f_same, f_same)
+            m2 = M.load(case)
+            m2.data["documents"]["d9"]["controls"]["box9"]["state"] = "off"
+            f_changed = [x for x in C.check_case(m2) if x[0] == M.FAIL]
+            expect("箱の上書き check: 凍結の後に上書きを変えたら FAIL (紙の箱は凍結時のまま)",
+                   any("controls:" in x[2] and x[1] == "d9/b1" for x in f_changed), f_changed)
+            expect("箱の上書き freeze: 凍結 → 凍結 (printed → submitted) で上書きが変わっていたら拒否",
+                   _raises(M.ManifestError, L.freeze, m2, "d9", "b1", "submitted", paper="same", paper_basis="合成"))
+            m3 = M.load(case)
+            m3.data["documents"]["d9"]["controls"] = {"box9": "on"}
+            w = [x for x in C.check_case(m3) if x[0] == M.WARN and "why" in x[2]]
+            m3.data["documents"]["d9"]["controls"] = {"nope": "on"}
+            fl = [x for x in C.check_case(m3) if x[0] == M.FAIL and "nope" in x[2]]
+            expect("箱の上書き check: 理由 (why) の無い上書き = WARN / spec に無い箱の上書き = FAIL", bool(w) and bool(fl), (w, fl))
+        except Exception as e:  # noqa: BLE001
+            expect("箱の上書き freeze / check: 例外なく回る", False, f"{type(e).__name__}: {e}")
+    finally:
+        spec_file.unlink(missing_ok=True)                # 後の test (lint・view) は fx9 を見ない
+        S.invalidate()
 
 
 # ---------------------------------------------------------------------------
