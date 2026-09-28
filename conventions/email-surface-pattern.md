@@ -187,6 +187,8 @@ class に見えれば最上位に出る。 実測: 見送りを決めた依頼�
 一般則 = [`data-pipeline-automation.md#multipath-key-normalization`](data-pipeline-automation.md#multipath-key-normalization)。
 共有の関数があっても、 **書き手の散文の形が契約の外なら同じ症状になる** (実測: thread の台帳の要約が `messageId <hex>、` と空白で区切って書かれ、 `messageId:` の形しか読まない harvester が記録済みの mail を session 開始のたびに「未認識」 に出し、 Stop の強制処分まで鳴り続けた)。 書式を 1 つに固定できない以上、 読み手が散文の空白区切り (12 桁以上の hex) と `thread_id:` の素値も読む。 症状が「記録したのに出続ける」 なら、 まず harvester にその台帳の text を通して id が拾えるかを確かめる。
 
+<a id="drop-by-message-id"></a>**読み手が finding を「記録済み」 として落とす判定は message の id で行い、 thread の id の一致では落とさない**: thread が記録されていても、 そこに後から届いた message は未記録 (通知系の mail は 1 つの thread にまとまり、 ML の続報も同じ thread に来る)。 thread の一致で落とす検出器は、 記録済みの thread に届いた新しい依頼を黙って消す (実測)。 thread だけ記録された古い entry の root message は id が thread の id と同値なので、 記録済み集合を messageId ∪ threadId にしておけば root だけが落ち、 続報は残る (root を落とすかは読み手の判断。 書き手の道具は root を「読んだ message」 として索引に載せない = [`mail-thread-ledger.md`](mail-thread-ledger.md))。 台帳の抑制を cache の書き手だけでなく読み手の全部に当てる理由 = [`../docs/convention-design-principles.md#suppress-at-read-time`](../docs/convention-design-principles.md#suppress-at-read-time)。
+
 ## <a id="single-writer-thread-cursor"></a>記録の書き手を道具 1 つにし、 thread ごとに「読んだ位置」 の印を持つ
 
 上の「書式を検出器ごとに持たない」 は読み手側の対策で、 書式が散る根 (= 人と agent が id を手で写す) は残る。
