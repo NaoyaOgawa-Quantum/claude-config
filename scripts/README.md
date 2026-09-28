@@ -257,6 +257,7 @@
 - **[test_reviewed_mail.py](test_reviewed_mail.py)** — Network-free adversarial checks of the reviewed-reply transaction.
 - **[test_reviewed_mail_cli.py](test_reviewed_mail_cli.py)** — Offline checks: CLI authorization shape, pagination, full source extraction.
 - **[tex-first-use.py](tex-first-use.py)** — Is a notation explained where the reader first meets it? Lists the first body uses of a regex with line and section, checks the first one against the line of the defining \label (a reference to that label near the use counts as a pointer), and lists \cref-type references to equations that are printed further down.
+- **[tex-rename-symbols.py](tex-rename-symbols.py)** — LaTeX 原稿の 1 文字記号 (y → x、 r → \zeta_x の類) を安全に一括改名する (scan / apply)。
 - **[tex2plain.py](tex2plain.py)** — .tex から LaTeX タグを除いたテキストを生成する (数式は Unicode で線形化、図キャプションは末尾へ)。
 - **[todo-ledger-split.py](todo-ledger-split.py)** — 1 file の list (`TODO.yaml`) の TODO 台帳を 1 entry 1 file (`todo/<id>.yaml`) に分割する (既定 dry-run)。
 - **[transcript-images.py](transcript-images.py)** — Claude Code の会話記録 (jsonl) から、 user が貼った画像 (画面写真) を file に取り出す
