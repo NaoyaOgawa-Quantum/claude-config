@@ -330,7 +330,7 @@ Google API 経由で create された Calendar event / Classroom coursework / Dr
 3. **API で create した resource を UI で開いて toggle / 操作の有効性を確認** → グレーアウト されれば third-party tool 制限あり
 
 回避策:
-- UI 完全制御が必要な resource は **UI で create する**経路を残す (= 利用者個別の運用ルールは MCP 設定リポ側の docs / SESSION.md に記録)
+- UI 完全制御が必要な resource は **UI で create する**経路を残す (= 利用者個別の運用ルールは MCP 設定リポ側の CLAUDE.md / DESIGN.md に記録。 SESSION.md は現在地だけ)
 - API ルートは**制約を受けても困らない use case** で活用 (e.g., 期限後 late submission を accept する運用、 配点付き ASSIGNMENT、 内部試行 / DRAFT prototype、 batch 投稿)
 
 ### 経緯 (本 section 追加の契機)

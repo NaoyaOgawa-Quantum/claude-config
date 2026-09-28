@@ -59,7 +59,7 @@ git-crypt status
 - [ ] CLAUDE.md が collaborator 環境（個人層なし）で読んで意味が通るか目視確認
 - [ ] README.md にこのリポが何のためのリポか分かる説明がある
 - [ ] git-crypt を使う場合、新規 collaborator が鍵を取得する手順が（口頭でもよいので）明確
-- [ ] **このチェックを通したことを SESSION.md に記録**
+- [ ] **このチェックを通した日付を本 file (AUDIT.md) の末尾に記録し、 SESSION.md はこの案件の現在地の行を置き換える**
 - [ ] collaborator を招待
 
 監査の項目は本リポの性質に応じて追加してよい。

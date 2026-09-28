@@ -366,7 +366,7 @@ Editorial Manager 系は呼称が違う (Handling Editor / Editor / Journal Mana
    - 事前 feedback をくれた人物は "preferred reviewer" に入れない (COI 回避)、 editor に入れる (editorial handling)
    - topic match を第一、 personal connection は editor 推薦での compensating factor
 7. **投稿完了後**
-   - Manuscript ID を SESSION.md 系に記録
+   - Manuscript ID を案件の記録 (投稿の台帳 / 共同研究の thread 記録) に書き、 SESSION.md にはその記録への link と現在地 (投稿済・査読待ち) の 1 行
    - 受領確認メールを共著者に転送 (arXiv なら組版 PDF + 前回送った版からの latexdiff、 公開時刻は読み手の現地時刻で = §[arxiv-coauthor-notice](#arxiv-coauthor-notice))
    - arXiv v2 upload zip を投稿担当共著者に配布
    - **arXiv 公開から journal 投稿までの間に引用依頼を仕分ける** (arXiv 番号と題で毎日検索、 共著者の受信分と突き合わせ = §[arxiv-citation-requests](#arxiv-citation-requests))

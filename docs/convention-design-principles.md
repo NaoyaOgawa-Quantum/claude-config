@@ -280,7 +280,7 @@ origin: 2026-06-21 — ある外部宛 outreach で未検証の身元を断定�
 **メモリに置くべきでないもの (広い):**
 - ルールの定義 / 行動規律 — 他端末で再発する (正本は git 同期される `conventions/*.md` や各リポの CLAUDE.md)
 - フィードバック / 行動矯正 — **2026-04-17 に方針変更: 以前は memory を奨励していたが、precedent-as-training-data 問題 (§8) で問題視、git 同期先へ集約**
-- プロジェクトの正本情報 — リポの CLAUDE.md / SESSION.md / DESIGN.md に書く
+- プロジェクトの正本情報 — リポの CLAUDE.md (構造・手順) / DESIGN.md (判断) に書く。 SESSION.md は現在地と link だけ ([§19.7](#time-keyed-file-appends-only))
 - コードの構造やパターン — コードを読めば分かる
 - cross-machine で true な事実 (ユーザー身元、アカウント、プロジェクト state) — 該当リポや個人 prefs に git 同期で置く
 
