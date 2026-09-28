@@ -1035,7 +1035,7 @@ def target_identity(path: Path, repo: Path | None) -> tuple[str, bool]:
 
 # 意味を緩めない変更 (追記も書き換えも) なら事前の承認から外す領域 (述語 = agent-rule-guard の change_exemption)。 block・配線・設定は外さない
 INSERTION_REGIONS = ("authority:file", "authority:rule-ref")
-PROSE_DETAIL = "追記扱いにならない理由: "
+PROSE_DETAIL = "承認なしで通らない理由: "
 # この呼び出しで見つけた「承認なしで通る追記」。 変更が実際に通る時だけ additive-log に書く (write_exemptions)
 PENDING_EXEMPTIONS: list[dict] = []
 ADDITIVE_LOG = "additive-log.jsonl"
@@ -1694,7 +1694,7 @@ def deny_reason(left: list[dict], session: tuple[str, str] | None) -> str:
     ]
     if prose:
         parts.append(
-            "「追記扱いにならない理由」 が付いた規則の文書 (CLAUDE.md / AGENTS.md / CONVENTIONS.md / conventions/*.md):\n"
+            "「承認なしで通らない理由」 が付いた規則の文書 (CLAUDE.md / AGENTS.md / CONVENTIONS.md / conventions/*.md):\n"
             "  1. 追記も書き換えも削除も同じ線で通る: 足した文・言い直した文に緩める位置の緩和の語が無く、 既存の文を隠さず、"
             " 見出しで過去のものにしなければ、 承認なしで通って本人が後で読む記録と返事の行に残る (消した文・言い直した文も返事に出る)。"
             " 止まった理由が緩和の語なら、 本当に緩めるのでなければ言い方を変えて通す (緩めるなら 3 へ)。"
