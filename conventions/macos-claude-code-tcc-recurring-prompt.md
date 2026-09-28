@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: Claude Code の App Management TCC dialog が繰り返し出るとき
+when: Claude Code の App Management TCC dialog が繰り返し出るとき + 版番号 (2.1.NNN) だけのポップアップ・process 名を見たとき
 category: macos
 summary: Claude Code の app bundle が `~/Library/Application Support/Claude/claude-code/<version>/claude.app` という versioned path に置かれているため、 App Management TCC 権限が auto-update 毎に invalidate されて dialog が再 prompt される構造的症状 (= sibling pty-leak と同じく Anthropic 側 fix 待ち候補、 stable launcher path 化が root 対策)
 -->
@@ -90,6 +90,13 @@ Anthropic 側 fix を待つ前提なら、 dialog が出たときだけ押す運
 - System Settings > Privacy & Security > App Management で過去 version の claude entry が累積していないか確認、 累積していれば整理
 - 個別 prompt は許可 / 拒否で sticky 化する (= 同一 version 中の repeat は止まる)、 ただし **次の更新で再発する構造**
 - 同種の versioned-bundle-path 構造は他の auto-updating Mac app 全般で起こりうる pattern で、 Claude Code 固有 bug ではなく **macOS App Management の path-binding 特徴**
+
+## <a id="cli-binary-named-by-version"></a>姉妹: CLI 版は実行 file の名前そのものが版番号
+
+- ターミナルの `claude` (native installer) は `~/.local/bin/claude` → `~/.local/share/claude/versions/<版>` の symlink で、 **実行 file の名前が `2.1.NNN` という版番号そのもの** (app bundle ではない)。
+- ∴ macOS が process 名を出す面 (一時的なポップアップ・権限 dialog・Activity Monitor・unified log の `pid[名前]`) には `2.1.NNN` とだけ出て、 Claude だと読めない。 **版番号だけのポップアップを見たら、 まずこれを疑う** (実測)。
+- 切り分け: `readlink ~/.local/bin/claude` の版と一致するか → `/usr/bin/log show --last 2h --style compact --predicate 'eventMessage CONTAINS "<版>"'` で同名 process の起動時刻を見て、 hook・定期実行・session 開始が `claude` を呼んだ時刻と突き合わせる。 ⚠️ 通知センターの DB (`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`) は閉じた通知の record が消えることがある = 「DB に無い」 は通知でなかった証明にならない。
+- desktop アプリの Code タブは同梱の別版 (上の versioned `claude.app`) を使う = **CLI と desktop の版が違うのは正常** (CLI は単体で自動更新、 同梱版はアプリの更新でだけ上がる)。 同梱版の path に付けた権限 (フルディスクアクセス等) は、 同梱版が上がると付け直しになりうる。
 
 ## 関連
 
