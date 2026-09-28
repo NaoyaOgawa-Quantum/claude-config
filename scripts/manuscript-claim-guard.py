@@ -1093,6 +1093,18 @@ def _insertion_delta(old: str, new: str) -> str:
 
 
 
+def rule_refs_only_added(before: str, after: str) -> bool:
+    """正本を指す参照の行 (authority:rule-ref) が足されただけか (変えた・消した行が無い)。 規則の文書でない file
+    (plan / 作業記録 / SESSION) では、 正本への参照を足すのは通り、 変える・消すのは止まる (規則の文書の B と同じ線)。"""
+    gone = Counter(x for x in before.split("\n") if x) - Counter(x for x in after.split("\n") if x)
+    return not gone
+
+
+def rule_ref_only_regions(regions: dict) -> bool:
+    """保護領域が正本への参照の行だけ = その file は「保護 file」 ではない (mode の記録も要らない)。"""
+    return bool(regions) and set(regions) <= {"authority:rule-ref"}
+
+
 def protected_changes(rel: str, old: str, new: str, repo: Path | None, cfg: dict | None = None,
                       authority: bool = True, baseline: str | None = None,
                       session: tuple[str, str] | None = None) -> list[dict]:
@@ -1135,6 +1147,8 @@ def protected_changes(rel: str, old: str, new: str, repo: Path | None, cfg: dict
             exempt["profile"] = profile(_rule_guard.mask_free_zones(ref), _rule_guard.mask_free_zones(new))
     for k in moved:
         kind = "add" if k not in ao else "delete" if k not in an else "change"
+        if k == "authority:rule-ref" and exempt is None and rule_refs_only_added(ao.get(k, ""), an.get(k, "")):
+            continue  # 規則の文書でない file に正本への参照を足すだけ = 通る (変える・消すは下で止まる)
         if exempt is not None and k in INSERTION_REGIONS:
             if not exempt["ok"]:
                 # 表示の案内 (依頼がすでに含むなら聞き直さない) は文書本体だけ。 正本の参照の行は従来どおり
@@ -2293,7 +2307,9 @@ def changes_for_repo(repo: Path, mode: str, paths: list[GitPathspec | GitNames |
         ch_head = protected_changes(rel, old, new, repo, head_cfg) if head_cfg != cfg else []
         seen = {(c["region"], c["kind"]) for c in ch_new}
         changes.extend(ch_new + [c for c in ch_head if (c["region"], c["kind"]) not in seen])
-        if authority_regions(old, rel, declared) or authority_regions(new, rel, declared):
+        regions_old, regions_new = authority_regions(old, rel, declared), authority_regions(new, rel, declared)
+        ref_only = all(not r or rule_ref_only_regions(r) for r in (regions_old, regions_new))
+        if (regions_old or regions_new) and not ref_only:  # 参照の行だけの file は保護 file でない = mode の記録は要らない
             before_mode = git_mode(repo, rel, "HEAD")
             after_mode = git_mode(repo, rel, "index") if src == "index" else worktree_mode(repo / rel)
             if (before_mode, after_mode) == ("000000", "100644"):
@@ -3353,6 +3369,15 @@ def selftest() -> int:
     ref = f"- AI は主張を書き換えない (正本 = {RULE_REF_TOKEN})\n- other\n"
     check("参照行の削除 → authority:rule-ref",
           [c["region"] for c in protected_changes("S.md", ref, "- other\n", None, {})] == ["authority:rule-ref"])
+    check("規則の文書でない新規 file に参照行を足すだけ → 通る", protected_changes("plans/p.md", "", ref, None, {}) == [])
+    check("既存の参照行を残して 2 本目を足す → 通る",
+          protected_changes("plans/p.md", ref, ref + f"- 手順 = {RULE_REF_TOKEN}\n", None, {}) == [])
+    check("参照行を変える → authority:rule-ref (change)",
+          [(c["region"], c["kind"]) for c in protected_changes("plans/p.md", ref, ref.replace("主張を", "式を"), None, {})]
+          == [("authority:rule-ref", "change")])
+    check("参照だけの file は保護 file でない (mode の記録は要らない)",
+          rule_ref_only_regions({"authority:rule-ref": "x"})
+          and not rule_ref_only_regions({"authority:rule-ref": "x", "authority:file": "y"}) and not rule_ref_only_regions({}))
     wiring = '{"command": "python3 hooks/manuscript-claim-guard.py"}\n{"command": "other"}\n'
     check("配線行の削除 → authority:wiring",
           [c["region"] for c in protected_changes("h.json", wiring, '{"command": "other"}\n', None, {})] == ["authority:wiring"])

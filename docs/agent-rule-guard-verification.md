@@ -211,6 +211,14 @@ engine の selftest が git の呼び出し回数を数える (件数に依ら�
 |---|---|
 | `scripts/approval-source-census.py` | `8e1279ee1eac9ef1c0bd5286726a53b8e3affb7ad65a07fdd95a7dab562dc4be` |
 
+## 正本への参照を足すだけの file を止めない修正の照合用 SHA-256
+
+規則の文書でない file (plan / 作業記録 / SESSION) に正本への参照の行を足すだけの変更は通し (変える・消すは止まる)、 参照の行しか持たない file は保護 file にしない (mode の記録も不要)。 本人の裁定つき、 selftest 4 件、 両製品の hook suite 緑。
+
+| source | SHA-256 |
+|---|---|
+| `scripts/manuscript-claim-guard.py` | `5ed087e43ac2d41c1f680156ec2b6c2719ef9418d1f0a78eddfeb3d82b89ea04` |
+
 ## <a id="acceptance-procedure"></a>適用後の再検収の手順 (実 Stop と approve CLI の合成対照)
 
 実装者と別の session (別 vendor でもよい) が、 suite の緑を信じずに本物の hook と CLI を自分で駆動する。 fixture は合成、 state は一時 dir (`MANUSCRIPT_CLAIM_GUARD_STATE_DIR` / `MANUSCRIPT_CLAIM_GUARD_HOME`)。 本番の承認 state・本人の会話本文を使わない。
