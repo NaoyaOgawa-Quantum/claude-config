@@ -347,6 +347,7 @@ peer review の resourcing は通常 confidentiality 要件あり (= 審査委�
 ### Sibling docs (= 直接関連)
 
 - **自分の paper 内部の structure audit**: [`paper-audit.md`](paper-audit.md) (= forward refs, duplicates, structure)
+- **原稿の価値の読み (正しさと別軸 = 新しい・面白い・重要の 3 問、 共同研究者の draft への返事)**: [`manuscript-value-triage.md`](manuscript-value-triage.md)
 - **自分が rebuttal letter を書く (= author response)**: [`rebuttal-letter.md`](rebuttal-letter.md)
 - **自分が grant 申請書を提出**: [`erad-submission.md`](erad-submission.md)
 - **自分の paper を journal / arXiv 投稿ポータル経由で提出**: [`paper-submission.md`](paper-submission.md)
