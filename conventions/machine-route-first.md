@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery)
+when: 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery) + ログインの内側の配布物 (規則・通知・マニュアル) を読んで記録や文面に写すとき (#keep-fetched-originals)
 category: harness-core
 summary: 経路 ladder (dedicated MCP → API 直 → CLI → 経路を実装 → user 依頼 → 画面 drive) — 画面 drive は最終手段で、経路が無いときは「実装するのが先」 (#build-the-route-first = 実装した経路を auto-load 面に記録するまでが 1 単位)。 画面 drive の 3 重コスト (unreliable click / user のマシン拘束 / 対象取り違え) と許容例外。 **他人 owner の共有 document (sheet / form / doc) への書込は画面 drive 禁止級** (#shared-document-write = blast radius が自分の外、 xlsx は API in-place update、 native Sheets は Sheets API、 経路が無ければ user 依頼が先)。 公開 API の無い web app は #internal-endpoint-replay (= XHR hook で UI 操作 1 回を捕捉 → 同 endpoint を page context から叩く → rules/dry-run/apply → reload で確認)
 -->

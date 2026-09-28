@@ -85,7 +85,7 @@ claude-config/
 │   ├── kakenhi-proposal.md                 # 科研費の研究計画調書 (基盤・挑戦的研究・若手等) を書く/直す/Web 入力するとき + 当年の様式 docx を入手した直後 (= 起草前に scripts/kakenhi-preflight.py で埋め込み指示を吸い出すとき) + 機関事務から差し戻しを受けたとき + 複数種目を同時期に出すとき
 │   ├── latex.md                            # LaTeX を含むリポで作業するとき
 │   ├── launchd-cloudstorage-tcc.md         # launchd agent が ~/Library/CloudStorage/ 配下を読む script を書く前
-│   ├── machine-route-first.md              # 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery)
+│   ├── machine-route-first.md              # 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery) + ログインの内側の配布物 (規則・通知・マニュアル) を読んで記録や文面に写すとき (#keep-fetched-originals)
 │   ├── macos-app-crash-triage.md           # macOS で「(アプリ) が予期しない理由で終了しました」 が出たとき + 同じアプリが繰り返し落ちるとき + crash の原因を「ベンダーの不具合」「自動化のせい」 と言う前
 │   ├── macos-calendar-write.md             # macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check)
 │   ├── macos-claude-app-notifications.md   # Claude for Mac (desktop / Code タブ) の通知音が鳴らない・通知が来ないとき + macOS の通知が全般に鳴らない原因を調べるとき + 集中モード (おやすみモード) の設定画面を user に案内する前
