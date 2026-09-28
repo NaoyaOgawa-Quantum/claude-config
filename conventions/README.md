@@ -151,7 +151,8 @@ layer 1 (public) のドメイン固有規約 138 file をカテゴリ別に列�
   - 「天気」投稿の機構 — 種別選択 (調査ノートは 6pp 以内・掲載料無料・和文/英文要旨とも不要 #category-fit)、 掲載料は種別で不連続で格上げは課金を伴い免除条項は課金区分にしか効かない (#page-charge-by-category)、 LaTeX のまま投稿できる 3 点セット (#tex-submission-set)、 著者要件 = 原則会員を含む + 種別非依存 + 会員番号発行まで 3-4 週の lead + 学生のうちに入るのが最安 (#membership-early-check)、 非会員のみの著者構成なら例外を打診する作法 (#non-member-inquiry)、 提出経路ごとに添付書類が違い電子投稿フォームは原稿 1 ファイル制約で TeX と相性が悪い (#channel-vs-attachments)、 様式の実 URL と文中引用規則
 - **[tikz-pgfplots.md](tikz-pgfplots.md)** — TikZ / pgfplots を含む LaTeX project で図を作るとき
   - TikZ/pgfplots 固有 gotchas（infographic / poster / 1 枚 figure 制作で必読、 latex.md と併読）
-
+- **[writing-discipline.md](writing-discipline.md)** — AI が文章を書く・直すとき常時 (論文・ノート・報告書・README・chat・docstring・図のラベル) + 「kernel」 と書きそうになった瞬間
+  - 標語「平易に、論理の流れがスッキリ追えるように、簡潔に」 を文を書くたびに当てる (`#motto`) / 多義語 kernel を汎称に使わず、 重み関数・窓関数・伝播関数など式が表す対象を名指す (`#kernel`)
 ## macOS (`macos`)
 
 - **[claude-app-cwd-pin.md](claude-app-cwd-pin.md)** — Claude.app の folder picker 起点固定 (launchd) を設定・解除するとき

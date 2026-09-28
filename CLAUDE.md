@@ -165,6 +165,7 @@ claude-config/
 │   ├── web-tools.md                        # WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check)
 │   ├── windows-msys.md                     # Windows (Git Bash / MSYS) 上で本リポの script・hook を動かす / 移植性のある shell・Python を書くとき
 │   ├── wolfram-scripting.md                # wolframscript を書く・debug するとき + 対数プロット (LogPlot / LogLogPlot) の目盛・凡例を触るとき
+│   ├── writing-discipline.md               # AI が文章を書く・直すとき常時 (標語「平易に、論理の流れがスッキリ追えるように、簡潔に」 + kernel を汎称に使わない)
 │   ├── yaml-hazards.md                     # YAML を読む・書く・新規 data file の形式 (yaml/toml/json) を選ぶ・yamllint を設定するとき
 │   ├── zenn.md                             # Zenn.dev 記事を執筆・入稿するとき
 │   └── zoom-meetings.md                    # Zoom のミーティングを script から作る・設定を読む経路を用意するとき + 定例用に「いつでも入れる常設の部屋」 を個人ミーティングルーム (PMI) と別に用意するとき + 作った部屋が待機室つきになった / 参加 URL が個人部屋のものになったとき + 会議の議事録は欲しいが録画は要らないとき + 終わった会議の AI 要約・文字起こしを取り出すとき・「無い」 と言う前 (#read-summary-and-transcript)
