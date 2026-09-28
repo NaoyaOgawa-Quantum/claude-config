@@ -2,8 +2,9 @@
 """desktop app でアカウントを切り替えた後、 同じ account の無人 job / RC の設定フォルダが切れていないかを自動で確かめる (切れたら 🔴)。
 
 背景 (実測、 macOS の Claude desktop app + Claude Code CLI): desktop app で account X をログアウトした後、 同じ機械で
-X として無人の `claude -p` / Remote Control が使う設定フォルダ (`CLAUDE_CONFIG_DIR`) が、 次にトークンの更新が要る時点で
-`OAuth session expired and could not be refreshed` になった例がある。 ただし対照実験 (desktop で両 account のログアウトと
+X として無人の `claude -p` / Remote Control が使う設定フォルダ (`CLAUDE_CONFIG_DIR`) が
+`OAuth session expired and could not be refreshed` になった例がある (実測はログアウトの後の run が通り、 翌朝の run が最初に
+失敗したことまで。 次にトークンの更新が要る時点で切れたというのは推論)。 ただし対照実験 (desktop で両 account のログアウトと
 新しいログインを往復) では、 両方のフォルダが約 8 時間後の更新に成功した = ログアウトや新しいログインだけでは切れない。
 原因は未確定なので、 切り替えのたびに問い合わせで確かめ、 **失敗したときだけ** 🔴 を出す (切り替えるだけで 🔴 は出さない)。
 ログアウトの直後はアクセストークンが残っていて問い合わせが通るので、 更新が要る時刻の後にもう 1 回確かめる。
