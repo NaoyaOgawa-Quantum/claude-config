@@ -1820,11 +1820,27 @@ def read_text(p: Path) -> str | None:
         return None
 
 
+def looks_binary(p: Path) -> bool:
+    """git の判定と同じく先頭 8000 byte に NUL があれば binary。 symlink・読めない file は False (= text 側で扱う)。"""
+    if p.is_symlink():
+        return False
+    try:
+        with open(p, "rb") as fh:
+            return b"\0" in fh.read(8000)
+    except OSError:
+        return False
+
+
 def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
     """repo を渡すと file ごとの rev-parse を省く (呼び元が root を知っている commit の検査)。"""
     if p.is_symlink():
         authority_paths(repo if repo is not None else repo_root(p.parent))  # validate declared links before reading their target
-    if p.suffix.lower() in TEXT_SUFFIXES or p.name == Path(CONFIG_REL).name:
+    if p.name == Path(CONFIG_REL).name:
+        return True
+    # 拡張子の無い binary (build した実行 file) は原稿でも規則の文でもない = 宣言が無ければ対象外。
+    # "" を text 扱いにすると HEAD の blob が UTF-8 で読めず blob-unreadable で commit ごと止まる
+    # (2026-09-28 email-office scripts/cal-export の再署名)。 宣言済みの path は下の述語が拾う。
+    if p.suffix.lower() in TEXT_SUFFIXES and not (p.suffix == "" and looks_binary(p)):
         return True
     # Explicit policy declarations outrank the convenience text-extension list.
     # Use the lexical parent: a protected symlink's suffix/role must not vanish
@@ -3973,6 +3989,15 @@ def selftest() -> int:
             check("読めない宣言済み gate を無検査で通さない", True)
         else:
             check("読めない宣言済み gate を無検査で通さない", False)
+        # 拡張子の無い binary: 宣言が無ければ対象外 (commit を blob-unreadable で止めない)、 宣言済みなら対象のまま
+        plain_bin, declared_bin = repo / "custom/helper", repo / "custom/gatebin"
+        plain_bin.write_bytes(b"\xcf\xfa\xed\xfe\x00\x00binary")
+        declared_bin.write_bytes(b"\xcf\xfa\xed\xfe\x00\x00binary")
+        manifest.write_text(json.dumps({"version": 1, "protect_paths": ["custom/gatebin"]}))
+        reset_caches()
+        check("宣言の無い拡張子なし binary は検査対象外", not relevant_text_file(plain_bin, repo))
+        check("宣言済みの拡張子なし binary は検査対象", relevant_text_file(declared_bin, repo))
+        plain_bin.unlink(); declared_bin.unlink()
         # A declared symlink protects its implementation, and the link itself
         # remains the identity when approving a retarget of the Git entry.
         gate_link = repo / "custom/release.rb"
