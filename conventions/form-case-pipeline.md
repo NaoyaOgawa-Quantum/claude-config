@@ -85,7 +85,7 @@ issue は `paper: same | differs | unverified` を必須にする。
 
 `kind` = `table` (規則の表) / `checklist` (提出前 checklist) / `cells` (セルの値の表) /
 `status` (案件 README の状態表 = manifest から)。 手で書き換えると `views --check` が stale と言う。
-経緯・理由として古い言い回しを残す区間は `<!-- formcase:history -->` で囲む。
+手順書・規則の理由の doc で、 経緯・理由として古い言い回しを残す区間は `<!-- formcase:history -->` で囲む (案件の README には置かない = [§7](#case-readme))。
 
 ⚠️ **区間は入れ子にできない** — 入れると内側の閉じで外側が閉じ、 後ろの行が黙って検査に戻る / 外れる。
 崩れは承認できない finding として出る。
@@ -185,16 +185,19 @@ spec から**導出した** token で、 process doc (手順書・入口・案�
 ## <a id="case-readme"></a>7. 案件 README に状態を書かない
 
 「未提出 / 提出予定 / 印刷版 / 未決 / 返事待ち / 〆」 は**状態**で、 進むたびに写しが古くなる。 状態の正本は
-`submission.yaml` (README には `kind=status` の生成表) と、 案件の TODO。 README が持つのは file の説明・
-経緯と、 値の出典の在り処への 1 行の参照だけ。 状態の説明を書きたくなったら issue の `note` に書く (`annotate --note`)。
+`submission.yaml` (README には `kind=status` の生成表) と、 案件の TODO。 README が持つのは file の説明と、
+正本の在り処への参照だけ (状態 = 生成表、 経緯 = 案件 dir の README でない file 〔例 `経緯.md`〕、 値の出典 = 記入 script の行)。
+経緯・出典・規則・手順の本文を README に置かない (README は入口で、 正本を置くと入口と正本の 2 か所になり、 後の session は入口を先に読む)。
+状態の説明を書きたくなったら issue の `note` に書く (`annotate --note`)。
 
 <a id="value-source-in-fill"></a>**値の出典の正本は記入 script の各行**: `fill_<doc>.py` のその値の行の後ろに `# 出典: …`
 (その値をどこから取ったか = 主催者の program・本人の回答・台帳の行) を書く。 README に出典の表を作らない
-(`new` の README は「値の出典 = `fill_<doc>.py` の各行の `# 出典:`」 の 1 行だけを置く)。 値と出典が同じ行にあれば、
+(`new` の README は「値の出典 = `fill_<doc>.py` の各行の `# 出典:`、 経緯 = `経緯.md`」 の 1 行だけを置く)。 値と出典が同じ行にあれば、
 値を直す turn に出典も目に入る。 README は入口であって正本の置き場ではない。 出典の行に住所・口座の値は書かない
 ([pii-runtime-source](#pii-runtime-source) と同じ = 在り処だけ)。
 
-pre-commit は、 stage した案件 README の状態の写しと、 古い生成 view を BLOCK する。
+pre-commit は、 stage した案件 README の状態の写しと、 古い生成 view を BLOCK する。 README に出典の表 (見出し行に「出典」 の列) か
+`formcase:history` 区間を足す commit は、 全 repo の pre-commit の `check-session-shape.py` が BLOCK する (公開 repo では warn)。
 
 ## <a id="fingerprint-noise"></a>8. 書式の fingerprint の較正 (何を「同じ」 と見なすか)
 

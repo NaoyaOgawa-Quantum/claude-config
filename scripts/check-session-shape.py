@@ -22,6 +22,12 @@ README.md / CLAUDE.md / AGENTS.md にも同じ gate が「生成器」 を見る
   - README が自分を正本と宣言する行 (`本 README が正本` 等) = 非公開 repo (.claude/public-repo.marker 無し) では止める、
     公開 repo では warn (build / quickstart の home は README、 CONVENTIONS.md#readme-style の判別軸)
   - README に日付の節・commit hash = warn (変更履歴は git log)
+  - README に値の出典の表 (見出し行のどれかの列が「出典」 で始まり、 次の行が区切り) か `<!-- formcase:history -->` 区間を
+    足す行 (kind readme-source-table / readme-history-region) = 非公開 repo では止める、 公開 repo と不明は warn。 README は
+    説明と正本への参照だけで、 値の出典の正本はその値を書く script の行 (`# 出典:`)、 経緯の正本は README でない file
+    (form-case-pipeline.md#case-readme)。 backtick の中・code fence の中・生成 view (formcase:view) の中は見ない。 足す行だけを
+    見るので、 表や区間を外す commit は通る。 --fleet は repo の奥の README (git ls-files) まで数える
+    (実測: 案件 dir の README に出典の表と経緯の区間が溜まり、 README が正本になっていた)
   - CLAUDE.md / AGENTS.md が「README / SESSION に (決定・成果物・状態を) 書け」 と指示する行 = warn (規約の役割表と衝突する
     手順書 = 違反の生成器。 実測: 案件の README に締切・状態を書けと命じた repo の CLAUDE.md、 「重要な判断時 → SESSION.md に
     決定事項を記録」 の雛形が 5 repo に残っていた)
@@ -88,6 +94,63 @@ NEGATION_RE = re.compile(
     r"|索引|index|一覧|目次"  # README の索引・一覧への追記は入口の役割そのもの
     r"|廃止|持たない|旧 step"  # 過去の手順を廃止したと述べる行は生成器でない
 )
+# README に正本を置かない (出典・経緯): 値の出典の表 (見出し行に「出典」 で始まる列 + 次の行が区切り) と
+# formcase:history 区間 (経緯の除外区間)。 backtick の中・code fence の中・生成 view (formcase:view) の中は見ない。
+HIST_OPEN_RE = re.compile(r"(?<!`)<!-- formcase:history -->(?!`)")
+VIEW_OPEN_RE = re.compile(r"(?<!`)<!-- formcase:view [^>]*-->(?!`)")
+VIEW_CLOSE_RE = re.compile(r"(?<!`)<!-- /formcase:view -->(?!`)")
+TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$")
+README_BODY_HINT = ("README は説明と正本への参照だけ: 値の出典 = その値を書く script の行の後ろの `# 出典:`、"
+                    " 経緯 = README でない file (案件 dir の `経緯.md` 等)")
+
+
+def readme_skip_lines(lines: list[str]) -> set[int]:
+    """code fence の中と生成 view (formcase:view) の中の行番号 (1 始まり)。 README の出典表・history 区間の検査が見ない行。"""
+    skip: set[int] = set()
+    in_fence = in_view = False
+    for i, l in enumerate(lines, 1):
+        if l.lstrip().startswith("```"):
+            skip.add(i)
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            skip.add(i)
+            continue
+        if in_view:
+            skip.add(i)
+            if VIEW_CLOSE_RE.search(l):
+                in_view = False
+            continue
+        if VIEW_OPEN_RE.search(l):
+            skip.add(i)
+            in_view = not VIEW_CLOSE_RE.search(l)
+    return skip
+
+
+def is_source_table_header(line: str) -> bool:
+    """表の行で、 どれかの列が「出典」 で始まる (= 値の出典の表の見出し行の候補。 次の行が区切りかは呼び元が見る)。"""
+    s = line.strip()
+    if not s.startswith("|") or s.count("|") < 3:
+        return False
+    cells = [c.strip().strip("*`").strip() for c in s.strip("|").split("|")]
+    return any(c.startswith("出典") for c in cells)
+
+
+def readme_body_counts(text: str) -> tuple[int, int]:
+    """(出典の表の数, formcase:history 区間の数)。 fleet 用。"""
+    lines = text.splitlines()
+    skip = readme_skip_lines(lines)
+    src = hist = 0
+    for i, l in enumerate(lines, 1):
+        if i in skip:
+            continue
+        if HIST_OPEN_RE.search(l):
+            hist += 1
+        if is_source_table_header(l) and i < len(lines) and TABLE_SEP_RE.match(lines[i]):
+            src += 1
+    return src, hist
+
+
 FIX_HINT = (
     "  → SESSION.md は案件ごとの現在地 1〜2 行 + 正本への link (置き換える、 足さない)。 何をした・commit・結果・承認は"
     " 正本 (DESIGN.md / plan / 台帳) へ。 契約 = " + RULE_DOC + " / 直し方 = " + HOWTO_DOC
@@ -124,9 +187,13 @@ def classify(basename: str) -> str | None:
     return None
 
 
-def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bool | None) -> list[Finding]:
-    """追加行 (行番号, 本文) の列に形の述語を当てる。 public = repo が公開 (marker あり) / None = 不明。"""
+def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bool | None,
+               context: list[str] | None = None) -> list[Finding]:
+    """追加行 (行番号, 本文) の列に形の述語を当てる。 public = repo が公開 (marker あり) / None = 不明。
+    context = その file の (書いた後の) 全行 = README の出典表の区切り行・code fence・生成 view の判定に使う (無ければ追加行だけで見る)。"""
     out: list[Finding] = []
+    ctx = context if context is not None else [t for _n, t in lines]   # 断片 (hook) は 1 始まりの連番 = 行番号と一致
+    skip = readme_skip_lines(ctx) if kind == "readme" else set()
     for lineno, text in lines:
         if kind == "session":
             if DATED_HEADING_RE.match(text):
@@ -154,6 +221,15 @@ def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bo
                 out.append(Finding("WARN", path, lineno, "dated-heading", "README の日付つき節 = 変更履歴は git log か CHANGELOG へ", text))
             if HASH_RE.search(text):
                 out.append(Finding("WARN", path, lineno, "commit-hash", "README に commit hash (履歴は git log)", text))
+            if lineno not in skip:
+                sev = "BLOCK" if public is False else "WARN"
+                if HIST_OPEN_RE.search(text):
+                    out.append(Finding(sev, path, lineno, "readme-history-region",
+                                       "README に formcase:history 区間 = 経緯を README に置く形。 " + README_BODY_HINT, text))
+                nxt = ctx[lineno] if 0 < lineno < len(ctx) else ""
+                if is_source_table_header(text) and TABLE_SEP_RE.match(nxt):
+                    out.append(Finding(sev, path, lineno, "readme-source-table",
+                                       "README に値の出典の表 (見出しに「出典」 の列) = 出典を README に置く形。 " + README_BODY_HINT, text))
         elif kind == "entry":
             if HOME_REDIRECT_RE.search(text) and not NEGATION_RE.search(text):
                 out.append(Finding("WARN", path, lineno, "home-redirect",
@@ -220,11 +296,13 @@ def staged_findings(repo: Path) -> tuple[list[Finding], list[str]]:
     findings: list[Finding] = []
     for path in sorted(targets):
         kind = classify(Path(path).name)
+        context = None
         if kind == "readme":
             head = blob_text(f":{path}", repo) or ""
             if AUTO_GENERATED_RE.search("\n".join(head.splitlines()[:5])):
                 continue  # 生成物 (別の drift 検査が持つ)
-        findings.extend(scan_lines(kind, path, added[path], public=public))
+            context = head.splitlines()
+        findings.extend(scan_lines(kind, path, added[path], public=public, context=context))
         if kind == "session":
             new_n = line_count(blob_text(f":{path}", repo))
             old_n = line_count(blob_text(f"HEAD:{path}", repo))
@@ -296,6 +374,24 @@ def iter_files(root: Path, name_pred, depth: int = 2):
                         yield f
 
 
+def iter_repo_readmes(root: Path):
+    """root 直下の各 git repo の追跡された README*.md (深さを問わない)。 出典の表・history 区間は案件 dir の奥の README に出るので、
+    深さ 2 までの iter_files では届かない。 git が読めない repo は飛ばす。"""
+    try:
+        subs = sorted(d for d in root.iterdir() if d.is_dir() and not d.name.startswith(".") and (d / ".git").exists())
+    except OSError:
+        return
+    for d in subs:
+        rc, out = _git(["ls-files", "-z", "--", "*README*.md"], d)
+        if rc != 0:
+            continue
+        for rel in out.split("\0"):
+            if rel and README_RE.match(Path(rel).name):
+                p = d / rel
+                if p.is_file() and not p.is_symlink():
+                    yield p
+
+
 def mode_fleet(root: Path, limit: int = 15) -> int:
     rows: list[tuple[int, str]] = []  # (severity 2/1, line)
     if not root.is_dir():
@@ -338,6 +434,21 @@ def mode_fleet(root: Path, limit: int = 15) -> int:
             if README_SELF_SOT_RE.search(l):
                 rows.append((1, f"🟡 {f.relative_to(root)}:{i}: README が自分を正本と宣言 ({'公開 repo = build/quickstart なら可' if public else '非公開 repo = 正本は CLAUDE/DESIGN/台帳'})"))
                 break
+    for f in iter_repo_readmes(root):
+        try:
+            raw = f.read_bytes()
+        except OSError:
+            continue
+        if raw.startswith(b"\x00GITCRYPT"):
+            continue  # locked = 読めない (見ていないことは他の検査が出す)
+        text = raw.decode("utf-8", errors="ignore")
+        if AUTO_GENERATED_RE.search("\n".join(text.splitlines()[:5])):
+            continue
+        src, hist = readme_body_counts(text)
+        if src or hist:
+            parts = ([f"出典の表 {src}"] if src else []) + ([f"formcase:history 区間 {hist}"] if hist else [])
+            rows.append((1, f"🟡 {f.relative_to(root)}: README に " + " / ".join(parts)
+                         + " (= 出典は値を書く script の行、 経緯は README でない file へ)"))
     for f in iter_files(root, lambda n: n in ENTRY_DOCS, depth=1):
         try:
             text = f.read_text(encoding="utf-8", errors="ignore")
@@ -517,6 +628,53 @@ def run_selftest() -> int:
               and "b/CLAUDE.md" in r.stdout, "fleet: 日付の節の file を 🔴、 健全な file は出さず、 生成器の CLAUDE.md を 🟡")
         r = run(["--fleet", "--root", str(root / "none")], root)
         check(r.returncode == 0 and r.stdout == "", "fleet: 無い root は沈黙 0")
+
+        # 13. README の値の出典表と formcase:history 区間 (= README に正本を置かない。 出典は値を書く script の行、 経緯は README でない file)
+        src_tbl = "# 案件\n\n| 欄 | 値 | 出典 |\n|---|---|---|\n| 申請日 | 2026-01-01 | 提出予定日 |\n"
+        stage("docs/case-a/README.md", src_tbl)
+        r = run(["--staged"], repo)
+        check(r.returncode == 1 and "readme-source-table" in r.stdout, "staged: 非公開 repo の README に出典の表を足すと止まる")
+        unstage_all()
+        stage("docs/case-a/README.md", "# 案件\n\n<!-- formcase:history -->\n- 1/1 に提出\n<!-- /formcase:history -->\n")
+        r = run(["--staged"], repo)
+        check(r.returncode == 1 and "readme-history-region" in r.stdout, "staged: 非公開 repo の README に formcase:history 区間を足すと止まる")
+        unstage_all()
+        ok_readme = ("# 案件\n\n経緯 = [`経緯.md`](経緯.md)。 書き方の例: `<!-- formcase:history -->` は README に置かない。\n\n"
+                     "```\n<!-- formcase:history -->\n| 欄 | 値 | 出典 |\n|---|---|---|\n```\n\n"
+                     "<!-- formcase:view kind=cells form=x refs=A1 -->\n| セル | 欄 | 値 | 規則 |\n|---|---|---|---|\n<!-- /formcase:view -->\n\n"
+                     "| file | 何か |\n|---|---|\n| `fill_a.py` | 記入 (値の出典は各行の `# 出典:`) |\n")
+        stage("docs/case-a/README.md", ok_readme)
+        r = run(["--staged"], repo)
+        check(r.returncode == 0 and "readme-source-table" not in r.stdout and "readme-history-region" not in r.stdout,
+              "staged: backtick・code fence・生成 view の中と、 出典の列の無い表は見ない")
+        unstage_all()
+        stage("docs/case-a/README.md", src_tbl)
+        subprocess.run(["git", "commit", "-q", "-m", "legacy table"], cwd=repo, env={**env, ENV_ESCAPE: "0"}, check=True)
+        stage("docs/case-a/README.md", "# 案件\n\n値の出典 = `fill_a.py` の各行の `# 出典:`。\n")
+        r = run(["--staged"], repo)
+        check(r.returncode == 0 and "readme-source-table" not in r.stdout, "staged: 出典の表を README から外す commit は通る")
+        subprocess.run(["git", "reset", "-q", "--hard", "HEAD~1"], cwd=repo, check=True)
+        (repo / ".claude").mkdir(exist_ok=True)
+        (repo / ".claude" / "public-repo.marker").write_text("x\n", encoding="utf-8")
+        stage("docs/case-a/README.md", src_tbl)
+        r = run(["--staged"], repo)
+        check(r.returncode == 0 and "WARN" in r.stdout and "readme-source-table" in r.stdout, "staged: 公開 repo では出典の表は WARN (0)")
+        unstage_all()
+        (repo / ".claude" / "public-repo.marker").unlink(missing_ok=True)
+        r = run(["--text", str(repo / "docs" / "case-b" / "README.md")], repo, stdin="| 項目 | 値 | 出典 |\n|---|---|---|\n")
+        check(r.returncode == 1 and "readme-source-table" in r.stdout, "text: README の断片に出典の表 (見出し + 区切り) で止まる")
+        r = run(["--text", str(repo / "docs" / "case-b" / "経緯.md")], repo, stdin="<!-- formcase:history -->\n| 欄 | 値 | 出典 |\n|---|---|---|\n")
+        check(r.returncode == 0 and r.stdout == "", "text: README でない file (経緯.md) は見ない")
+        deep = fleet / "c"
+        (deep / "docs" / "case").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=deep, check=True)
+        (deep / "docs" / "case" / "README.md").write_text(src_tbl + "\n<!-- formcase:history -->\n- x\n<!-- /formcase:history -->\n", encoding="utf-8")
+        (deep / "docs" / "ok").mkdir(parents=True)
+        (deep / "docs" / "ok" / "README.md").write_text(ok_readme, encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=deep, check=True)
+        r = run(["--fleet", "--root", str(fleet), "--limit", "0"], root)
+        check("c/docs/case/README.md" in r.stdout and "出典の表 1" in r.stdout and "formcase:history 区間 1" in r.stdout
+              and "c/docs/ok/README.md" not in r.stdout, "fleet: repo の奥の README の出典の表と history 区間を数える (健全な README は出さない)")
 
     print("check-session-shape selftest:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
