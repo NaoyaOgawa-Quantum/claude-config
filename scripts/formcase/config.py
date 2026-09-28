@@ -38,8 +38,9 @@ key (すべて任意。 相対 path は config file のある dir から、 ``gl
   markers          {errata_note, precedent_prefix} (隔離 marker に入る呼び元の文 = errata の注記 /
                    「前例を base にしない」 一般則の link の前に置く語)
   scaffold         {spec_hint, process_hint, derived_workbook_suffix}
-  fidelity_log     雛形との照合の結果 (build ごと・group ごとの見出しの ⚠️ / ✅・画像の数) を足す jsonl (config dir から。
-                   空 = 記録しない)。 呼び元の dashboard が読んで「見出しの ⚠️ を block に上げる判断」 を出す (D3)
+  fidelity_log     雛形との照合の結果 (build ごと・group ごとの見出しの欠けた cell・止めたか・画像の数) を足す jsonl (config dir から。
+                   空 = 記録しない)。 呼び元の dashboard が読んで見出しの欠けが出た build の一覧を出す (誤検出なら spec の
+                   meta.accept_missing_labels に名指し)
 """
 from __future__ import annotations
 
