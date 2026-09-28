@@ -123,6 +123,7 @@ CSR SPA のニュース/結果ページの URL を多数検証する場面 (例:
 - **本文の検索結果**: 争点の語 (手数料・金額・証明) が掲載に**無い**ことも証拠になる = 頁の全文を読み込ませてから (下までスクロールして遅延読み込みを出す) 語を数え、 件数を記録に書く
 - **一覧**: 各ファイルが何を示すか + 取得日時 + `shasum -a 256` を 1 つの txt にまとめる
 - ⚠️ headless Chromium (`--headless --print-to-pdf`) は予約サイトの頁で終わらなかった (実測、 timeout)。 粘らずに pane + `screencapture` に切り替える
+- <a id="booking-docs-from-mail"></a>**予約サイトの領収書・予約確認書を事務に出す PDF にするときは、 受信メールの原本から作る** (実測): 予約サイトが送る「領収書」 メールはサイトの「領収書を印刷」 と同じ中身。 .eml から本文の HTML を取り、 `cid:` の画像を data URI に置き換えて、 ローカルの HTML を headless Chromium で PDF にする (ローカル file なら終わる)。 pane でサイトの「印刷」 を押すと print dialog、 page から file を保存させると毎回の保存確認が本人の画面に出る (本人に「いちいち出るのがうざい」 と言われた) = pane では取らない。 予約確認書には予約の暗証番号が載るので、 事務に出すなら伏せる
 - 保存先は git の外 (本人の同期ストレージ)。 記録 (TODO 等) には所在だけ書く ([`confidential-repo-boundary.md#physical-access-codes`](confidential-repo-boundary.md#physical-access-codes) と同じ扱い)
 
 ## <a id="cookie-replay-oauth-spa"></a>Browser cookie replay は OAuth-token SPA を認証しない (= member 限定クラウドフォルダは無人 upload 不可)
