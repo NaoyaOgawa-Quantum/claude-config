@@ -74,7 +74,9 @@ def git(repo, *args, check=True, capture=True):
 def signature(repo, rev: str, drop_path: str) -> str:
     """落とす file を除いた tree の指紋 (= 中身が同じかの判定)。"""
     listing = git(repo, "ls-tree", "-r", rev)
-    lines = [l for l in listing.splitlines() if l.split("\t", 1)[-1] != drop_path]
+    prefix = drop_path.rstrip("/") + "/"  # dir を落としたときは、 その下の file も除く (filter-repo の --path は dir も落とす)
+    lines = [l for l in listing.splitlines()
+             if (p := l.split("\t", 1)[-1]) != drop_path.rstrip("/") and not p.startswith(prefix)]
     return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
 
 
