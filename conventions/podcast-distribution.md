@@ -97,6 +97,7 @@ PNG は元の絵として手元に残す。
   `normalizeLoudness: false` でホストの音量調整を外す。`scheduledAt` の時差は無視される (上の節)
 - 読む = `episodes(ids)` / `podcast(id)`。紹介文は **HTML で保存される** (`<p>…</p>`)
 - 紹介文の書き換え = `updateEpisode` (題と公開範囲は必須。回の番号も渡す。状態・音声・出演者は省けば変わらなかった)
+- 音声の差し替え (仕上げを作り直したとき) = 同じ `updateEpisode` に `media: {audioPath}` (+ `normalizeLoudness: false`)。状態・公開時刻・出演者・画像は残る。⚠️ **紹介文 (`description`) を渡さないと空で上書きされる** (実測: 音声だけ渡したら全回の紹介文が消え、公開中の回も数分空になった) = 音声だけ替えるときも紹介文を毎回渡し、読み戻して空でないことを確かめる
 - **番組の設定 (説明文・配信先の URL・カテゴリ) を変える mutation は無い** = 画面から。作成画面ではカテゴリを 1 つしか選べない
 - 公式の MCP (`@ondinc/listen-mcp-server`) は読むだけ
 - 消したエピソードの URL は解放されない / 予約中・非公開の回は一覧に出ない / 上げた直後は長さが空 (いずれも [上の節](#scheduled-publish-api))
