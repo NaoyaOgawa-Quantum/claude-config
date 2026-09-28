@@ -33,6 +33,7 @@ harvest_message_ids = messageId だけの変種 (threadId を含めない)。 �
     from recorded_ids import harvest_entry, harvest_message_ids, harvest_text, harvest_thread_ids
     known |= harvest_entry(entry_dict)      # 台帳 entry 1 つ
     known |= harvest_text(free_text)        # yaml 外の散文
+    known |= harvest_yaml_files(Path(d).glob("*.yaml"))   # 台帳 dir の file 群 (読めない file は飛ばす = 未記録側に倒す)
     python3 recorded_ids.py                 # selftest (= round-trip contract)。 消費者の delegation 検査は下の層の shim が持つ
 
 消費者は上の harvest 関数から文字列の集合を受け取る。 MSGID_RE / THREADID_RE の findall を直接使うと、
@@ -42,6 +43,7 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import Path
 
 # canonical 述語 (= 書き手 house style との round-trip は本 file の selftest が固定)
 # 区切りは `:` / `=` (id の長さ不問) か、 空白 (= 散文の「messageId <hex>、」 形。 偶発一致を避けるため 12 桁以上に限る)。
@@ -123,6 +125,32 @@ def harvest_yaml_list(entries: list) -> set[str]:
     return out
 
 
+def harvest_yaml_files(paths, loader=None) -> set[str]:
+    """YAML file の列 (= 台帳 dir の glob) をまとめて harvest。 中身が list (台帳) でも dict (1 file 1 entry) でも読む。
+
+    読めない file (無い / parse 不能 / yaml module 無し) は**飛ばす** = その分は「未記録」 側に倒れる (記録済みの mail が
+    出続けることはあっても、 未記録の mail が黙って消えることはない = 検出器の fail-open は出す側)。
+    loader は yaml.safe_load 相当 (既定 = C 版の SafeLoader があればそれ、 無ければ pure python)。
+    """
+    out: set[str] = set()
+    if loader is None:
+        try:
+            import yaml
+        except ImportError:
+            return out
+        loader = lambda text: yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))  # noqa: E731
+    for p in paths:
+        try:
+            data = loader(Path(p).read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, list):
+            out |= harvest_yaml_list(data)
+        elif isinstance(data, dict):
+            out |= harvest_entry(data)
+    return out
+
+
 # ============================================================
 # selftest (= round-trip contract)。 house style に書式を足したら**ここに fixture を足してから**書き始める。
 # ============================================================
@@ -195,6 +223,22 @@ def run_selftest() -> bool:
         got = harvest_message_ids(entry)
         print(f"  {'PASS' if got == want else 'FAIL'}: message-only: {name}" + ("" if got == want else f": want={sorted(want)} got={sorted(got)}"))
         ok &= got == want
+    # file 群の harvest: list の台帳 + dict の 1 entry file + 壊れた file + 無い file (= 壊れ・不在は飛ばす)
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        (d / "a.yaml").write_text("- id: x\n  messageId: aaaa000000000031\n  log:\n    - \"続報 (mid:aaaa000000000032)\"\n", encoding="utf-8")
+        (d / "b.yaml").write_text("id: y\nthreadId: aaaa000000000033\n", encoding="utf-8")
+        (d / "broken.yaml").write_text("a: [1,\n", encoding="utf-8")
+        got = harvest_yaml_files([d / "a.yaml", d / "b.yaml", d / "broken.yaml", d / "missing.yaml"])
+        want = {"aaaa000000000031", "aaaa000000000032", "aaaa000000000033"}
+        files_ok = got == want
+        print(f"  {'PASS' if files_ok else 'FAIL'}: file 群: list の台帳 + dict の 1 entry file を読み、 壊れた file と無い file は飛ばす"
+              + ("" if files_ok else f": want={sorted(want)} got={sorted(got)}"))
+        ok &= files_ok
+        none_ok = harvest_yaml_files([d / "a.yaml"], loader=lambda _t: (_ for _ in ()).throw(ValueError("x"))) == set()
+        print(f"  {'PASS' if none_ok else 'FAIL'}: file 群: loader が例外を上げる file は飛ばす (= 空 = 何も消さない)")
+        ok &= none_ok
     return ok
 
 
