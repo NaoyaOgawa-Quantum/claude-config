@@ -610,6 +610,7 @@ Claude が memory に書きたがる構造バイアスの正体は多くの場�
 | <a id="change-on-both-paths"></a>**成功でも失敗でも起きる変化を「成功」 の合図にする** | 状態が変わった時点で成功と数える (cookie DB の session cookie が更新された = 入り直せた / 画面が遷移した = 送信できた) | **失敗の経路でも同じ変化が起きる**と、 失敗を成功と数える: ログイン画面そのものが未認証の session cookie を配る / 過負荷のサイトは正常に処理した後にもエラー画面を返し、 棄却した時にも成功風に遷移する。 書き出しの速さなど時機でしか分かれないので、 機械・時刻によって出たり出なかったりして故障に見える | 変化は「確かめる時機」 の合図にだけ使い、 成否は権限を持つ側 (server) に聞く = [`machine-route-first.md#sso-session-recovery`](../conventions/machine-route-first.md#sso-session-recovery) (受け入れを GET 1 本で確かめる) / [`web-form-automation.md#submit-truth-is-server-state`](../conventions/web-form-automation.md#submit-truth-is-server-state) (server 側の一覧) |
 
 **原則**: **属性が直接観測できるなら、 proxy でなく属性そのものを ground truth にする**。
+- **宣言した盲点は次の再発の予測**: 盲点の中で再発したら proxy の閾値でなく軸を変える。 防御を見送る判断には戻す観測を書く ([§19.8](#demoted-defense-reversal))。
 - 「色付きガイダンスが残ってないか」 → **rendered 色** (PDF span color = 非黒 0) を見る。 phrase whitelist でも docx run 属性でもない (どちらも盲点を持つ)。 具体: [office-automation.md#docx-guidance-deletion](../conventions/office-automation.md#docx-guidance-deletion)。
 - 「この fact は重複してないか」 → 真の属性は意味的 dedup。 registered-anchor 検出器はそれの **high-signal subset** にすぎない。
 - 「原則に反する記述が他に無いか」 → **proxy keyword 単独で grep せず、 否定 keyword も複数 + コード/散文の両方で再 sweep**。 単一 keyword で sweep すると「同じことを別表現で書いた箇所」 を見逃す。 具体: 2026-06-05「全シート把握原則 (read は hidden を skip しない)」 を立てた後 `continue`/`sheet_state` で sweep し「もう無い」 とした直後に、 本文「各 **visible** sheet を inspect」 (= 同じ hidden 除外を別表現で書いた箇所) を見逃した RCA。 → 原則を立てたら **その否定 keyword (`visible` / `active` / 「のみ」 等) でも**再 sweep する。 具体: [office-automation.md#multi-sheet-form](../conventions/office-automation.md#multi-sheet-form)。
@@ -2516,7 +2517,7 @@ origin: 外部システムへの提出作業で、4 対象ぶんの明細 data �
 
 ### <a id="time-keyed-file-appends-only"></a>19.7 時間を key にした状態 file は追記しかできない — 現在地は案件を key にし、 形を gate で守る
 
-**観察**: 「現在地」 を持つ file (SESSION.md 等) の entry を session や日付で key にすると、 過去の entry を置き換える slot が無く、 file は追記しかできない。 追記された「日付 + 何をした」 は書いた瞬間から変更履歴 = 恒久の記録で、 「揮発の現在地」 の契約と両立しない。 密度・byte・行数の proxy は形を見ないのでこの形を通し、 行数の目安は recall に依存して守られない (実測: 走査した状態 file のほぼ全部に日付の節、 移した本文の archive が数百 KB)。 手順書に「重要な判断で SESSION を更新」 と書くと、 判断の**内容**を SESSION に書く生成器になる (§8.12 の発火面の問題でなく、 手順書そのものが違反を作る)。
+**観察**: 「現在地」 を持つ file (SESSION.md 等) の entry を session や日付で key にすると、 過去の entry を置き換える slot が無く、 file は追記しかできない。 追記された「日付 + 何をした」 は書いた瞬間から変更履歴 = 恒久の記録で、 「揮発の現在地」 の契約と両立しない。 密度・byte・行数の proxy は形を見ないのでこの形を通し、 行数の目安は recall に依存して守られない (実測: 走査した状態 file のほぼ全部に日付の節、 移した本文の archive が数百 KB)。 手順書に「重要な判断で SESSION を更新」 と書くと、 判断の**内容**を SESSION に書く生成器になる (§8.12 の発火面の問題でなく、 手順書そのものが違反を作る)。 file の冒頭に置いた最も強い禁止の banner も key には勝てない (実測: banner を持つ file が最も長かった)。 **測り方**: 規律違反の頻度は、 その違反が強いる後片付け (痩身・MOVE・pointer 化) の commit の月次件数と archive の大きさで測れる = 定期的な縮退 campaign が要る規律は、 構造が違反を作っている合図。
 
 **対策**:
 1. key を案件 (= 状態が進む単位) にし、 操作を「置き換え」 にする ([§19.5](#state-as-one-record) の record と同じ向き)。 置き換えしかできない形なら、 経緯は入る場所が無い。
@@ -2525,6 +2526,15 @@ origin: 外部システムへの提出作業で、4 対象ぶんの明細 data �
 4. 「後で graduate する」 を前提にしない: 書いた記録は移されずに固着する (実測)。 移す作業は縮退の campaign になり、 縮退の記録がまた記録を作る。
 
 **適用**: SESSION.md = [`scripts/check-session-shape.py`](../scripts/check-session-shape.py) / [CONVENTIONS.md#session-no-durable-record](../CONVENTIONS.md#session-no-durable-record)。 同じ形は「入口の README に状態を書く」 (案件 README、 [form-case-pipeline.md](../conventions/form-case-pipeline.md)) と「memory file の予算」 ([memory-file-slimming.md#regrowth-backstop](../conventions/memory-file-slimming.md#regrowth-backstop)) にも現れる。
+
+### <a id="demoted-defense-reversal"></a>19.8 見送った防御には、 それを戻す観測を書く — 宣言した盲点は次の再発の予測として読む
+
+**観察**: 先の検討が write-time の gate を「真の違反は書く瞬間でなく、 後で移し損ねた固着」 と置いて見送り、 proxy の検出器 (識別子の密度・byte) だけを残し、 その盲点 (決定ログの散文・別種の識別子・小さな蓄積) を明記していた。 その後の再発は全部その盲点の中で起きたが、 反証の条件がどこにも書かれていなかったので、 各再発は「盲点の中の個別の事故」 として片付けられ、 見送りの判断は再訪されなかった (実測)。 検出器が緑を出し続けたことが、 蓄積を正当化する側に働いた。
+
+**対策**:
+1. 防御を見送る・弱める・proxy に置き換える判断には、 **戻す観測**を 1 行で書く (例: 「宣言した盲点の中で同じ class の違反が 1 件でも出たら write-time の gate を入れる」)。 観測が出たら再議論でなく実行する。
+2. **宣言した盲点は次の再発の場所の予測**として読む。 盲点の中で再発したら、 閾値でなく軸 (何を見るか) を変える ([§8.8](#proxy-blind-spot))。
+3. 人の訂正が繰り返される間に検出器が緑なら、 真の測定器は訂正の方で、 検出器の軸が違う。 訂正の記録 (会話・commit の後片付け) を数えて軸を選び直す ([§19.7](#time-keyed-file-appends-only) の測り方)。
 
 ## <a id="premise-bound-rule-expiry"></a>20. 規則は前提より長生きする — 上流属性の切替は下流定数の一括再判定を要求する
 
@@ -3574,5 +3584,6 @@ origin: ある session の誤断定を transcript から全部拾い直し、 �
 | 2026-09-14 | §8.50 新設「検出器が読む「人が書く一覧」 は育たない — 設定も SoT から導出し、 追随と死活を別々に検査する」 | 公開 repo の literal 照合の段が配線済みなのに一覧が空で、 守るべき class を stage しても実 hook が rc=0 で通った (実測、 temp repo と実 repo の 2 通り)。 一覧は ignore された machine-local の手書きで、 空のとき出る skip の 1 行は毎 commit 出るため noise に紛れていた。 「一覧が空」 は「対象が無い」 と同じ顔をする = §22 (probe の失敗が健全と同じ姿) の config payload 版・§8.34 (分岐の設定漏れ) の中身版。 対策 = SoT から生成 / 追随と死活を別検査 / 死活は実測 (検出されること + 無関係は通ること) / 生成物は ignore のまま各機で再生成 / 出力に項目を書かない / stoplist は ratchet。 実装 = 層1 `scripts/build-sensitive-terms.py` (config は個人層)。 user 依頼 (「いちいちスイープするとかじゃなく予防を」)。 |
 | 2026-09-19 | §22 に第 4 例「capability probe の空を『非対応』 に畳むと silent な機能後退になる」 を追加 | 常駐 server の installer が `<cli> <subcommand> --help` の grep で flag 対応を判定していたが、 その CLI は未認証だと `--help` でも 1 文字も返さず即 exit する = 認証切れ中に再実行しただけで命名が黙って外れた構成が書き込まれた (実測)。 第 1〜3 例と同じ「1 つの空値に 2 つの意味を畳む」 だが、 結果が沈黙でも余計な動作でもなく **silent な機能後退** (出力は壊れず install は成功で終わる) である点が新しい。 一般形 = capability probe は 対応/非対応/**判定不能** の 3 値で、 判定不能を非対応に畳むと環境の一時的劣化が構成の恒久的劣化になる。 対策 = 空を先に分岐 / 既存構成を証拠として引き継ぐ / どちらの経路でも警告を出す。 実装 = 層1 `scripts/install-remote-control-server.sh`。 user 依頼 (「考え方も含めて正本と参照を整備、 なるべく上層に」)。 |
 | 2026-09-20 | §24 新設「環境に依存する値は『配る物』 に焼かない — 実行時に導くか、 導けない形式なら install 時に生成する」 | 常駐 helper の配布一式で、 helper が呼ぶ script の path に home が焼かれ、 OS の job 定義は home の絶対 path を持ったまま repo に追跡されていた (実測)。 後者は手順書の「雛形を copy する」 が literal を再生産する形で固定化していた。 三択 (実行時に導く / install 時に生成 / 理由つき literal) + **literal が正しい 3 型** (安定した一意の識別子・展開しない API に渡す値・検査の検体) + **記録は掃除の対象でない** (backup / log / 実測の control を書き換えると一次資料と帰属が壊れる) + **展開するのは読む側** (安全な引用 helper は単引用符で囲むので展開を殺す = 見た目は汎用・実体はハードコード) まで含む。 §10 の観客の話が実行物に現れた形・§22 の「見なかったと無かったを分ける」 が走査の除外に現れた形。 user 依頼。 |
+| 2026-09-28 | §19.8 新設「見送った防御には、 それを戻す観測を書く — 宣言した盲点は次の再発の予測として読む」 + §19.7 に測り方 (後片付けの commit を数える) + §8.8 に盲点の読み方 | SESSION の形の gate の RCA で、 先の proxy 検出器の宣言済み盲点の中で再発が続いていた |
 | 2026-09-28 | §19.7 新設「時間を key にした状態 file は追記しかできない — 現在地は案件を key にし、 形を gate で守る」 | SESSION.md の形の gate (check-session-shape.py) の一般則: 日付 key の追記 = 変更履歴、 proxy は形を見ない、 手順書が生成器になる |
 | 2026-09-20 | §8.12 に「配線した瞬間と、 効き始める瞬間は別」 (#wired-is-not-yet-firing) を追加 | 検出器を別の機械へ配る作業で、 「pull すれば効く」 が面によって正しくないと分かった (実測): session 開始時に読まれる設定に登録した hook は**次の session から**、 実行のたび source を読む入口は**即時**、 自動発見される test は**runner の次回起動**、 無人の定期実行は**次の発火時刻**。 含意 3 つ = 「配って終わり」 の前に最初に鳴る機会を面ごとに答える / 配線直後に鳴らないのを壊れたとも動いているとも誤診しない (死活は壊れた state の注入でしか確かめられない) / 遅れの無い面を併設すると待ち時間が実質ゼロになる (§8.12 が 2 面を勧める理由が遅延の面でも効く)。 user 依頼。 |
