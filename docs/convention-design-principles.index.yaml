@@ -881,6 +881,10 @@ sections:
     legacy: "8.76"
     level: 3
     title: "8.76 「読み直す」 は起きるが 「取りに行く」 は起きない — 誤断定のうち人に届くのは、 確認の referent が出力窓の外にあるものだけ"
+  - id: ledger-filter-on-the-reader
+    legacy: "8.77"
+    level: 3
+    title: "8.77 別の process が書く cache に台帳の抑制を効かせるなら、 読む側の全部に当てる — fail-open な検出器は失敗の件数だけでなく種類を残す"
   - id: environment-literal-placement
     legacy: "24"
     level: 2

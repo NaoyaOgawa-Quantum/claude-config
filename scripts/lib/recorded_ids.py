@@ -29,6 +29,13 @@ harvest_message_ids = messageId だけの変種 (threadId を含めない)。 �
   出す読み手用。 threadId を混ぜると thread の root message (= 多くは threadId と同値) だけが「記録済み」 に見えて
   続報の未認識が隠れる。
 
+読み手の述語 (= 検出器が finding を「記録済み」 として落とすとき): **message の id で判定し、 thread の id の一致では
+  落とさない**。 thread が記録されていても、 そこに後から届いた message は未記録 (通知系の mail は 1 thread にまとまる、
+  ML の続報も同じ = 実測: thread の一致で落とす検出器が新しい依頼を隠した)。 thread だけ記録された entry の root
+  message は id が threadId と同値なので、 known を messageId ∪ threadId (harvest_entry / harvest_yaml_files) にしておけば
+  その message だけ落ちる (root を落とすかは読み手の判断。 書き手の道具は root を「読んだ message」 として索引に載せない
+  = conventions/mail-thread-ledger.md)。
+
 使い方:
     from recorded_ids import harvest_entry, harvest_message_ids, harvest_text, harvest_thread_ids
     known |= harvest_entry(entry_dict)      # 台帳 entry 1 つ

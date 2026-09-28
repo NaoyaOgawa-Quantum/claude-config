@@ -78,7 +78,9 @@ job health (--job-label-prefix、 opt-in、 repeatable):
   engine が import で終わる。 fail-open の engine は exit 0 で終わるので、 そのマシンの中からも成功に見える
   (conventions/shell-env.md#job-python-by-capability)。 そこで各ジョブについて次を記録し、 reader が他マシンから見る:
   - last_exit = `launchctl list` の最後の終了コード (未実行は null)
-  - python = job 定義の PATH (ProgramArguments の `export PATH="..."` か EnvironmentVariables) で解決した python3
+  - python = job の実行環境の PATH で解決した python3 (job 定義の `export PATH="..."` / EnvironmentVariables >
+    無ければ launchctl print が記録した「継いだ環境」 の PATH = 本人の shell から bootstrap した job はその PATH で走る >
+    launchd 既定)。 実測: 定義に PATH の無い daemon が package manager の python3 を継いで依存を読めずにいた
   - python_runs = その python3 が起動できるか (Xcode の gate の exit 69 等で落ちれば False)
   - python_ok = その python3 が --job-python-modules を全部 import できるか。 未指定なら null
   - bare_in_command = job の command (起動の関門など) が `python3` を PATH で呼ぶか
@@ -320,21 +322,53 @@ def collect(rc_prefix, cron_prefix, inventory_specs=None, job_prefixes=None, job
 # コマンドとして呼ぶ位置の python3 だけ (行頭 / ; & | ( ` / $( / exec then do else の直後)。 文字列中の語は数えない
 _BARE_PY_RE = re.compile(r"(?:^|[;&|(`]\s*|\$\(\s*|\b(?:exec|then|do|else)\s+)python3\s")
 _EXPORT_PATH_RE = re.compile(r'export PATH="([^"]*)"')
-_WRAPPER_RE = re.compile(r'(?:exec\s+)?bash\s+"([^"]+\.sh)"')
+# wrapper = `exec bash "<x>.sh"` のほか、 ProgramArguments が ["/bin/sh", "<x>.sh"] の形 (quote なし・sh) も
+# (実測: 30 分ごとの通知 daemon がこの形で、 wrapper の素の python3 が検査の外だった)
+_WRAPPER_RE = re.compile(r'(?:exec\s+)?(?:/bin/)?(?:ba)?sh\s+"?([^\s"]+\.sh)"?')
+_INHERITED_PATH_RE = re.compile(r"inherited environment = \{(.*?)\n\s*\}", re.S)
 
 
 def _expand(p, home):
     return p.replace("$HOME", str(home)).replace("${HOME}", str(home)).replace("~", str(home), 1 if p.startswith("~") else 0)
 
 
-def job_path(plist, home):
-    """job 定義の PATH (command の最後の `export PATH="..."` > EnvironmentVariables.PATH)。 無ければ None (= launchd 既定)。"""
+def parse_inherited_path(text):
+    """`launchctl print gui/<uid>/<label>` の出力から、 job が継いだ環境の PATH を返す (無ければ None)。
+
+    job 定義に PATH が無くても launchd の既定 PATH で走るとは限らない: 本人の shell から bootstrap した job は
+    その shell の環境を継ぐ (conventions/shell-env.md#job-python-invisible)。 実測: package manager の python3 が
+    先に来る PATH を継ぎ、 依存の無い interpreter で engine が黙って終わっていた。
+    """
+    m = _INHERITED_PATH_RE.search(text or "")
+    if not m:
+        return None
+    for line in m.group(1).splitlines():
+        k, sep, v = line.strip().partition("=>")
+        if sep and k.strip() == "PATH" and v.strip():
+            return v.strip()
+    return None
+
+
+def inherited_path(label):
+    """この機械で今 load されている job の継いだ PATH (launchctl print、 失敗 = None)。"""
+    try:
+        rc, out = sh(["launchctl", "print", "gui/%d/%s" % (os.getuid(), label)], timeout=10)
+    except Exception:
+        return None
+    return parse_inherited_path(out) if rc == 0 else None
+
+
+def job_path(plist, home, label=None):
+    """job の実行環境の PATH: command の最後の `export PATH="..."` > EnvironmentVariables.PATH > (label があれば)
+    launchctl が記録した継いだ環境の PATH > None (= launchd 既定)。"""
     cmd = " ".join(str(x) for x in (plist.get("ProgramArguments") or []))
     m = _EXPORT_PATH_RE.findall(cmd)
     if m:
         return ":".join(_expand(p, home) for p in m[-1].split(":"))
     env = plist.get("EnvironmentVariables") or {}
-    return _expand(env["PATH"], home) if env.get("PATH") else None
+    if env.get("PATH"):
+        return _expand(env["PATH"], home)
+    return inherited_path(label) if label else None
 
 
 def resolve_in_path(name, path):
@@ -387,7 +421,7 @@ def job_health(label, status, plist, modules, home):
         except Exception:
             pass
     rec["bare_in_wrapper"] = bw
-    py = resolve_in_path("python3", job_path(plist, home))
+    py = resolve_in_path("python3", job_path(plist, home, label))
     rec["python"] = py
 
     def _probe(code):
@@ -619,6 +653,15 @@ def selftest():
         assert jb["python"] == str(jroot / "brew/python3") and jb["python_ok"] is False and jb["python_runs"] is False             and jb["bare_in_wrapper"] is True and jb["bare_in_command"] is False, jb
         jp = job_health("j.pick", "3", mkpl(str(w_pick), f"$HOME/brew:$HOME/sys"), ["yaml"], jroot)
         assert jp["bare_in_wrapper"] is False and jp["last_exit"] == 3, jp
+        # ProgramArguments が ["/bin/sh", "<wrapper>"] の形 (quote なし・sh) の wrapper も見る
+        # (実測: 通知 daemon がこの形で、 wrapper の素の python3 が検査の外だった)
+        js = job_health("j.sh", "0", {"ProgramArguments": ["/bin/sh", str(w_bare)]}, ["yaml"], jroot)
+        assert js["bare_in_wrapper"] is True and js["bare_in_command"] is False, js
+        assert _WRAPPER_RE.findall('/bin/sh /x/a-cron.sh') == ['/x/a-cron.sh']             and _WRAPPER_RE.findall('exec bash "/x/b.sh"') == ['/x/b.sh']             and _WRAPPER_RE.findall('sh -c "python3 x.py"') == []
+        # 継いだ環境の PATH: launchctl print の出力から (定義に PATH が無い job はこれで走る)
+        lc = ("\tinherited environment = {\n\t\tPATH => /opt/x/bin:/usr/bin\n\t\tSSH_AUTH_SOCK => /tmp/s\n\t}\n\n"
+              "\tdefault environment = {\n\t\tPATH => /usr/bin:/bin\n\t}\n")
+        assert parse_inherited_path(lc) == "/opt/x/bin:/usr/bin" and parse_inherited_path("state = running\n") is None
         jg = job_health("j.gate", "-", {"ProgramArguments": ["/bin/sh", "-c",
                         'export PATH="$HOME/sys"; cd x && python3 "gate.py" || exit 0; exec claude -p']}, ["yaml"], jroot)
         assert jg["bare_in_command"] is True and jg["bare_in_wrapper"] is False and jg["python_ok"] is True             and jg["python_runs"] is True and jg["last_exit"] is None, jg

@@ -3443,6 +3443,17 @@ origin: 取り消しと同じ依頼の作り直しを 1 つの応答に並べ、
 
 origin: ある session の誤断定を transcript から全部拾い直し、 到達したものと自己修正されたものを分けて比較した (実測。 自己修正側の 1 件では既存の null 検出器も発火していた)。 同 session で、 対策として書いた検査の docstring に「fail-closed」 と実態より強く書き、 その主張自体が窓の外 (= 自分の実装が実際に何を通すか) だったことが、 直後の横断 sweep で露見した。
 
+### <a id="ledger-filter-on-the-reader"></a>8.77 別の process が書く cache に台帳の抑制を効かせるなら、 読む側の全部に当てる — fail-open な検出器は失敗の件数だけでなく種類を残す
+
+検出器の cache (定期 job や dashboard が書く) と、 人が記録する台帳 (処理済みの mail の一覧など) は、 **別の process が別の時刻に書く**。 同型の症状が 2 つ出た (実測):
+
+1. <a id="suppress-at-read-time"></a>**台帳による抑制は読む側で当てる**: 「台帳に記録済みの item は出さない」 を cache を**書く**側だけに実装すると、 記録した直後の session では効かない (次の full scan まで出続ける = 記録しても消えない、 と人には見える)。 読む側が複数 (起動時の hook・digest・daemon) なら、 **その全部に同じ述語 1 つ**を当てる (述語は 1 か所に置き、 読み手は import する)。 台帳が読めない (無い・壊れた・部品が無い) ときは**何も落とさない** = 検出器の fail-open は出す側。 判定は item の id で (mail なら message の id。 thread の一致で落とすと、 既知の thread に後から届いた依頼が消える = [`email-surface-pattern.md#recorded-id-notation`](../conventions/email-surface-pattern.md#recorded-id-notation))。
+2. <a id="failure-kind-not-just-count"></a>**fail-open な検出器は失敗の種類を残す**: 取得の失敗を空として持ち越す設計 (= 失敗で「無い」 に倒さない、 [§22](#silent-probe-false-healthy)) は正しいが、 失敗の**件数**だけを残すと、 環境の欠陥 (依存を import できない interpreter = [`shell-env.md#job-python-invisible`](../conventions/shell-env.md#job-python-invisible)) と一時的な失敗 (上限・認証切れ・network) が区別できない。 しかも前者は**手で回すと別の interpreter で通る**ので再現せず、 「たまに失敗する」 として放置される。 失敗の種類を 1 語 (import / 認証 / network / 上限 / その他) で cache に残し、 表示の 1 行に載せる。 分類は依存 library の型名に依らず書く (= その library の無い環境でも selftest が走る)。
+
+- 姉妹: [§22](#silent-probe-false-healthy) (probe の失敗が健全と同じ姿になる) / [§8.24](#surfaced-not-consumed) (記録の無い item を差出人や件名で一律に消さない = 抑制は台帳の記録だけを根拠にする) / [§8.62](#steady-state-is-not-a-finding)
+
+origin: 実測 2 件 (記録した mail が予定の検出器に出続けた = cache を書く側にも読む側にも台帳の述語が無かった / 30 分ごとの通知 job が継いだ PATH の interpreter で依存を読めず、 見張りの cache を「全件取得失敗」 で上書きし続けた = 件数しか残らず原因が読めなかった)。
+
 ---
 
 ## <a id="environment-literal-placement"></a>24. 環境に依存する値は「配る物」 に焼かない — 実行時に導くか、 導けない形式なら install 時に生成する
@@ -3504,6 +3515,7 @@ origin: ある session の誤断定を transcript から全部拾い直し、 �
 
 | 日付 | 変更 | 動機 |
 |------|------|------|
+| 2026-09-28 | §8.77 新設「別の process が書く cache に台帳の抑制を効かせるなら、 読む側の全部に当てる — fail-open な検出器は失敗の件数だけでなく種類を残す」 (#suppress-at-read-time / #failure-kind-not-just-count) | 記録した mail が予定の検出器に出続けた + 定期 job が継いだ PATH の interpreter で依存を読めず、 見張りの cache を全件失敗で上書きし続けた (実測 2 件、 同型) |
 | 2026-09-25 | §8.75 新設「制御の依存も依存 — 前の結果で次を出すか決まる操作は、 同じ応答に並べない」 | 取り消しと同じ依頼の作り直しを 1 つの応答に並べ、 取り消しが「既に起動済み」 を返したときには 2 つ目も起動していた (実測) |
 | 2026-09-24 | §8.74 新設「組織の文書の『〜しないように』 を『できない』 と伝える前に、 文の強さと例外の手続きを確かめる」 | お願いの一文を読んで「できない」 と答え、 同じ束の別の文書に変更の手続きがあった (実測) |
 | 2026-09-23 | §8.12d に 5 つ目の形「他人への依頼を先に書く」 (#automate-before-asking-others) を追加 = 先に相手の手元で自動で動く仕組みを作り、 メールは報告にする | 運用の変更を共同編集者に頼むメールを、 仕組みより先に書いた |
