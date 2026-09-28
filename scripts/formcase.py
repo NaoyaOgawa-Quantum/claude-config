@@ -311,7 +311,7 @@ def cmd_new(args) -> int:
         print(f"   {res['notice']}")
     print(f"✏️  manifest → {res['manifest']}")
     print(f"✏️  記入 stub → {res['stub']}  (value=None の欄を一次情報から埋めて python3 で実行)")
-    print(f"✏️  README → {res['readme']}  (値の出典だけを書く。 状態は README 先頭の生成表 = manifest から)")
+    print(f"✏️  README → {res['readme']}  (状態は README 先頭の生成表 = manifest から。 値の出典は README でなく記入 stub の各行の `# 出典:`)")
     print(f"   次: python3 {res['stub'].name} --dry-run → 記入 → formcase.py build {args.case} --doc {args.doc}")
     return 0
 

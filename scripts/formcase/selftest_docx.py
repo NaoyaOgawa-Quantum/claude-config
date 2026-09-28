@@ -135,6 +135,8 @@ def run_docx_tests(tmp: Path, expect) -> None:
     stub = SC.docx_stub_text(dict(spec, _path=root / "fx.yaml"), "case", "~/x", "doc", "fill_doc.py")
     expect("docx stub: FIELDS / CHOICES / TEXTS を並べて run_docx を呼ぶ",
            all(k in stub for k in ("FIELDS = {", "'why': None", "CHOICES = {", "'role': None", "TEXTS = {", "run_docx(")))
+    expect("docx stub: 値の出典の置き場 = この file の各行の `# 出典:` (README に正本を置かない)",
+           "`# 出典: …`" in stub and "値の出典の正本 = この file" in stub, stub[:900])
     expect("docx: fill.run_docx がある", callable(getattr(FI, "run_docx", None)))
     expect("docx: 欄の場所が雛形に無ければ DocxFormError (= 雛形の改訂を黙って通さない)",
            _raises(DF.DocxFormError, DF.write,
