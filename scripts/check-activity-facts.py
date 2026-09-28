@@ -18,7 +18,10 @@ Two kinds of finding:
          date is a FACT even without an event word (2026-09-14: the house style put "when / which form / how
          many prints" right there), unless the date is the rule's own (追記 / 新設 / 版 next to it).
 The inventory (--scan-tree) reports FACT lines that are not in the ack list (hash of path + normalized line)
-and exits 1 if any are new, so an accepted line is decided once.
+and exits 1 if any are new, so an accepted line is decided once. The list is only consulted when you pass
+--ack: without it every acknowledged line counts as new, so a hand-run total says nothing about what is
+actually unreviewed (measured: a tree reporting 66 had 65 of them already on file). The wired callers
+(run-all-checks, local-ci) pass it; pass it too whenever you act on the number.
 
 Usage:
   check-activity-facts.py                         staged added lines of the repo in cwd (public repos only)
