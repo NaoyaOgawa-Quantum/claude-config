@@ -54,7 +54,7 @@ Gmail の読み = lib/gmail_read.py。
 selftest (= 偽の Gmail + 2 台帳の fixture、 API に触らない): t1 legacy 4 書式から未記録 = 全 message − harvester の集合 /
   t2 片方の台帳にしか無い entry を辿る / t3 書いた id の round-trip / t4 dry-run は byte 不変 / t5 項目の現在地・updated・
   email_ref / t6 --check が印 ≠ 最新を赤に / t7 notes を作らない・summary 4 行目 warn・enum 外を拒む / t8 再 parse 失敗で
-  戻す / t9 status_context は 1 行の JSON 文字列 / t10 移行は message として記録した id だけ / t11 root を載せない /
+  戻す / t9 status_context は 1 行の JSON 文字列 (t9b 日付は message の日、 記録した日でない) / t10 移行は message として記録した id だけ / t11 root を載せない /
   t12 --remigrate は root の行だけ外す / t13 todo/<id>.yaml の項目 / t14 自分発の相手 = 宛先 (索引と現在地)、
   返事でない message (新規・追送・転送) は --ctx-new-out / --ctx-new-in / t15 --relabel (相手の引き直し・下書きの
   行を外して印を戻す・Gmail に無い id は残す・他の field は不変・冪等)。
@@ -706,7 +706,10 @@ def compose_context(cfg: Config, p: dict, today: str, nxt: str) -> str:
     name, subj = counterpart(cfg, latest), (latest.get("subject") or "")[:40]
     ours, answer = owner_from(latest.get("from", ""), cfg.owner_tokens), answers_other_side(cfg, p["msgs"], latest)
     tpl = (cfg.ctx_sent if answer else cfg.ctx_new_out) if ours else (cfg.ctx_reply if answer else cfg.ctx_new_in)
-    return tpl.format(date=today, name=name, subj=subj, next=nxt)
+    # {date} = その message の日 (= 出来事の日)。 記録した日は updated が持つ。 数日遅れて記録すると
+    # 「記録した日に返事が来た」 と読める status_context になっていた (実測)
+    date = stamp(cfg, latest.get("internalDate"))[:10]
+    return tpl.format(date=today if date.startswith("0000") else date, name=name, subj=subj, next=nxt)
 
 
 def apply_plan(cfg: Config, p: dict, ledger: Ledger, todo_id: str | None, args, today: str, out=print) -> list[Path]:
@@ -1211,6 +1214,8 @@ def _selftest() -> int:
         raw_todo = (td / "ledger-a" / "TODO.yaml").read_text(encoding="utf-8")
         ctx_line = next(l for l in raw_todo.splitlines() if l.startswith("  status_context:"))
         check(json.loads(ctx_line.split(":", 1)[1].strip()) == todo["status_context"], "t9 status_context は 1 行の JSON 文字列")
+        late = compose_context(cfg, {"msgs": threads[("acct-a", m1)], "record": {m4}}, "2026-09-25", "wait")
+        check(late.startswith("2026-09-22 reply from Counter Part"), "t9b 遅れて記録しても status_context の日付は message の日 (記録した日でない)")
         out_lines.clear()
         check(run_record(cfg, ns, Ledger(cfg), gm, "2026-09-22", pr) == 0 and "未記録 0" in "\n".join(out_lines), "2 回目は未記録 0 (冪等)")
         p = td / "ledger-a" / "inbox" / "2026-09.yaml"
