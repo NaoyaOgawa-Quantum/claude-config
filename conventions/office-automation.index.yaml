@@ -85,7 +85,7 @@ sections:
     related: [fitz-pdf-toolkit, xlsx-to-pdf-script, excel-osascript-cell-write, symptom-index]
   - id: excel-form-control-render
     level: 3
-    title: "⚠️ Excel の form control (checkbox) は枠の大きさの raster 画像として刷られる — 辺の欠け・箱の縦ズレ・読めない ✓ の 3 つの罠"
+    title: "⚠️ Excel の form control (checkbox) は立体の箱なら枠の大きさの raster 画像、 平らな箱なら vector で刷られる — 辺の欠け・箱の縦ズレ・読めない ✓ の 3 つの罠"
   - id: numeric-string-becomes-number
     level: 3
     title: "ID 的な数字列は書式を text に固定してから書く (= Excel が数値化して機械照合が落ちる)"
