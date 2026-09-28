@@ -91,7 +91,7 @@ claude-config/
 │   ├── macos-claude-app-notifications.md   # Claude for Mac (desktop / Code タブ) の通知音が鳴らない・通知が来ないとき + macOS の通知が全般に鳴らない原因を調べるとき + 集中モード (おやすみモード) の設定画面を user に案内する前
 │   ├── macos-claude-app-pty-leak.md        # macOS で forkpty: Device not configured が出たとき
 │   ├── macos-claude-app-thinking-display.md # Claude for Mac (desktop / Code タブ) で思考 (thinking) の要約が画面に出ない・「考え中」 / 「思考」 の表示が見つからないとき + 思考の表示を既定にしたいとき + settings.json の showThinkingSummaries が desktop で効くか判断する前
-│   ├── macos-claude-code-tcc-recurring-prompt.md # Claude Code の App Management TCC dialog が繰り返し出るとき + 版番号 (2.1.NNN) だけのポップアップ・process 名を見たとき
+│   ├── macos-claude-code-tcc-recurring-prompt.md # Claude Code の App Management TCC dialog が繰り返し出るとき + 版番号 (2.1.NNN) だけのポップアップ・process 名を見たとき + 自作 CLI の TCC 許可ダイアログが「許可」 を押しても出直すとき (#half-signed-universal-binary)
 │   ├── macos-clickable-notifications.md    # script や定期ジョブから macOS 通知を出す前 + 出している通知をクリックしても何も起きない / 関係ないアプリが開くと気づいたとき + 通知を出すアプリを作り直す前 + 複数の source から集めた finding の 1 行を通知本文に選ぶとき
 │   ├── macos-exec-policy-kill.md           # script や git hook の実行が SIGKILL で止まるとき (exit 137 / "Killed: 9" / git の "hook ... died of signal 9") + 同じ中身の script が場所によって kill されたりされなかったりするとき + syspolicyd が重い・メモリが膨らんでいるとき + 別のアプリの起動失敗が大量に続いた後に手元の script が動かなくなったとき
 │   ├── macos-filevault.md                  # FileVault を入れるか決めるとき + 有効か無効かを判断するとき + 復旧キーの置き場を決めるとき + 復旧キーを画面から書き取ったとき + 無人 routine を走らせる機を選ぶとき

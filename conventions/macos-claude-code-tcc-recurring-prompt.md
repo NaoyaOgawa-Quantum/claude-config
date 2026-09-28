@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: Claude Code の App Management TCC dialog が繰り返し出るとき + 版番号 (2.1.NNN) だけのポップアップ・process 名を見たとき
+when: Claude Code の App Management TCC dialog が繰り返し出るとき + 版番号 (2.1.NNN) だけのポップアップ・process 名を見たとき + 自作 CLI の TCC 許可ダイアログが「許可」 を押しても出直すとき (#half-signed-universal-binary)
 category: macos
 summary: Claude Code の app bundle が `~/Library/Application Support/Claude/claude-code/<version>/claude.app` という versioned path に置かれているため、 App Management TCC 権限が auto-update 毎に invalidate されて dialog が再 prompt される構造的症状 (= sibling pty-leak と同じく Anthropic 側 fix 待ち候補、 stable launcher path 化が root 対策)
 -->
@@ -97,6 +97,14 @@ Anthropic 側 fix を待つ前提なら、 dialog が出たときだけ押す運
 - ∴ macOS が process 名を出す面 (一時的なポップアップ・権限 dialog・Activity Monitor・unified log の `pid[名前]`) には `2.1.NNN` とだけ出て、 Claude だと読めない。 **版番号だけのポップアップを見たら、 まずこれを疑う** (実測)。
 - 切り分け: `readlink ~/.local/bin/claude` の版と一致するか → `/usr/bin/log show --last 2h --style compact --predicate 'eventMessage CONTAINS "<版>"'` で同名 process の起動時刻を見て、 hook・定期実行・session 開始が `claude` を呼んだ時刻と突き合わせる。 ⚠️ 通知センターの DB (`$(getconf DARWIN_USER_DIR)com.apple.notificationcenter/db2/db`) は閉じた通知の record が消えることがある = 「DB に無い」 は通知でなかった証明にならない。
 - desktop アプリの Code タブは同梱の別版 (上の versioned `claude.app`) を使う = **CLI と desktop の版が違うのは正常** (CLI は単体で自動更新、 同梱版はアプリの更新でだけ上がる)。 同梱版の path に付けた権限 (フルディスクアクセス等) は、 同梱版が上がると付け直しになりうる。
+
+## <a id="half-signed-universal-binary"></a>姉妹: 片 slice だけ署名した universal binary は許可が残らない
+
+- **症状**: 自作の CLI (EventKit でカレンダーを読む等) の TCC 許可ダイアログが、 「許可」 を押しても次の起動でまた出る。 ダイアログには CLI 自身の名前が出る (= 許可の帰属先が CLI 自身)。 launchd の定期ジョブから起動した時に出やすく、 端末や Claude から起動すると親 app の許可で通るので手元では再現しない
+- **原因**: arch ごとに build して `lipo -create` で合成すると、 arm64 の linker は ad-hoc 署名 (`flags=…(adhoc,linker-signed)`) を自動で付けるが、 x86_64 には付けない。 TCC が許可時に記録する要件 (`csreq`) は file から作った `cdhash H"…" or cdhash H"…"` の形で、 片側が未署名だと実行中の arm64 の cdhash がどちらとも一致しない = 毎回「未許可」 に戻る (実測)
+- **診断**: `codesign -dvvv --arch x86_64 <bin>` が `not signed at all` で、 `--arch arm64` には署名がある → 該当。 TCC.db の行の cdhash (`sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db "select hex(csreq) from access where client like '%<bin>%'"`、 読むにはフルディスクアクセスが要る) と `codesign -dvvv --arch arm64 <bin>` の `CDHash=` を突き合わせる。 ダイアログで止まった起動は unified log で `process == "<bin>"` の行が数行だけ (`Requesting full access` で途切れる) になるので、 何時に出ていたかを後から数えられる (`/usr/bin/log show`、 zsh では `log` が組み込みに取られる = [`shell-env.md#zsh-log-builtin`](shell-env.md#zsh-log-builtin))
+- **直し方**: `lipo` の後に `codesign -s - -f -i <逆ドメインの識別子> <bin>` で両 slice を署名し直し、 build script にも同じ行を入れる。 署名し直すと中身が変わるので、 各マシンで 1 回だけ許可し直す (以後は残る)。 ⚠️ build し直すたびに cdhash が変わる = そのたびに 1 回ずつ出る (ad-hoc 署名の限界。 証明書つきの署名なら要件が識別子になり、 build を跨いで残る)
+- **出始めるきっかけ**: 同じ CLI でも、 呼び出す側の interpreter を替える (Homebrew の python → Apple 純正の python 等) と許可の帰属先が親から CLI 自身へ移り、 それまで出なかったダイアログが出始める (実測: 定期ジョブの interpreter を替えた直後から 30 分ごとに出た)。 定期ジョブの実行環境を替えた後にダイアログが出始めたら、 まずこれを疑う
 
 ## 関連
 
