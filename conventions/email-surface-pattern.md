@@ -185,6 +185,7 @@ class に見えれば最上位に出る。 実測: 見送りを決めた依頼�
 他の網は共有の harvester を使っていて、 1 つの網だけが独自 regex だった)。 書式の読み取りは共有の関数 1 つに
 寄せ、 その関数に「どの網が使っているか」 の一覧と、 一覧の全員が実際に import しているかの selftest を持たせる。
 一般則 = [`data-pipeline-automation.md#multipath-key-normalization`](data-pipeline-automation.md#multipath-key-normalization)。
+共有の関数があっても、 **書き手の散文の形が契約の外なら同じ症状になる** (実測: thread の台帳の要約が `messageId <hex>、` と空白で区切って書かれ、 `messageId:` の形しか読まない harvester が記録済みの mail を session 開始のたびに「未認識」 に出し、 Stop の強制処分まで鳴り続けた)。 書式を 1 つに固定できない以上、 読み手が散文の空白区切り (12 桁以上の hex) と `thread_id:` の素値も読む。 症状が「記録したのに出続ける」 なら、 まず harvester にその台帳の text を通して id が拾えるかを確かめる。
 
 ## <a id="single-writer-thread-cursor"></a>記録の書き手を道具 1 つにし、 thread ごとに「読んだ位置」 の印を持つ
 
