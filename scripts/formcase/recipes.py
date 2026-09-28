@@ -64,7 +64,8 @@ def static_text_lines(spec: dict, group: str, pdf, filled=None, blank=None, doc:
 
     雛形の図形の字 (標題・区分の枠・様式番号・㊞) が無ければ**止める** (2026-09-25、 それまでは warn。 他の gate は
     書いたもの 〔記入値・字の切れ・記入要領〕 しか見ず、 雛形が元から紙に出す図形が消えても全部通った =
-    form-case-pipeline.md#fidelity)。 書き換えていない cell の見出し・素刷りとの画像の数・増えた字は行に出す (warn)。
+    form-case-pipeline.md#fidelity)。 書き換えていない cell の見出しの欠けと、 素刷りより少ない画像も止める (見出しは spec の
+    meta.accept_missing_labels に名指しした cell、 画像は meta.accept_loss に form control を宣言した様式だけ ⚠️)。 増えた字は行に出す (⚪)。
     filled = 体裁を当てた temp (無ければ案件の workbook) / blank = 素刷り。 docx 様式は雛形 docx で照合。
     検査が走らなかった時も黙らず ⚪ の行を出す (止めない = 検査の故障を違反と同じにしない)。
     doc = 案件の document (箱の案件ごとの上書き = 選んだ箱の数の期待に当てる、 fill・gate と同じ state)。"""
@@ -87,8 +88,8 @@ def case_is_scratch(case_dir, out_dir=None) -> bool:
 
 
 def log_fidelity(m, doc_id: str, group: str, rep: dict, stop, out_dir) -> None:
-    """雛形との照合の結果を設定 ``fidelity_log`` (jsonl) に 1 行足す (D3 の carrier = 見出しの ⚠️ / ✅ が案件ごとに残り、
-    誤検出の実測が溜まる。 読み手 = 呼び元の dashboard)。 設定が無ければ何もしない。 書けなくても build は止めない。
+    """雛形との照合の結果を設定 ``fidelity_log`` (jsonl) に 1 行足す (見出しの欠けた cell と止めたかが案件ごとに残り、
+    誤検出の実測が溜まる = spec の meta.accept_missing_labels に名指しするかの材料。 読み手 = 呼び元の dashboard)。 設定が無ければ何もしない。 書けなくても build は止めない。
     scratch = 照合用 (--out-dir) か repo の外に複製した案件の build (= 案件の数に数えない、 検収 2026-09-25 の指摘)。"""
     import datetime as _dt
     import json
@@ -748,11 +749,11 @@ def _build(m, doc_id, groups, out_dir=None) -> dict:
                     print(f"   ⚪ 箱の ✓ の重ね描きが走らなかった ({mk['error'][:80]}) = 読めない印は次の照合が止める")
                 else:
                     print(f"   ☑ 印の入った箱に ✓ を重ねた {mk.get('marked', 0)} 個 (control 自身の ✓ は紙で読めない = 実測)")
-            # 雛形との照合: 図形の字が無ければ止める / 見出し・素刷りとの画像の差・増えた字は行に (form-case-pipeline.md#fidelity)
+            # 雛形との照合: 図形の字・見出し・素刷りとの画像の数・箱の印が合わなければ止める (spec で受けたものだけ ⚠️) / 増えた字は行に (form-case-pipeline.md#fidelity)
             lines, stop, rep = static_text_lines(spec, g, plain, filled=_CURRENT.get("temp") or wb, blank=blank, doc=doc)
             for line in lines:
                 print("   " + line)
-            log_fidelity(m, doc_id, g, rep, stop, out_dir)   # D3 の carrier (見出しの ⚠️ / ✅ の記録)
+            log_fidelity(m, doc_id, g, rep, stop, out_dir)   # 見出しの照合の記録 (欠けた cell・止めたか)
             if stop:
                 raise BuildError(stop + " → 出力を書かずに中断")
             outs =(m.group(doc_id, g).get("current") or {}).get("outputs") or rc.default_outputs(wb.stem)[g]

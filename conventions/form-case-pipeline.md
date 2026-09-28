@@ -100,7 +100,7 @@ issue は `paper: same | differs | unverified` を必須にする。
 3. **字の切れ・はみ出し gate** を PDF に当て、 引っかかった欄を折り返し → 行を伸ばして刷り直す (上限つき)。
    残れば出力を書かずに止める
 4. **刷る頁の宣言** ([下記 §4](#page-roles)) を出力に書き込む
-5. **雛形との照合** ([下記 §14](#fidelity)): 雛形の図形の字が紙に無ければ出力を書かずに止め、 書き換えていない cell の見出し・素刷りとの画像の数の差・temp の census を行に出す
+5. **雛形との照合** ([下記 §14](#fidelity)): 雛形の図形の字・書き換えていない cell の見出し・素刷りとの画像の数のどれかが紙で欠ければ出力を書かずに止め (見出しは spec の `meta.accept_missing_labels` に名指しした cell、 画像は `meta.accept_loss` に form control を宣言した様式だけ ⚠️ の行)、 temp の census を行に出す
 
 ## <a id="layout-3"></a>3. 体裁の出どころは 3 つだけ (過去の案件の形を持たない)
 
@@ -385,7 +385,7 @@ label の組に挟まれた帯の中の水平の罫線・同じ label の二重�
 (`recipes.excel_chunks_pdf` / `hide_lines` / `fit_shape_lines`)。 docx は Word に段落ごとに書く ([`formcase/word.py`](../scripts/formcase/word.py)、
 段落番号の写像 = 本文 → 表の cell の段落 → 行末の記号、 書く前に雛形の字と照合)、 書いた後に欄の run の書式を雛形と照合する
 (`docx_form.run_format_lines`、 python-docx の `run.text` は空欄で既定の run を作り font・大きさが落ちる = 実測)。 build ごとの照合の
-結果は設定 `fidelity_log` (jsonl) に残す (見出しの ⚠️ を止める段に上げる判断の材料)。 formcase の外で openpyxl で保存する生成器は
+結果は設定 `fidelity_log` (jsonl) に残す (見出しの欠けた cell と止めたかの記録 = 誤検出の実測。 誤検出なら spec の `meta.accept_missing_labels` に名指しする)。 formcase の外で openpyxl で保存する生成器は
 保存の直後に `office_census.assert_no_paper_loss` (紙に出るものが減れば止める、 減ると知って出すときは `OFFICE_CENSUS_ALLOW_LOSS=1`)。
 
 **form control の箱** (様式の checkbox が Excel の form control 〔VML + `xl/ctrlProps/*`〕 のとき): 選択は**箱の値**で表し、 label の cell は雛形の字のまま (文字の ☑ / ○ を前置しない)。

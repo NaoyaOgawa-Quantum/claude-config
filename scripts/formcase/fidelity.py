@@ -2,7 +2,8 @@
 
 不変条件: 出力 (紙になる PDF) と、 雛形を道具を通さず同じ app で刷った素刷りとの差は、 記入の宣言 (記入欄 = 雛形との差 /
 導出欄 = 数式 / 体裁 = spec の render: / drop_shape / accept_loss) で説明できるものしか無い。 説明できない差は止める
-(図形の字) か行に出す (見出し・画像・census)。 参照を「前の出力」 にしない (docs/convention-design-principles.md#parity-against-own-output)。
+(図形の字・見出し・画像。 見出しは spec の meta.accept_missing_labels、 画像は meta.accept_loss で受けたものだけ ⚠️) か
+行に出す (census)。 参照を「前の出力」 にしない (docs/convention-design-principles.md#parity-against-own-output)。
 
 この module が持つもの:
   - bind: spec の雛形の sha256 を sidecar ``<spec>.bind.json`` に記録する (``formcase.py bind <form>``。 JSON = spec の
@@ -11,7 +12,8 @@
   - blank: 素刷り = Excel で雛形の当該 sheet の印刷範囲を 1 枚に収めて刷った PDF (他 sheet は非表示、 openpyxl を通さない)。
     cache = ``~/.cache/formcase/blank/<sha256 の頭 16 桁>/``。 Excel が無い・失敗 = None (呼び元が ⚪ を出す)
   - check_group: 層1 check-form-static-text.py を --json で回し、 図形の字 (🔴 = build を止める) / 書き換えていない cell の
-    見出し (⚠️) / 素刷りとの画像の数 (⚠️) / 増えた字 (⚪) の行にする
+    見出し (🔴 = build を止める。 spec の meta.accept_missing_labels に名指しした cell だけ ⚠️) / 素刷りとの画像の数 (🔴、
+    meta.accept_loss に form control を宣言した様式だけ ⚠️) / 増えた字 (⚪) の行にする
   - temp_census_lines: openpyxl で保存した temp の census (lib/office_census.py) を読み込み元と比べ、 紙に出る損失のうち
     spec の ``meta.accept_loss`` (理由つき) に無いものを ⚠️ に
   - fidelity_record: 出力 PDF の宣言 (print_pages の record) に載せる {template, sha256, targets, drop, blank} =
@@ -262,7 +264,8 @@ def check_group(spec: dict, group: str, pdf, filled=None, blank=None, doc: dict 
 def report_lines(rep: dict, spec: dict | None = None) -> tuple:
     """(表示の行, 止める理由 or None)。 図形の字の欠け = 止める (J1)。 素刷りより画像が少ない (checkbox の箱・図が
     紙に無い) = 止める (D1、 2026-09-25。 spec の ``meta.accept_loss`` に form control を理由つきで宣言した様式 =
-    openpyxl の temp で箱を落とすと決めた様式だけ ⚠️)。 見出し = ⚠️、 増えた字 = ⚪。"""
+    openpyxl の temp で箱を落とすと決めた様式だけ ⚠️)。 見出しの欠け = 止める (spec の ``meta.accept_missing_labels`` に
+    名指しした cell だけ ⚠️)、 増えた字 = ⚪。"""
     if "error" in rep:
         return [f"⚪ 雛形との照合が走らなかった: {rep['error']}"], None
     lines = []
