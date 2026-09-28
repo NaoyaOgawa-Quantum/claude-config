@@ -13,6 +13,10 @@
      楽天の「ご注文できない商品」 は楽天で扱えないだけのこともあるので弱い信号。 版元のサイトで在庫ありに
      絞る検索があれば、 それが一番強い (版元ごとに違うので道具には入れていない)。
   4. **ISBN が無い本がある** — 雑誌扱いの叢書や 1980 年代より前の本。 書名で引く。
+  5. **書店の商品ページが丸 1 日応答しないことがある** (nginx のエラー、 script でもブラウザでも同じ = 実測)。 その日は
+     `amazon` (通販の商品ページ、 商品 id = ISBN-10) で価格と入手を取る。 値付けは出品者込みで定価より高いことがあり、
+     「残り N 点」 は出品在庫。 空の応答が時々返るので間を置いて取り直す。 楽天の検索結果は洋書では海外取り寄せの上乗せで
+     定価と離れ「注文できない」 ばかりになる = 洋書の価格には使わない (実測)。
 
 手順と判断の一般則 = conventions/book-purchase-lookup.md。
 
@@ -23,6 +27,7 @@
   book-lookup.py opac  --url 'https://.../search?kw={q}' [--hit REGEX] [--item REGEX] ISBN|書名 [...]
                                                           その館の OPAC の検索件数と先頭の行 (結論はこちら)
   book-lookup.py price ISBN [...] [--rakuten]               openBD の登録価格 + 紀伊國屋の今の価格・在庫 (+ 楽天の表示)
+  book-lookup.py amazon ISBN [...]                          Amazon.co.jp の商品ページの価格 (出品者込み)・在庫・形態 (書店の商品ページが落ちている日の代替)
   book-lookup.py isbn13 ISBN10 [...]                        ISBN-10 → ISBN-13
   book-lookup.py --selftest                                 network に出ない検査
 
@@ -62,6 +67,16 @@ def to_isbn13(s: str) -> str | None:
     if re.fullmatch(r"97[89]\d{10}", d):
         return d if isbn13_check(d[:12]) == d[12] else None
     return None
+
+
+def to_isbn10(s: str) -> str | None:
+    """978 で始まる ISBN-13 を ISBN-10 に (979 は ISBN-10 を持たない)。 通販サイトの商品 id は ISBN-10 のことが多い。"""
+    d = to_isbn13(s)
+    if not d or not d.startswith("978"):
+        return None
+    core = d[3:12]
+    chk = (11 - sum((10 - i) * int(c) for i, c in enumerate(core)) % 11) % 11
+    return core + ("X" if chk == 10 else str(chk))
 
 
 # ---------------------------------------------------------------- HTTP / text
@@ -144,7 +159,12 @@ def parse_opac(text: str, hit: str, item: str | None) -> tuple[int, list[str]]:
     n = int(m.group(1))
     if not item:
         return n, [text[m.end():m.end() + 300].strip()]
-    return n, [x.strip()[:160] for x in re.findall(item, text[m.end():])][:5]
+    return n, [_clip(x.strip()) for x in re.findall(item, text[m.end():])][:5]
+
+
+def _clip(s: str, head: int = 130, tail: int = 20) -> str:
+    """長い行は頭と末尾を残して縮める (OPAC の区分「図書」「電子ブック」 は行末に付くので、 末尾を落とすと形態が読めなくなる)。"""
+    return s if len(s) <= head + tail + 1 else s[:head] + "…" + s[-tail:]
 
 
 # ---------------------------------------------------------------- price
@@ -172,6 +192,53 @@ def parse_rakuten(text: str, isbn: str) -> tuple[str | None, str]:
     if not m:
         return None, ""
     return m.group(2), re.sub(r"\s*送料無料\s*", " ", m.group(3)).strip()[:40]
+
+
+def _block(page: str, id_: str, n: int = 6000) -> str:
+    """id="..." を持つ要素の中身 (開始 tag の直後から n 字)。 無ければ空。"""
+    i = page.find(f'id="{id_}"')
+    if i < 0:
+        return ""
+    j = page.find(">", i)
+    return page[j + 1:j + 1 + n]
+
+
+def parse_amazon(page: str) -> dict:
+    """Amazon.co.jp の商品ページから 書名 / 価格 (税込表示) / 在庫の句 / 形態 を読む。 書名が取れなければ空の応答 (取り直す)。
+    価格は出品者の値付けを含む (定価とは限らない)。 「残り N 点」 は出品在庫の表示。"""
+    title = page_text(_block(page, "productTitle", 800).split("</", 1)[0]).strip()  # 要素の閉じで切る (後続の要素を拾わない)
+    if not title:
+        return {}
+    core = _block(page, "corePrice_feature_div")
+    m = re.search(r'a-offscreen">\s*(￥[\d,]+)', core) or re.search(r'a-offscreen">\s*(￥[\d,]+)', page)
+    avail = re.sub(r"在庫状況.*$", "", page_text(_block(page, "availability", 1500))).strip()
+    binding = page_text(_block(page, "productSubtitle", 300).split("</", 1)[0]) or page_text(_block(page, "productBinding", 300).split("</", 1)[0])
+    if not binding:
+        mb = re.search(r"(ペーパーバック|ハードカバー|単行本[^ ]*|文庫|新書)\s*[–-]\s*\d{4}/\d{1,2}/\d{1,2}", page_text(page[:200000]))
+        binding = mb.group(0) if mb else ""
+    return {"title": title[:80], "price": m.group(1) if m else "価格なし", "availability": avail[:40], "binding": binding[:40]}
+
+
+def cmd_amazon(a) -> None:
+    """大手書店の商品ページが落ちている日や自費出版の本の代替。 空の応答が時々返るので間を置いて 3 回まで取り直す。"""
+    for x in a.isbn:
+        i10 = to_isbn10(x)
+        if not i10:
+            print(f"{x}\t(ISBN-10 にできない = 商品 id が分からない)")
+            continue
+        row = None
+        for _ in range(3):
+            try:
+                r = parse_amazon(fetch(f"https://www.amazon.co.jp/dp/{i10}", timeout=40))
+            except urllib.error.HTTPError as e:
+                row = [x, i10, f"HTTP {e.code}", "", "", ""]
+                break
+            if r:
+                row = [x, i10, r["price"], r["availability"], r["binding"], r["title"]]
+                break
+            time.sleep(4)
+        print("\t".join(row or [x, i10, "取得失敗 (空の応答 3 回)", "", "", ""]))
+        time.sleep(2.5)
 
 
 # ---------------------------------------------------------------- commands
@@ -286,6 +353,15 @@ def selftest() -> int:
     k = parse_kinokuniya("電子版価格 ¥900 合成の本 価格 ¥2,200 （本体¥2,000） 合成出版 ウェブストアに3冊在庫がございます。")
     check(k == ("2,200", "2,000", "ウェブストアに3冊在庫がございます"), "紀伊國屋: 電子版価格を避けて紙の価格と在庫")
     check(parse_kinokuniya("内容説明 目次")[0] is None, "紀伊國屋: 価格が無いページは None")
+    check(to_isbn10(isbn13) == isbn10 and to_isbn10("9790000000000") is None, "ISBN-13 → ISBN-10 (979 は無し)")
+    check(_clip("a" * 200 + " 電子ブック").endswith("…" + ("a" * 200 + " 電子ブック")[-20:]) and _clip("短い行 図書") == "短い行 図書",
+          "OPAC の長い行は末尾の区分を残して縮める")
+    amz = ('<span id="productTitle" class="x"> 合成の本 </span><div id="corePrice_feature_div"><span class="a-offscreen">￥1,234</span></div>'
+           '<div id="availability" class="y"> 残り2点 ご注文はお早めに 在庫状況 について .css{} </div><span id="productSubtitle">ペーパーバック – 2020/1/1</span>')
+    ra = parse_amazon(amz)
+    check(ra == {"title": "合成の本", "price": "￥1,234", "availability": "残り2点 ご注文はお早めに", "binding": "ペーパーバック – 2020/1/1"},
+          "Amazon: 書名・価格・在庫の句 (在庫状況の後ろの css を捨てる)・形態")
+    check(parse_amazon("<html>empty</html>") == {}, "Amazon: 書名が無い応答は空 = 取り直す")
     rk = parse_rakuten(f"本 合成の本 ISBN：{isbn13} 2020年発売 ／ 合成出版 2,200円 (税込) 送料無料 ご注文できない商品 ※ページの更新", isbn13)
     check(rk == ("2,200", "ご注文できない商品"), "楽天: 検索結果のその本の行から価格と注文可否")
     return 0 if ok else 1
@@ -308,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("query", nargs="+"); p.set_defaults(fn=cmd_opac)
     p = sub.add_parser("price"); p.add_argument("isbn", nargs="+"); p.add_argument("--rakuten", action="store_true")
     p.set_defaults(fn=cmd_price)
+    p = sub.add_parser("amazon", help="Amazon.co.jp の商品ページの価格・在庫・形態 (書店の商品ページが落ちている日の代替、 値付けは出品者込み)")
+    p.add_argument("isbn", nargs="+"); p.set_defaults(fn=cmd_amazon)
     p = sub.add_parser("isbn13"); p.add_argument("isbn", nargs="+"); p.set_defaults(fn=cmd_isbn13)
     a = ap.parse_args(argv)
     a.fn(a)
