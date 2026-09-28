@@ -277,3 +277,7 @@ sections:
   - id: author-notes-as-comments
     level: 2
     title: "著者への注記は `%` comment + 見える印で置く (pdflatex は日本語の脚注を通さない)"
+  - id: symbol-rename
+    legacy: "1"
+    level: 2
+    title: "1 文字記号の一括改名 (y→x、 r→\\zeta_x の類) の手順 (2026-09)"
