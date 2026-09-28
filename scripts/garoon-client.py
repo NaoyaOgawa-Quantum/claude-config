@@ -11,7 +11,7 @@ subcommand:
   bulletin-categories                                           掲示板 category 一覧 (REST)
   bulletin-topics <category_id>                                 category 内の掲示一覧 (REST)
   bulletin-topic <topic_id>                                     掲示 1 件の本文 (REST)
-  download <fid> --app bulletin|cabinet --out <path>            添付 file の download (file_download.csp / download.csp)
+  download <fid> --app bulletin|cabinet --out <file か dir>     添付 file の download (dir なら server の file 名で置く)
   get <path> [--json]                                           任意 path を GET (= /g/... の HTML/JSON、 debug 用)
   status                                                        いま読めるか (GET 1 本。 切れていれば下の復帰を試す)
   doctor                                                        配線だけを見る (cookie を復号できて値が壊れていないか。 network なし、 健全なら無言)
@@ -150,8 +150,23 @@ class Garoon(CookieSession):
         r = self.get(path, params={"fid": fid})
         if r.status_code != 200 or r.headers.get("content-type", "").startswith("text/html"):
             raise SystemExit(f"download fid={fid} 失敗 {r.status_code} {r.headers.get('content-type')} (cabinet は fid だけで通る実測だが、 変わったら検索結果の downloadUrl を get で)")
-        Path(out).write_bytes(r.content)
-        return len(r.content), r.headers.get("content-type")
+        dest = Path(out)
+        if dest.is_dir():  # --out に dir を渡したら、 server の付けた file 名で置く (前は IsADirectoryError で落ちた)
+            dest = dest / disposition_name(r.headers.get("content-disposition", ""), f"fid{fid}")
+        dest.write_bytes(r.content)
+        return dest, len(r.content), r.headers.get("content-type")
+
+
+def disposition_name(cd, fallback):
+    """Content-Disposition から file 名 (RFC 5987 の filename* を優先)。 path の区切りは _ に。 取れなければ fallback。"""
+    from urllib.parse import unquote
+    m = re.search(r"filename\*\s*=\s*([^']*)'[^']*'([^;]+)", cd or "", re.I)
+    name = unquote(m.group(2).strip(), encoding=(m.group(1) or "utf-8")) if m else None
+    if not name:
+        m = re.search(r'filename\s*=\s*"?([^";]+)"?', cd or "", re.I)
+        name = m.group(1).strip() if m else None
+    name = re.sub(r"[/\\\x00]", "_", name or "").strip(". ")
+    return name or fallback
 
 
 def _strip(s):
@@ -180,6 +195,12 @@ def selftest():
         got = expired(code, loc, text, host)
         ok &= got == want
         print("PASS" if got == want else "FAIL", code, loc[:40], "->", got)
+
+    for cd, want in [("attachment; filename*=UTF-8''%E4%BA%88%E7%AE%97.pdf", "予算.pdf"),
+                     ('attachment; filename="a/b.xls"', "a_b.xls"), ("", "fid9")]:
+        got = disposition_name(cd, "fid9")
+        ok &= got == want
+        print("PASS" if got == want else "FAIL", "disposition", repr(cd[:30]), "->", got)
 
     def _parsed(argv):
         return build_parser().parse_args(argv)
@@ -295,7 +316,7 @@ def run(a, g):
     elif a.cmd == "bulletin-topic":
         print(json.dumps(g.rest(f"/bulletin/topics/{a.topic_id}"), ensure_ascii=False, indent=None if a.json else 1))
     elif a.cmd == "download":
-        n, ct = g.download(a.fid, a.app, a.out); print(f"saved {a.out} ({n} bytes, {ct})")
+        dest, n, ct = g.download(a.fid, a.app, a.out); print(f"saved {dest} ({n} bytes, {ct})")
     elif a.cmd == "get":
         r = g.get(a.path)
         print(r.text if not a.json else json.dumps(r.json(), ensure_ascii=False))
