@@ -105,7 +105,7 @@ Garoon 固有の実測:
 
 ## Download token の期限切れ (= 200 + login page)
 
-`download.csp` の URL は **`time=` 署名 token 付きで短時間で失効**する。 失効後の fetch は error でなく **HTTP 200 + login page HTML** (数 KB) を返す = サイズと `<title>ログイン</title>` で判別。 検索結果ページを reload して fresh な token を取り直してから扱う。 file の実取得自体は scripted download が silent block されるため [web-tools.md#browser-download-automation](web-tools.md#browser-download-automation) の fallback ladder (user click / cloud 共有リンク / メール添付) で運ぶ。
+`download.csp` の URL は **`time=` 署名 token 付きで短時間で失効**する。 失効後の fetch は error でなく **HTTP 200 + login page HTML** (数 KB) を返す = サイズと `<title>ログイン</title>` で判別。 検索結果ページを reload して fresh な token を取り直してから扱う。 **file の実取得の第一選択は `garoon-client.py download <fid> --app cabinet|bulletin --out <file か dir>`** (session 内 GET = `time=` token が要らない、 上の表の「添付 download」 行。 `--out` に dir を渡すと server の付けた file 名で置く)。 browser での取得が silent block される時の fallback ladder (user click / cloud 共有リンク / メール添付) = [web-tools.md#browser-download-automation](web-tools.md#browser-download-automation)。
 
 ## <a id="garoon-wiring-gap"></a>接続が通らない時 (= 配線 gap、 「読めない」 で終えない)
 
