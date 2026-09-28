@@ -1395,3 +1395,12 @@ latexdiff old.tex new.tex | sed '1s/^/\\PassOptionsToPackage{normalem}{ulem}\n/'
 **道具**: [`scripts/tex-first-use.py`](../scripts/tex-first-use.py) — `--pattern REGEX --defined-at LABEL` で初出の行と節を出し、 初出が定義より前で、 それより前にも直後にも定義への参照が無ければ exit 1。 `--exclude` で同じ形の別物 (次数ラベル `^{(2)}` など) を外し、 `--stop-at '\\appendix'` で付録の手前で止める。 `--forward-refs` はまだ印字されていない式への参照を列挙する (読む候補であって exit は変えない)。 略語は [#abbreviation-first-occurrence](#abbreviation-first-occurrence) と `check-abbreviations.py` が受け持つ。
 
 **なぜ**: 2026-09-13 の通読で著者が「対称化と反対称化は最初に出る場所で説明されているか」 と止まった。 定義の式は付録にあり、 本文の初出から数百行離れていた。 記法ごとに正規表現を変え、 次数ラベルを除き、 付録の手前で止める grep を 2 回手で書き直して答えた。 道具にした最初の版は、 preamble の `\let\origappendix\appendix` を付録の開始と読み、 初出より前の脚注にある参照も数えなかった。 どちらも実物の原稿に 1 回当てて見つかった (selftest の fixture だけでは出なかった)。
+
+## <a id="author-notes-as-comments"></a>著者への注記は `%` comment + 見える印で置く (pdflatex は日本語の脚注を通さない)
+
+原稿の中に「ここは著者が埋める・確かめる」 という注記を残すとき、 脚注に日本語や記号 (★ など) を書くと pdflatex が `Unicode character ... not set up` で止まる (実測)。 bib の `note` 欄に書いても同じ (bbl 経由で本文に入る)。
+
+- 注記の本文は、 その文の直後の行に `% ★ ...` の comment で置く (1 文 1 行の原稿なら文と対応が取れる)。
+- 本文には `\red{[check]}` のような ASCII の見える印だけを置く。 PDF で場所が分かり、 組版は壊れない。
+- bib の照合メモは entry の外の `%` 行に。 BibTeX は entry の外の行を読まない。
+- latexmk が `exit 12` で止まるのに `main.log` に `!` が無いときは、 古い `.bbl` を掴んでいる。 `.bbl` `.aux` `.blg` を消して回し直す。
