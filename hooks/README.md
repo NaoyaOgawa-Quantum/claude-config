@@ -47,6 +47,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[retired-hooks.txt](retired-hooks.txt)** — 退役した層1 hook の registry (scripts/sync-hook-settings.sh が各マシンの symlink と settings.json から外す)
 - **[session-commit-nudge.sh](session-commit-nudge.sh)** — session-commit-nudge.sh
 - **[session-commit-nudge.test.sh](session-commit-nudge.test.sh)** — self-tests for session-commit-nudge.sh
+- **[session-shape-guard.sh](session-shape-guard.sh)** — PreToolUse(Edit|Write|MultiEdit): SESSION.md に日付の節・commit hash・messageId・経緯の長い 1 行を書く / README が自分を正本と宣言する / CLAUDE.md が「SESSION・README に書け」 と指示する変更を、 書く瞬間に止める (deny) か知らせる (warn)
+- **[session-shape-guard.test.sh](session-shape-guard.test.sh)** — session-shape-guard.sh の self-test (deny / warn / pass / fail-open / opt-out、 hermetic)
 - **[session-start-claude-account-change.sh](session-start-claude-account-change.sh)** — SessionStart hook (layer 1, claude-config)
 - **[session-start-claude-account-change.test.sh](session-start-claude-account-change.test.sh)** — self-test for the layer-1 SessionStart hook.
 - **[session-start-host-stamp.sh](session-start-host-stamp.sh)** — SessionStart: 自己同定 stamp (host · surface = account · session) を注入 (I7)

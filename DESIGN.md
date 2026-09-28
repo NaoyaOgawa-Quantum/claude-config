@@ -4,6 +4,7 @@
 
 ## <a id="toc"></a>目次
 
+- [2026-09-28: SESSION.md の形を gate にする — 案件ごとの現在地を置き換える file にし、 日付の節・hash・messageId・育つ commit を止める](#session-shape-gate)
 - [2026-09-25: 規則の文書への変更は形 (追記か書き換えか) でなく語で見る — 追記の特権を外し、 書き換えだけを止める門も外す](#rule-doc-change-by-vocabulary-not-form)
 - [2026-09-25: SSO の入り直しは server の受け入れで決め、 入り直しの処理を部品 1 つに置く](#sso-recovery-server-acceptance)
 - [2026-09-23: memory file の予算 gate — 予算を超えて育つ commit だけ止める (縮める commit は通す)](#memory-budget-gate)
@@ -48,6 +49,22 @@
 - [2026-05-18: PDF Read tool fallback hook 設計判断](#pdf-read-fallback-hook)
 
 ---
+
+## <a id="session-shape-gate"></a>2026-09-28: SESSION.md の形を gate にする — 案件ごとの現在地を置き換える file にし、 日付の節・hash・messageId・育つ commit を止める
+
+**背景 (実測)**: 「SESSION に正本を置かない」 の規約 ([CONVENTIONS.md#session-no-durable-record](CONVENTIONS.md#session-no-durable-record)) と messageId 密度・byte の検出器 ([`scripts/check-session-sot.py`](scripts/check-session-sot.py)) が在っても、 owner の訂正が形を変えて繰り返された。 違反の共通形 = 「日付 + 何をした (session id)」 の節を SESSION に足し、 中に commit hash・検証結果・承認の経緯を書く。 走査した SESSION.md のほぼ全部に日付の節が在り、 目安 80 行を超える file が半数以上、 archive へ移した本文が数百 KB。 密度・byte の proxy はこの形を通していた (違反の行は 429 byte、 hash 2 つ、 messageId 0)。
+
+**原因の判定**: (1) entry の key が session / 日付 = 置き換える slot が無く追記しかできない → 日付の節 = 変更履歴 = 恒久の記録 ([§19.7](docs/convention-design-principles.md#time-keyed-file-appends-only))。 (2) 手順書が生成器: 層1 §3 の「重要な判断で SESSION を更新」 と、 それを写した各 repo の CLAUDE.md の「重要な判断時 → SESSION.md に決定事項を記録」、 memory-guard の deny 文言の「SESSION.md に書く」、 案件 README に締切・状態を書けと命じた repo の CLAUDE.md。 (3) 検出器の盲点: 先の cold-eyes 検討が「真の違反は graduate し損ねた固着」 と置いて write-time を見送り、 proxy を messageId 密度に絞った。 その後の再発は全部その盲点の中で起きた。 (4) SoT drift の registry が既定で `*/SESSION.md` を exempt していた (SESSION に写しが在っても drift として見えない)。
+
+**判断**:
+1. **形の契約を機械で守る** = [`scripts/check-session-shape.py`](scripts/check-session-shape.py): 日付の見出し・commit hash (`最終更新 … (sweep 済: hash)` は通す)・messageId・1000 byte 超の 1 行を staged の追加行で止め、 200 行を超えて**育つ** commit を止める (縮める commit は通る = [#memory-budget-gate](#memory-budget-gate) と同じ形)。 exit 1 = 違反 / 3 = 故障 ([#failure-exit-equals-violation-exit](docs/convention-design-principles.md#failure-exit-equals-violation-exit))。 escape hatch = `CLAUDE_SESSION_SHAPE_GUARD=0`。
+2. **発火面は 2 つ** = 全 repo の pre-commit ([`scripts/pre-commit-bib`](scripts/pre-commit-bib) と公開 repo の [`scripts/public-precommit-runner.sh`](scripts/public-precommit-runner.sh)、 Claude / Codex / 人の commit に共通) + 書き込み hook ([`hooks/session-shape-guard.sh`](hooks/session-shape-guard.sh)、 PreToolUse Edit/Write/MultiEdit で deny)。 fleet の状態は `--fleet` (dashboard)。
+3. **生成器を同じ検出器で warn する**: README が自分を正本と宣言する行 (非公開 repo では止める、 公開 repo は warn)、 CLAUDE.md / AGENTS.md の「README / SESSION に (決定・成果物・状態を) 書け」 の行。 層1 §3 の文言と memory-guard の deny 文言は行き先を種類別 (決定 → DESIGN、 状態 → 台帳、 SESSION は現在地の行を置き換える) に言い直した。
+4. **registry の既定から SESSION.md の exempt を外す** ([`scripts/sot-registry-add.py`](scripts/sot-registry-add.py) の `DEFAULT_ALLOW`)。
+
+**採らなかった案**: (a) 検出器に prose を足す = 6 月と同じ (recall 依存、 [§8.12](docs/convention-design-principles.md#firing-surface-hierarchy))。 (b) check-session-sot.py の閾値を下げる = proxy の軸が違う (byte でなく形)。 (c) 行数だけを止める = 日付の節を小さく足し続ける形が残る。 (d) SESSION.md を廃して他の file に統合 = 「今どこにいるか」 の入口は要る、 要らないのは変更履歴の形。
+
+**限界**: 日付も hash も持たない散文の決定ログは通る (形の契約 + 4 軸 sweep が持つ)。 Bash の heredoc で書いた変更は hook を通らない (commit の gate が捕まえる)。 既存の file は追加行と行数の成長だけで判定するので、 育っている file は次に触る commit で縮退が要る (fleet 走査が一覧を出す)。
 
 ## <a id="rule-doc-change-by-vocabulary-not-form"></a>2026-09-25: 規則の文書への変更は形 (追記か書き換えか) でなく語で見る — 追記の特権を外し、 書き換えだけを止める門も外す
 

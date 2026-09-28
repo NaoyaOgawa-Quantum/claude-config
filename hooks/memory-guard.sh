@@ -62,7 +62,8 @@ cat >&2 << 'EOF'
 memory-guard: メモリファイルへの書き込みを deny しました。
 
 Memory directory はマシンローカル (git 非同期)。cross-machine で効かせたい情報は
-git 同期先 (claude-config/, あなたの個人層 (あれば), 該当プロジェクトの CLAUDE.md / SESSION.md / DESIGN.md) に書く。
+git 同期先に種類で分けて書く: 規約・構造 → claude-config/ か あなたの個人層 (あれば) か該当プロジェクトの CLAUDE.md /
+判断理由 → DESIGN.md / 案件の状態 → 台帳。 SESSION.md には現在地の行だけ (決定・経緯・識別子は置かない = CONVENTIONS.md#session-no-durable-record)。
 
 詳細: claude-config/docs/convention-design-principles.md §8 (= #rule-vs-mechanism) (memory policy)、
       claude-config/docs/personal-layer.md (4 層モデル)。

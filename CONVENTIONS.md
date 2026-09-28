@@ -39,7 +39,7 @@ description は英語。リポ一覧の正本は個人層の `repos.md`（未設
 |---------|------|
 | `AGENTS.md` | **Codex が自動発見するリポ root の薄い入口（全リポ必須）**。`CLAUDE.md` と `SESSION.md` を作業前に読み、そこから task-relevant な正本へ辿ることだけを命じる。規約・状態・設計判断を複製しない |
 | `CLAUDE.md` | 永続的な構造・実行方法・復帰手順の**記述** (「こうなっている」の事実、判断理由は DESIGN.md へ)。構造変更時のみ更新 |
-| `SESSION.md` | 揮発的な現在地（作業段階・停止点・次の一手）と正本への直接参照。進行に応じて更新 |
+| `SESSION.md` | 揮発的な現在地（作業段階・停止点・次の一手）と正本への直接参照。進行に応じて更新。 **形 = 案件ごとに 1 entry を置き換える** (日付を見出しにした節・commit hash・messageId を置かない = [#session-no-durable-record](#session-no-durable-record) の契約、 gate = [`scripts/check-session-shape.py`](scripts/check-session-shape.py)) |
 | `DESIGN.md` | 現在採用されている設計**判断**・Defer 判断・横断原則 (LESSON) の snapshot。Why / 代替案 / tradeoff を記録。判断が生じたら即記録、超越されたら [`docs/convention-design-principles.md` §7](docs/convention-design-principles.md#design-snapshot-operation) の lifecycle で処理 (pedagogy 抽出後に旧本体削除、履歴は git log)。構造の記述は CLAUDE.md へ。未決定の探索は `EXPLORING.md`（任意）へ |
 | `README.md` / `README.ja.md` | **外部訪問者向けの玄関** (public リポで必須、private リポでは任意)。30 秒で「何か / 使うか」を判断させる index。構造ツリー・規約本体・設計根拠は **正本 (CLAUDE.md / CONVENTIONS.md / DESIGN.md / conventions/ / docs/ / SETUP.md) へリンクするだけ** で、README 内に転載しない。**例外 = 公開リポ（README-only 読者あり）の build/quickstart/deploy は README が正本**（下の「README の流儀」の判別軸）。詳細は下の「README の流儀」 |
 | `SETUP.md` | **共同編集者向けセットアップ walkthrough** (任意、private collaborative repo で git-crypt 等 onboarding が複雑な場合に新設)。CLAUDE.md は auto-load コストがあるため full walkthrough を入れず、SETUP.md に分離して薄いポインタ + 反パターン警告のみ持たせる。配置はリポ root (`docs/` を git-crypt 暗号化していると未 unlock の collaborator が読めない catch-22)。テンプレ: `templates/shared-project/SETUP.md.template`、設計理由は `conventions/shared-repo.md` §「共同編集者向けの SETUP.md」|
@@ -82,6 +82,8 @@ nested directory に `AGENTS.md` / `AGENTS.override.md` を足すのは、その
 
 機械 backstop = [`scripts/check-session-sot.py`](scripts/check-session-sot.py)。messageId 密度に加え whole-file bytes と最大 UTF-8 line bytes を測るため、長い payload を一つの bullet に詰めても size proxy をすり抜けない。閾値と校正原則の正本は [`memory-file-slimming.md#regrowth-backstop`](conventions/memory-file-slimming.md#regrowth-backstop)。
 
+**形の契約**: entry の key は案件 (= 状態が進む単位) で、 進んだら置き換える。 session や日付を key にすると file は追記しかできず、 日付つきの節 = 変更履歴 = 恒久の記録になる (実測: 走査した SESSION.md のほぼ全部に日付の節が在り、 archive へ移した本文が数百 KB に育っていた)。 ∴ 日付を見出しにした節・commit hash・messageId・1000 byte を超える 1 行を置かず、 200 行を超えて育つ commit を止める = [`scripts/check-session-shape.py`](scripts/check-session-shape.py) (全 repo の pre-commit の段 + 書き込み hook)。 一般則 = [convention-design-principles.md#time-keyed-file-appends-only](docs/convention-design-principles.md#time-keyed-file-appends-only)。
+
 更新・終了時の具体的な確認は [§3 自動更新プロトコル](#auto-update-protocol) が正本。Codexへの導入・発火・検査の配線は [Codex引継ぎ仕様](codex/PARITY.md#session-handoff-contract) を参照。
 
 ⚠️ この規則は**リポ種別を問わない**。個別 project リポの SESSION も同じで、「このリポの案件だから状態もここに」は誤り (= case-SoT が別リポにあるなら pointer にする)。
@@ -114,6 +116,7 @@ nested directory に `AGENTS.md` / `AGENTS.override.md` を足すのは、その
 - 規約本体の表・判別ルールの転載 → CONVENTIONS.md / 対応する `conventions/*.md` へリンク
 - 設計根拠・トレードオフの議論 → DESIGN.md が正本
 - SESSION 的な現在進捗 (「現在〜を実装中」)
+- 上の禁忌は機械でも見る: README が自分を正本と宣言する行は非公開 repo で commit が止まり、 公開 repo では warn。 CLAUDE.md が「README / SESSION に (締切・状態・決定・成果物を) 書け」 と指示する行は warn = 違反の生成器 (実測: 案件 README に締切・状態を書けと命じた repo の CLAUDE.md が起点だった)。 gate = [`scripts/check-session-shape.py`](scripts/check-session-shape.py)
 
 上の 2〜5 番目（構造ツリー / 規約本体 / 設計根拠 / SESSION 進捗）は **case 非依存** — home が常に dynamic docs（CLAUDE.md / CONVENTIONS.md / DESIGN.md / SESSION.md）なので、どちらのケースでも README から剥がす。case で切り替わるのは 1 番目（build/quickstart/deploy）だけ。
 
@@ -178,9 +181,10 @@ nested directory に `AGENTS.md` / `AGENTS.override.md` を足すのは、その
 **人間に言われなくても自動で行う。**
 
 SESSION.md:
-- **更新タイミング:** タスク完了・重要な判断・ファイル作成/大幅変更・エラー発生時。出力テキストは揮発する。
+- **更新タイミング:** タスク完了・重要な判断・ファイル作成/大幅変更・エラー発生時。出力テキストは揮発する。 **更新 = その案件の現在地の行を置き換える** (何をした・何を決めたかは書かない = 決めた内容は正本へ、 作業の履歴は git log が持つ)。
 - **認識の転換点:** 方針変更・ユーザー決定・前提の修正は **その場で正本を更新**し、SESSION.md には現在の作業段階・停止点・次の一手と正本への直接リンクを反映する。恒久的な What/Why/How は決定を所有する正本に置き、SESSION へ複製しない。
 - **棚卸し（目安80行以内）:** 完了 `[x]` を除去、実装詳細は git log に委任、重複を排除、**恒久的決定・セッションをまたいで効くルール/規約/編集流儀は CLAUDE.md（or 該当 convention file）に移動**（= SESSION.md は揮発的 state 専用、durable rule を SESSION に置かない。置くと状態 file を読まない者・別セッションに発火しない＝役割表 §2 違反）。
+- **形 (機械で守る):** entry は案件ごとに 1 つ、 進んだら置き換える。 日付を見出しにした節 (= 変更履歴の形)・commit hash・messageId・1000 byte を超える 1 行は置かない。 200 行を超えて育つ commit は止まり、 縮める commit は通る。 gate = [`scripts/check-session-shape.py`](scripts/check-session-shape.py) (全 repo の pre-commit + 書き込み hook `session-shape-guard.sh`)、 止められたときの直し方 = [memory-file-slimming.md#session-shape-gate](conventions/memory-file-slimming.md#session-shape-gate)。
 - **新セッションテスト:** SESSION.md を読むだけで「今何を扱い、どこで止め、次に何を確認・実行するか」が分かり、必要な正本へ直接辿れるか検証する。リンク一覧だけでも、案件状態の写しでも不足。終了報告・別の再開案内を中継点にしない。詳細の What/Why/How と最新の handled-state はリンク先の正本で読む（[#session-no-durable-record](#session-no-durable-record)）。
 
 MEMORY.md（index-only、[`docs/convention-design-principles.md` §8.7](docs/convention-design-principles.md#mechanism-application-example)）: マシンローカル事実への pointer のみ置く。2 週間以上未使用プロジェクトを除去、解決済み案件を除去。feedback 形式の残留があれば削除（[§8.3](docs/convention-design-principles.md#precedent-as-training-data) で `memory-guard.sh` が deny する対象）。

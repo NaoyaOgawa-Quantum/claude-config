@@ -7,6 +7,10 @@ sections:
   - id: toc
     level: 2
     title: "目次"
+  - id: session-shape-gate
+    legacy: "2026-09-28"
+    level: 2
+    title: "2026-09-28: SESSION.md の形を gate にする — 案件ごとの現在地を置き換える file にし、 日付の節・hash・messageId・育つ commit を止める"
   - id: rule-doc-change-by-vocabulary-not-form
     legacy: "2026-09-25"
     level: 2

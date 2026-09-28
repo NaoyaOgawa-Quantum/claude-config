@@ -84,6 +84,15 @@
       "hooks": [
         {
           "type": "command",
+          "command": "~/.claude/hooks/session-shape-guard.sh"
+        }
+      ]
+    },
+    {
+      "matcher": "Edit|Write|MultiEdit",
+      "hooks": [
+        {
+          "type": "command",
           "command": "~/.claude/hooks/public-leak-guard.sh"
         }
       ]

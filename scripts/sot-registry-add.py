@@ -28,13 +28,14 @@ spec.json は 1 topic の object か、 その list:
      "home_section": "example-rule",
      "anchor_tokens": ["規則を定義する文の固有の言い回し"],
      "pointer_patterns": ["example-rule"],
-     "allow_globs": ["*/SESSION.md", "*/plans/*"],
+     "allow_globs": ["*/SESSION-archive.md", "*/plans/*"],
      "audit_ack": {"識別子の形でない値": "値そのものを追う anchor"}}
 
 - `home` は --base からの相対 path。
 - `home_section` は任意。省略時は registry に空の field を書かない。slug 形 (英小文字・数字・`-`) でないとき
   (見出し文言や § 番号) は anchor id の存在検査をしない。
-- `allow_globs` を省くと SESSION / SESSION-archive / plans の 3 つを入れる。 `pointer_patterns` を省くと topic 名。
+- `allow_globs` を省くと SESSION-archive / plans の 2 つを入れる (SESSION.md は入れない = SESSION は現在地と正本への link だけを持つ契約
+  〔CONVENTIONS.md#session-no-durable-record〕 なので、 規約の目印が SESSION に写っていれば drift として見える)。 `pointer_patterns` を省くと topic 名。
 - `--no-preview` で scan と点検を省く。
 """
 from __future__ import annotations
@@ -52,7 +53,7 @@ def _yaml_safe_load(stream):  # yaml.safe_load と同じ結果を C 版 (libyaml
     return yaml.load(stream, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
 
 
-DEFAULT_ALLOW = ["*/SESSION.md", "*/SESSION-archive.md", "*/plans/*"]
+DEFAULT_ALLOW = ["*/SESSION-archive.md", "*/plans/*"]  # SESSION.md は exempt しない (2026-09-28、 上の docstring)
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 

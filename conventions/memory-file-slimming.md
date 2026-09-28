@@ -232,6 +232,22 @@ CLAUDE.md 95 → 35 KB)。
 (以上の置き方は任意の常設検出器に通じる一般形だが、 実例 1 件のため本 doc 留め —
 2 例目で上層 doc への hoist を判断する。)
 
+## <a id="session-shape-gate"></a>SESSION の形の gate に止められたときの直し方
+
+SESSION.md の契約 ([CONVENTIONS.md#session-no-durable-record](../CONVENTIONS.md#session-no-durable-record)) = 案件ごとの現在地 1〜2 行 + 正本への link。
+gate ([`scripts/check-session-shape.py`](../scripts/check-session-shape.py)、 pre-commit と書き込み hook) が止めた finding ごとの直し方:
+
+| finding | 直し方 |
+|---|---|
+| `dated-heading` (日付を見出しにした節) | その案件の entry を探して**置き換える**。 無ければ `- <案件> — 現在地 / 次の一手 → [正本](link)` の 1〜2 行を足す。 「何をした」 は git log、 「何を決めた」 は DESIGN.md / 案件の記録へ |
+| `commit-hash` / `message-id` | 識別子は正本 (plan / DESIGN / 台帳 / inbox) に置き、 SESSION には正本への link だけ。 `最終更新: … (sweep 済: <hash>)` の 1 行は通る |
+| `long-line` (1000 byte 超) | 経緯を正本へ移し、 SESSION の行は現在地と次の一手に絞る |
+| `line-budget` (200 行を超えて育つ) | 案件ごとの現在地に組み直す。 残す価値のある経緯は SESSION-archive.md へ verbatim MOVE ([#verbatim-retreat](#verbatim-retreat))。 **縮める commit は通る** (予算 gate と同じ形 = [#commit-budget-gate](#commit-budget-gate)) |
+| `readme-self-sot` | 非公開 repo: 中身を CLAUDE.md / DESIGN.md / 台帳へ移し README は入口の link に。 公開 repo (warn): build / quickstart / deploy 以外の中身は同じく移す ([CONVENTIONS.md#readme-style](../CONVENTIONS.md#readme-style)) |
+| `home-redirect` (CLAUDE.md の「SESSION / README に書け」) | 行き先を種類で書き直す: 決定 → DESIGN.md、 成果物・状態 → 台帳 / 案件の記録、 SESSION は現在地の行を置き換える |
+
+意図した例示・fixture で止まったときだけ `CLAUDE_SESSION_SHAPE_GUARD=0` で通す (出力に「何が止めたか」 が残る)。 fleet の状態は `check-session-shape.py --fleet` (dashboard) で見る。
+
 ## 実測 evidence (2026-07-29/30)
 
 個人層 memory file 276 KiB (= headless routine 全滅の実害) →

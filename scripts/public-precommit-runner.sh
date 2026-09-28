@@ -126,6 +126,20 @@ if [ -f "$DGT_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
+# SESSION.md の形の gate (= 案件ごとの現在地 + 正本への link。 日付を見出しにした節・commit hash・messageId・経緯を詰めた
+# 1 行・200 行を超えて育つ commit を止める。 README の自称正本 = 公開 repo では warn / CLAUDE.md の「SESSION・README に書け」 = warn)。
+# 述語・閾値・escape hatch (CLAUDE_SESSION_SHAPE_GUARD=0) の SoT = check-session-shape.py docstring、 規約 = CONVENTIONS.md#session-no-durable-record。
+# 止めるのは「exit 1 かつ engine の見出し」 のときだけ (= engine の故障 〔rc 3〕 で全 commit を止めない)。
+SSH_ENGINE="$(dirname "$0")/check-session-shape.py"
+if [ -f "$SSH_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
+  ssh_rc=0
+  ssh_out="$(python3 "$SSH_ENGINE" --staged 2>&1)" || ssh_rc=$?
+  [ -n "$ssh_out" ] && printf '%s\n' "$ssh_out" >&2
+  if [ "$ssh_rc" -eq 1 ] && printf '%s' "$ssh_out" | grep -q 'check-session-shape:'; then
+    exit 1
+  fi
+fi
+
 # 差分の効かない file (build した PDF・暗号化した台帳) の頻繁な commit と、 大きすぎる file を知らせる。
 # 止めるのは GitHub が push を拒否する大きさ (1 file 100 MiB 超) だけ = 「exit 1 かつ engine の見出し」 のとき
 # (engine の故障 〔rc 3〕 では止めない)。 SoT = check-history-growth.py docstring / conventions/repo-history-growth.md。
