@@ -230,3 +230,12 @@ engine の selftest が git の呼び出し回数を数える (件数に依ら�
 5. **監査の配線**: dashboard の段を単独で回して沈黙 (ready) を見る → cache を `not_armed` に書き換えて SessionStart hook を**stdin に event を渡して**回し 🔴 を見る (stdin 無しで叩くと待ち続ける) → 古い日付で ⚠️ → 元に戻す。 binary の探索は `--codex auto` の出力の `binary_source` と版を読む。
 6. **公開 gate と trust**: 追加行に識別子 (実名・所属・repo 名・home path) が無いか grep、 CI の結果、 `~/.codex/config.toml` の `[hooks.state]` の件数と mtime が変わっていないか。
 7. **受領の記録**: 条件ごとの表 (✓ と、 自分で回したか実装者の証拠を信じたか) + 見ていない範囲を書き、 掲示板の `accept` にその所在を付ける。
+
+## <a id="implementation-evidence"></a>実装側で再現可能な証拠を残す手順
+
+1. **候補を固定する**: 基準commitと対象pathを決め、稼働中の正本から離した候補に変更を組み立てる。対象ごとの変更前・候補全文のSHA-256、Git mode、新規fileかどうかを台帳に残す。候補の差分は基準commitから復元して同じbytesになることを確認する。一時directoryは作業場であり、台帳・patch・必要な検証logの唯一の保存先にしない。
+2. **修正前の対照を保つ**: 修正前のsnapshotへ新しい試験だけを移し、変更した試験関数を除くmoduleのASTまたは関数本文が基準と一致することを確かめる。新しい対照が意図した失敗で赤になることと、試験の失敗がsuite全体の終了値に伝わることを確認する。依存fileの欠落など、試験対象へ到達する前の失敗は別に切り分ける。
+3. **承認と適用を分ける**: [裁定手順](../conventions/agent-rule-ownership.md#approval)で、本人の直接の発言を具体的な候補へ結び付けてから当てる。証拠JSONも、内容によっては配線として判定される。対象の拡張子や置き場を変えて回避せず、検査が示した領域と新規fileのmodeも確認する。適用後とcommit内のbytesを候補に照合する。
+4. **観測の意味を限定する**: Stop入力の診断が示すkeyの存在と、その値を区別する。存在を表すtrueは値がtrueである証拠ではない。本文やpathを採取せず、必要なkeyの有無・最終回答が非空かといった性質で検証する。Codexのphase付き応答ではfinal_answerを確認し、commentaryを最終報告の証拠にしない。
+5. **監査と発火を分ける**: hooks/listの有効なprompt・agent・MCP handlerはcommand fieldを持たないことがある。正常な別形式を故障と扱わず、同時にそれを必須command hookの代わりにも数えない。構成の信頼状態・合成fixtureの挙動・実際のhook発火は、それぞれ確認した範囲を記録する。
+6. **保存と受領を分ける**: 必要な証拠への参照がcommitにも含まれていることを確かめる。logのignoreによる保存漏れや、一時pathにだけ残る依存を点検する。完了gateの基準差分に別作業が含まれた場合は、[Git gateの例外](../CONVENTIONS.md#completion-git-gate)としてrepo・残状態・理由を明示する。候補hashの承認、適用、提出、独立した受領は別の段階として扱う。
