@@ -79,7 +79,7 @@
 
 **採らなかった案**: (a) 追記も修正も本人の最新の依頼に結びつける (`apply --latest` 1 手) = agent は最新の発言を何でも引くので束縛が儀式になり、 手数だけ増える。 (b) 9/23 より前に戻す = 承認を何度も求める状態。 (c) 規則の文の削除だけ門に残す = 隣に逆向きの文を足せば通るので、 書き換えを避ける動機だけが残る。
 
-**実測**: 2 か月の規則の文書の版で、 裁定なしで通る割合 = 公開 repo 28% → 80%、 個人層 22% → 88% (止まる残りはほぼ緩和の語)。 適用の途中で engine を呼び元より先に写した数分、 全 session の Edit / commit が fail-closed で止まった = engine と呼び元は候補の呼び元で続けて写す ([`conventions/hook-authoring.md#engine-edit-is-deploy`](conventions/hook-authoring.md#engine-edit-is-deploy))。 候補と実測の記録は個人層の plans (同日の results)。
+**実測**: 2 か月の規則の文書の版で、 裁定なしで通る割合 = 公開 repo 26% → 80%、 個人層 21% → 88% (止まる残りはほぼ緩和の語。 変更前の値は基準の engine を記録して数え直したもの)。 適用の途中で engine を呼び元より先に写した数分、 全 session の Edit / commit が fail-closed で止まった = engine と呼び元は候補の呼び元で続けて写す ([`conventions/hook-authoring.md#engine-edit-is-deploy`](conventions/hook-authoring.md#engine-edit-is-deploy))。 候補と実測の記録は個人層の plans (同日の results)。
 
 ## <a id="sso-recovery-server-acceptance"></a>2026-09-25: SSO の入り直しは server の受け入れで決め、 入り直しの処理を部品 1 つに置く
 
