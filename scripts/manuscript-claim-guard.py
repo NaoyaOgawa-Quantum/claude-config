@@ -89,9 +89,9 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 try:
-    from git_blob import read_blob_text  # smudge filter を通す = git-crypt の path も平文で読む
+    from git_blob import read_blob, read_blob_text  # smudge filter を通す = git-crypt の path も平文で読む
 except ImportError:  # lib が無い古い配置 = git show に戻す
-    read_blob_text = None
+    read_blob = read_blob_text = None
 
 RULE_REF_TOKEN = "manuscript-claim-ownership.md" + "#rule"  # 分けて書く = 本 file の行が参照行に見えないように
 CONFIG_REL = ".claude/manuscript-guard.json"
@@ -1820,15 +1820,38 @@ def read_text(p: Path) -> str | None:
         return None
 
 
-def looks_binary(p: Path) -> bool:
-    """git の判定と同じく先頭 8000 byte に NUL があれば binary。 symlink・読めない file は False (= text 側で扱う)。"""
+def _binary_bytes(data: bytes) -> bool:
+    """git の判定と同じく先頭 8000 byte に NUL があれば binary。 git-crypt の暗号文は binary と呼ばない (= content-encrypted の検査に回す)。"""
+    return not data.startswith(b"\x00GITCRYPT") and b"\0" in data[:8000]
+
+
+def looks_binary(p: Path, repo: Path | None = None) -> bool:
+    """worktree・index・HEAD のうち在る版が全部 binary なら True。 text の版が 1 つでもあれば False =
+    規則を書いた text を binary で上書きして検査を外す経路を塞ぐ。 symlink・どの版も読めない file は False (= text 側で扱う)。"""
     if p.is_symlink():
         return False
+    versions: list[bool] = []
     try:
         with open(p, "rb") as fh:
-            return b"\0" in fh.read(8000)
+            versions.append(_binary_bytes(fh.read(8000)))
+    except FileNotFoundError:
+        pass
     except OSError:
         return False
+    if repo is not None:
+        rel = os.path.relpath(p.absolute(), repo)
+        for spec in (f":{rel}", f"HEAD:{rel}"):  # 復号した中身で見る (git-crypt の path は生の blob が暗号文)
+            try:
+                if read_blob is not None:
+                    rc, data = read_blob(spec, cwd=str(repo), timeout=10)
+                else:
+                    r = subprocess.run(["git", "-C", str(repo), "show", spec], capture_output=True, timeout=10, check=False)
+                    rc, data = r.returncode, r.stdout
+            except (OSError, subprocess.TimeoutExpired):
+                return False
+            if rc == 0:
+                versions.append(_binary_bytes(data))
+    return bool(versions) and all(versions)
 
 
 def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
@@ -1839,8 +1862,11 @@ def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
         return True
     # 拡張子の無い binary (build した実行 file) は原稿でも規則の文でもない = 宣言が無ければ対象外。
     # "" を text 扱いにすると HEAD の blob が UTF-8 で読めず blob-unreadable で commit ごと止まる
-    # (2026-09-28 email-office scripts/cal-export の再署名)。 宣言済みの path は下の述語が拾う。
-    if p.suffix.lower() in TEXT_SUFFIXES and not (p.suffix == "" and looks_binary(p)):
+    # (実測: 拡張子なしの CLI binary の再署名)。 宣言済みの path は下の述語が拾う。
+    # ただし版のどれかが text なら対象のまま (looks_binary)。
+    if repo is None:
+        repo = repo_root(p.parent)
+    if p.suffix.lower() in TEXT_SUFFIXES and not (p.suffix == "" and looks_binary(p, repo)):
         return True
     # Explicit policy declarations outrank the convenience text-extension list.
     # Use the lexical parent: a protected symlink's suffix/role must not vanish
@@ -3997,6 +4023,13 @@ def selftest() -> int:
         reset_caches()
         check("宣言の無い拡張子なし binary は検査対象外", not relevant_text_file(plain_bin, repo))
         check("宣言済みの拡張子なし binary は検査対象", relevant_text_file(declared_bin, repo))
+        # text で commit 済みの file を binary で上書きしても検査を外れない (HEAD の版が text)
+        plain_bin.write_text("# agent-authority:file\nrule text\n")
+        g("add", "custom/helper"); g("commit", "-qm", "text helper")
+        plain_bin.write_bytes(b"\x00neutered")
+        reset_caches()
+        check("HEAD が text の拡張子なし file は binary に上書きしても検査対象", relevant_text_file(plain_bin, repo))
+        g("rm", "-q", "--cached", "custom/helper"); g("commit", "-qm", "drop helper")
         plain_bin.unlink(); declared_bin.unlink()
         # A declared symlink protects its implementation, and the link itself
         # remains the identity when approving a retarget of the Git entry.
