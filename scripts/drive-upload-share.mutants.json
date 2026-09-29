@@ -1,0 +1,76 @@
+{
+  "_comment": "drive-upload-share.py の selftest に歯があることを、 要所を 1 か所ずつ外した mutant で確かめる spec (check-foil-teeth.py が読む)。 上書きの検査 (共有相手の編集を消さない)・native の文書として置く・同名検索の種類の絞り・フォルダの権限を upload より先に付ける順序。",
+  "target": "drive-upload-share.py",
+  "run": "python3 {} --selftest",
+  "pass_marker": "  ✅ ",
+  "fail_marker": "  ❌ ",
+  "mutants": [
+    {
+      "name": "上書きの前に最後の編集者を見ない",
+      "pairs": [
+        [
+          "if not who.get(\"me\", True) and not overwrite_others:",
+          "if False:"
+        ]
+      ],
+      "expect_fail": [
+        "上書きの検査: 他人が最後に編集 → 止まる"
+      ],
+      "expect_pass": [
+        "上書きの検査: 自分が最後なら上書き",
+        "as_google_doc: mimeType = Google ドキュメント"
+      ]
+    },
+    {
+      "name": "--as-google-doc でも native の種類にしない",
+      "pairs": [
+        [
+          "        body[\"mimeType\"] = GDOC_MIME\n",
+          "        pass\n"
+        ]
+      ],
+      "expect_fail": [
+        "as_google_doc: mimeType = Google ドキュメント"
+      ],
+      "expect_pass": [
+        "as_google_doc: 名前は拡張子なし",
+        "上書きの検査: 他人が最後に編集 → 止まる"
+      ]
+    },
+    {
+      "name": "同名検索で種類を絞らない",
+      "pairs": [
+        [
+          "        q_parts.append(f\"mimeType = '{mime}'\")\n",
+          "        pass\n"
+        ]
+      ],
+      "expect_fail": [
+        "find_by_name: mimeType で絞る"
+      ],
+      "expect_pass": [
+        "folder: 権限 → upload の順"
+      ]
+    },
+    {
+      "name": "フォルダの権限を upload の後に付ける (継承が遅れる順序)",
+      "pairs": [
+        [
+          "    if folder:\n        apply_shares(folder[\"id\"])\n",
+          "    if False:\n        apply_shares(folder[\"id\"])\n"
+        ],
+        [
+          "    if not folder:\n        for file in files:\n            apply_shares(file[\"id\"])\n",
+          "    for file in ([folder] if folder else files):\n        apply_shares(file[\"id\"])\n"
+        ]
+      ],
+      "expect_fail": [
+        "folder: 権限 → upload の順"
+      ],
+      "expect_pass": [
+        "find_by_name: mimeType で絞る",
+        "--make-folder と --folder-id は排他"
+      ]
+    }
+  ]
+}

@@ -125,6 +125,8 @@
 - **[docx_decl_patch.py](docx_decl_patch.py)** — python-docx の Document.save() を auto-patch し XML 宣言を Word 形式(double-quote+CRLF)で書く（厳格 Word の「破損」回避、 save 時 source 修正・lazy import hook、 office-automation.md#docx-checkbox-content-control）
 - **[drive-download-folder.mutants.json](drive-download-folder.mutants.json)** — drive-download-folder.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[drive-download-folder.py](drive-download-folder.py)** — Google Drive folder を再帰で一括 download する (native は export、 各 dir に manifest、 token と OAuth client は引数で受ける)
+- **[drive-upload-share.mutants.json](drive-upload-share.mutants.json)** — drive-upload-share.py の selftest に歯があることを、 要所を 1 か所ずつ外した mutant で確かめる spec (check-foil-teeth.py が読む)。
+- **[drive-upload-share.py](drive-upload-share.py)** — ローカル file を Google Drive に upload し、 共有して URL を返す (engine)。
 - **[dropbox-root.sh](dropbox-root.sh)** — Dropbox install root を OS 横断で resolve（dropbox-refs 規約用）
 - **[enhance-scan.py](enhance-scan.py)** — 手書き文書の撮影写真の可読化: 紙の切り出し + 照明ムラ除去 + コントラスト伸張 + タイル出力。
 - **[expand-display-math.py](expand-display-math.py)** — Expand the manuscript's display-math wrapper macros into real environments.
