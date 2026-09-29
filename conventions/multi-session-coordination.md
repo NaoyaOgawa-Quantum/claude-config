@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 並列 AI session と同じ repo を触るとき + spawn/handoff・セッション宛て掲示板を設計するとき + 他 session が名乗った窓口・担当に従う・記録する前 (#board-role-claim-is-not-assignment) + 作ったものの検収を別 session に頼む・頼まれたとき (#review-handoff)
+when: 並列 AI session と同じ repo を触るとき + spawn/handoff・セッション宛て掲示板を設計するとき + 他 session が名乗った窓口・担当に従う・記録する前 (#board-role-claim-is-not-assignment) + 作ったものの検収を別 session に頼む・頼まれたとき (#review-handoff) + 並行した worker が同じ file の全文の候補を作ったとき (#parallel-full-text-candidates)
 category: harness-core
 summary: 同 user の並列 AI session を安全に協調させる規律 (= 同 path race 防御、明示 add、**同一 file は明示 add でも巻き込むので `git commit -- <path>` で index を経由しない (#staging-window-race、 hook が見る範囲も自分の path だけになる)**、**生成物の再生成はその防御を貫通する (#generated-file-contamination)**、**起きた後の追跡は commit の `Agent-Session:` + model/effort trailer (#session-provenance-trailer)**、handoff、Git immutable-event board の主体は session、提出と受領を分離、明示引継ぎ、project SoT へ昇格)
 -->
@@ -838,6 +838,14 @@ audience・移行と defer 判断、運用文書は CLI、schema は field 契�
 明示的に移行し、新形式の受領済みと区別して表示する。writer / generated view / CI は、
 実際に必要になった保証を機械化するために導入する。
 
+
+## <a id="parallel-full-text-candidates"></a>14. 並行した worker が同じ file の全文の候補を作ったら、 共通の土台からの差分を合わせてから当てる
+
+保護された file を worker に「全文の候補」 として作らせる運用では、 2 人の worker が同じ file (hook の配線の一覧、 索引の CLAUDE.md など) の候補をそれぞれ作ることがある。 **全文の候補を順に当てると、 後から当てた方が先の変更を黙って消す** (どちらの候補も相手の変更を含まない)。 当てる前に:
+
+1. 各候補を、 それぞれの土台 (worker が見た版) と今の版の両方に対して diff する。 土台が今の版と違えば、 その候補は古い
+2. 同じ file の候補が 2 つ以上あれば、 今の版に各候補の差分 (追加だけなら挿入位置) を合わせた 1 つの候補を作り、 構文 (JSON / YAML / 行の数) を確かめてから当てる
+3. worker への依頼に「同じ file の候補を作る別の worker がいる」 と書き、 1 人に寄せられるなら寄せる
 
 ## 関連
 
