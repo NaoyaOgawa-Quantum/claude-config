@@ -54,7 +54,26 @@ usage:
     inventories: {label: [name, ...]},         # --inventory 指定時のみ
     jobs: [{label, last_exit, python, python_runs, python_ok, bare_in_command, bare_in_wrapper,
             log_failure, log_age_h, config_dir?}],               # --job-label-prefix 指定時のみ
-    job_python_modules: [module, ...] }                          # 同上
+    job_python_modules: [module, ...],                           # 同上
+    engine_head: <本 engine の repo の HEAD sha>,                  # 「この Mac の層1 は何版か」 を他マシンから読む (essence 外)
+    harness_hooks: [hook file 名, ...],                          # ~/.claude/settings.json に配線された hook の名前だけ
+    rewrite_follow: {capable, state, upstream, manifest, prepush_stub, forced_update_seen} }  # 下記
+
+書き換えられた履歴への追従 (rewrite_follow、 部品 = lib/git_rewrite_follow.py、 2026-09-29):
+  heartbeat repo の remote が force-push で書き換えられた後、 従来の `pull --rebase` は古い commit を新しい履歴に
+  積み直して push しうる (= 消した中身が remote に戻る)。 そこで commit の **前** に fetch し、 HEAD と upstream が
+  分岐していれば lib の follow_repo で中身で揃える (対応表 / tree の一致 / volatile path 〔upstream の
+  `.rewrite-follow/ignore-paths`、 本 script の --subdir を宣言しておく〕 を除いた tree の一致。 reset --keep)。
+  揃えられなければ **beat を止める** (`deferred`、 commit も rebase もしない = そのマシンは fleet から stale に見え、
+  SessionStart の同期 sweep も同じ repo を A 行で出す)。 commit の後は fetch し直し、 upstream が普通に進んだ時だけ
+  自分の commit を載せ直す (preflight と push の間に forced update が来たら載せ直さない = 次の beat が中身で揃える)。
+  push の前に対応表の旧 sha / 旧世代の blob を含まないかを見る (pre-push stub と同じ述語)。 manifest のある repo には
+  pre-push stub を置く。
+  - state: current (HEAD は upstream の祖先) / ahead / followed / stopped / diverged (書き換えの痕跡の無い通常の分岐 =
+    従来どおり自分の commit を載せ直す。 痕跡が 30 日で reflog から消えた後の書き換えはここに落ちる = push の guard が最後の網) /
+    no-upstream / unknown
+  - capable = True は「この Mac の engine が追従を知っている」 の印 = 書き換えを push する前の gate が全マシン分を読む
+  - 追従の記録 = ~/.claude/state/rewrite-follow.log (lib が書く)
 
 config_dirs の読み方 (実測):
   - pinned の alias (`~/.claude-<acct>`) = その設定フォルダの `.claude.json` の oauthAccount の email = その
@@ -125,6 +144,10 @@ try:
     import config_dir_auth as _cda  # 設定フォルダが切れたかの判定 (check-desktop-logout-auth と共有、 claude を呼ばない)
 except Exception:
     _cda = None
+try:
+    import git_rewrite_follow as _rf  # 書き換えられた履歴の追従 + push 側の防御 (repo-sync-sweep / git-rewrite-follow.py と共有)
+except Exception:                     # 部品が無い古い checkout では従来の pull --rebase 経路
+    _rf = None
 
 RC_LABEL_PREFIX_DEFAULT = "com.claude-config.remote-control-server"
 
@@ -505,9 +528,98 @@ def essence(d: dict):
             "jobs": [(j.get("label"), (j.get("last_exit") or 0) != 0, j.get("python_runs"), j.get("python_ok"),
                       j.get("bare_in_command"), j.get("bare_in_wrapper"), j.get("log_failure"))
                      for j in d.get("jobs") or []],
+            # 配線された hook の集合 (= 新しい hook が届いたか) と、 書き換え追従の能力・状態・stub (= 書き換えの前の gate が読む)。
+            # engine_head は essence に入れない (層1 は日に何度も進む = beat の commit が増えるだけ)
+            "harness_hooks": d.get("harness_hooks"),
+            "rewrite_follow": {k: (d.get("rewrite_follow") or {}).get(k) for k in ("capable", "state", "manifest", "prepush_stub")},
         },
         sort_keys=True,
     )
+
+
+def engine_head():
+    """本 engine の repo (= 層1) の HEAD sha。 他マシンから「この Mac の層1 は何版か」 を読むため。 取れなければ None。"""
+    rc, out = sh(["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "HEAD"])
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def harness_hooks(home: Path):
+    """<home>/.claude/settings.json に配線された hook の **file 名だけ** (event 横断・重複なし・sorted)。 読めなければ None。"""
+    p = home / ".claude" / "settings.json"
+    try:
+        with open(p, encoding="utf-8") as f:
+            hooks = json.load(f).get("hooks") or {}
+    except Exception:
+        return None
+    names = set()
+    for entries in hooks.values():
+        for e in entries or []:
+            if not isinstance(e, dict):
+                continue
+            for h in e.get("hooks") or []:
+                cmd = h.get("command") if isinstance(h, dict) else None
+                if cmd and cmd.split():
+                    names.add(os.path.basename(cmd.split()[0]))
+    return sorted(names)
+
+
+def rewrite_preflight(repo: Path, subdir: str):
+    """commit の前: upstream を fetch し、 分岐していれば中身で揃える (lib.follow_repo)。 揃えられなければ state=stopped
+    (呼び元は beat を止める = 古い commit を積み直さない)。 manifest のある repo には pre-push stub を置く。"""
+    out = {"capable": True, "state": "unknown", "upstream": None, "up_sha": None, "line": "", "manifest": False,
+           "prepush_stub": False, "forced_update_seen": False, "fetched": False}
+    up = _rf.upstream_of(repo)
+    out["upstream"] = up or None
+    if not up:
+        out["state"] = "no-upstream"
+        return out
+    remote = up.split("/", 1)[0]
+    rc, _ = git(repo, "fetch", "-q", remote, timeout=_rf.FETCH_TIMEOUT)
+    out["fetched"] = rc == 0
+    try:
+        r = _rf.follow_repo(repo, fetch=False)
+        out["state"] = r.state
+        out["line"] = " | ".join([r.line] + [x.strip() for x in r.extra]) if r.line else ""
+    except Exception as exc:
+        out["state"], out["line"] = "stopped", f"追従の判定で失敗 ({type(exc).__name__}: {str(exc)[:120]})"
+    out["up_sha"] = _rf.rev(repo, up) or None
+    try:
+        out["forced_update_seen"] = _rf.forced_update_seen(repo, up)
+        st_line = _rf.ensure_prepush(repo, only_with_manifest=True)
+        if st_line:
+            out["line"] = (out["line"] + " | " + st_line).strip(" |")
+        out["manifest"] = bool(_rf.upstream_manifest_files(repo, up))
+        out["prepush_stub"] = _rf.has_prepush_stub(repo)
+    except Exception:
+        pass
+    return out
+
+
+def sync_after_commit(repo: Path, pre: dict):
+    """commit の後・push の前。 upstream が普通に進んでいれば自分の commit を載せ直す (旧 pull --rebase と同じ)。 preflight から
+    ここまでの間に forced update が来ていれば載せ直さない (次の beat が中身で揃える)。 push 範囲に旧世代の commit / blob が在れば
+    push しない。 止めた時だけ理由の文字列を返す。"""
+    up = pre["upstream"]
+    remote = up.split("/", 1)[0]
+    git(repo, "fetch", "-q", remote, timeout=_rf.FETCH_TIMEOUT)
+    before, after = pre.get("up_sha"), _rf.rev(repo, up)
+    if after and before and after != before and not _rf.is_ancestor(repo, before, after):
+        return "committed locally; deferred (forced update arrived during the beat: no rebase, the next beat follows it)"
+    if after and not _rf.is_ancestor(repo, after, "HEAD"):
+        rc, _ = git(repo, "rebase", "--autostash", "-q", after)
+        if rc != 0:
+            git(repo, "rebase", "--abort")
+            return "committed locally; deferred (rebase onto upstream failed, retry next beat)"
+    head = _rf.rev(repo, "HEAD")
+    _rc, br = git(repo, "symbolic-ref", "--short", "-q", "HEAD")
+    branch = br.strip() or "HEAD"
+    try:
+        ok, msgs = _rf.guard_stdin(repo, [f"refs/heads/{branch} {head} refs/heads/{branch} {after or _rf.ZERO}"])
+    except Exception:
+        ok, msgs = True, []
+    if not ok:
+        return "committed locally; push refused by the rewrite guard: " + " | ".join(msgs)
+    return None
 
 
 def git(repo: Path, *args, timeout=60):
@@ -517,6 +629,17 @@ def git(repo: Path, *args, timeout=60):
 def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_prefix,
          inventory_specs=None, job_prefixes=None, job_modules=None):
     data = collect(rc_prefix, cron_prefix, inventory_specs, job_prefixes, job_modules)
+    data["engine_head"] = engine_head()
+    hh = harness_hooks(Path.home())
+    if hh is not None:
+        data["harness_hooks"] = hh
+    # 書き換えられた履歴の追従は commit の前 (= 古い履歴の上に beat を積まない)。 揃えられなければ beat を止める
+    pre = None
+    if _rf is not None:
+        pre = rewrite_preflight(repo, subdir)
+        data["rewrite_follow"] = {k: pre[k] for k in ("capable", "state", "upstream", "manifest", "prepush_stub", "forced_update_seen")}
+        if pre["state"] == "stopped":
+            return "deferred (rewrite follow stopped; no commit, no rebase): " + pre["line"]
     rel = f"{subdir}/{data['host']}.json"
     fpath = repo / rel
     fpath.parent.mkdir(parents=True, exist_ok=True)
@@ -543,9 +666,106 @@ def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_pr
     # 拒否されると、 beat が local commit に積み上がるだけで push されず
     # 他マシンから silent 死に見える (2026-07-10 実測 RCA: dirty 残置 2 日で
     # divergence 76/12 まで雪だるま化)。 autostash なら dirty をまたいで流れる。
-    git(repo, "pull", "--rebase", "--autostash", "-q")
+    # 2026-09-29: 載せ直すのは upstream が普通に進んだ時だけ (forced update = 書き換えなら載せ直さない、 sync_after_commit)。
+    if pre is not None and pre.get("upstream"):
+        note = sync_after_commit(repo, pre)
+        if note:
+            return note
+    else:
+        git(repo, "pull", "--rebase", "--autostash", "-q")
     rc, _ = git(repo, "push", "-q", timeout=90)
     return "committed+pushed" if rc == 0 else "committed (push failed, retry next beat)"
+
+
+def _selftest_rewrite(td: Path):
+    """書き換えられた remote への beat: (A) 古い履歴 + 自分の beat の上の Mac は揃えてから載せる (旧 sha は remote に戻らない)
+    (B) 手元にしか無い commit を持つ Mac は beat を止める (C) 古い履歴を merge してしまった Mac の push は guard が止める。"""
+    rf_env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+              "GIT_AUTHOR_EMAIL": "t@" + "example.invalid", "GIT_COMMITTER_NAME": "t",
+              "GIT_COMMITTER_EMAIL": "t@" + "example.invalid",
+              _rf.LOG_ENV: str(td / "rf.log"), _rf.MAPS_FILE_ENV: str(td / "no-maps"), _rf.MAPS_ENV: ""}
+    saved = {k: os.environ.get(k) for k in rf_env}
+    os.environ.update(rf_env)
+    n = 0
+    try:
+        def g1(p, *a):
+            return git(p, *a)[1].strip()
+
+        def wc(p, files, msg):
+            for f, body in files.items():
+                (p / f).parent.mkdir(parents=True, exist_ok=True)
+                (p / f).write_text(body)
+                git(p, "add", f)
+            git(p, "commit", "-q", "--allow-empty", "-m", msg)
+            return g1(p, "rev-parse", "HEAD")
+
+        rem = td / "rem.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(rem)], check=True)
+        work = td / "work"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(work)], check=True)
+        o1 = wc(work, {"a.txt": "one\n", ".rewrite-follow/ignore-paths": "fleet/\n"}, "c1")
+        o2 = wc(work, {"a.txt": "id=K00X0000\n"}, "c2")
+        o3 = wc(work, {"a.txt": "clean\n"}, "c3")
+        git(work, "remote", "add", "origin", str(rem))
+        git(work, "push", "-q", "-u", "origin", "main")
+        mac, mac_local, mac_merge = td / "mac", td / "mac-local", td / "mac-merge"
+        for m in (mac, mac_local, mac_merge):
+            subprocess.run(["git", "clone", "-q", str(rem), str(m)], check=True)
+        wc(mac_local, {"z.txt": "mine\n"}, "local work")     # 書き換えの前から手元だけの commit
+        r = beat(mac, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
+        assert r == "committed+pushed", r
+        b1 = g1(mac, "rev-parse", "HEAD")
+        beat_json = (mac / "fleet" / f"{hostname_short()}.json").read_bytes()
+        # 書き換え: c2 の a.txt を scrub、 c3 と beat の tree は同じ。 対応表 + forbidden-blobs を通常 commit で置く
+        new = td / "new"
+        subprocess.run(["git", "init", "-q", "-b", "main", str(new)], check=True)
+        n1 = wc(new, {"a.txt": "one\n", ".rewrite-follow/ignore-paths": "fleet/\n"}, "c1")
+        n2 = wc(new, {"a.txt": "id=<学籍番号>\n"}, "c2")
+        n3 = wc(new, {"a.txt": "clean\n"}, "c3")
+        (new / "fleet").mkdir()
+        (new / "fleet" / f"{hostname_short()}.json").write_bytes(beat_json)
+        git(new, "add", "fleet")
+        n4 = wc(new, {}, "fleet-heartbeat: t")
+        assert g1(new, "rev-parse", n4 + "^{tree}") == g1(mac, "rev-parse", b1 + "^{tree}"), "fixture: tree equal"
+        old_blob = g1(work, "rev-parse", f"{o2}:a.txt")
+        cmap = "old new\n" + "\n".join(f"{o} {x}" for o, x in ((o1, n1), (o2, n2), (o3, n3), (b1, n4))) + "\n"
+        n5 = wc(new, {".rewrite-follow/commit-map": cmap, ".rewrite-follow/forbidden-blobs": old_blob + "\n"}, "publish map")
+        git(new, "push", "-q", "--force", str(rem), "main:main")
+        # (A)
+        r = beat(mac, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
+        assert r == "committed+pushed", r
+        rem_shas = set(g1(rem, "rev-list", "main").split())
+        assert not ({o1, o2, o3, b1} & rem_shas), "旧 sha が remote に戻った"
+        assert n5 in rem_shas and g1(mac, "rev-parse", "HEAD~1") == n5, "beat は新しい履歴の先頭の上"
+        d = json.loads((mac / "fleet" / f"{hostname_short()}.json").read_text())
+        rf = d["rewrite_follow"]
+        assert rf["state"] == "followed" and rf["capable"] and rf["manifest"] and rf["prepush_stub"], rf
+        assert (mac / ".git" / "hooks" / "pre-push").exists(), "pre-push stub が置かれる"
+        assert d.get("engine_head") is None or len(d["engine_head"]) == 40
+        assert "harness_hooks" not in d or isinstance(d["harness_hooks"], list)
+        n += 1
+        # (B)
+        head_before = g1(mac_local, "rev-parse", "HEAD")
+        r = beat(mac_local, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
+        assert r.startswith("deferred (rewrite follow stopped"), r
+        assert g1(mac_local, "rev-parse", "HEAD") == head_before, "止めた Mac の HEAD が動いた"
+        assert "local work" not in g1(rem, "log", "main", "--format=%s"), "止めた Mac の commit が remote に出た"
+        n += 1
+        # (C)
+        git(mac_merge, "fetch", "-q", "origin")
+        rc_m, _ = git(mac_merge, "merge", "-q", "--no-edit", "--allow-unrelated-histories", "origin/main")
+        assert rc_m == 0, "fixture: merge"
+        r = beat(mac_merge, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
+        assert "push refused by the rewrite guard" in r, r
+        assert not ({o1, o2, o3} & set(g1(rem, "rev-list", "main").split())), "merge した Mac の push で旧 sha が戻った"
+        n += 1
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return n
 
 
 def selftest():
@@ -597,6 +817,20 @@ def selftest():
         r2 = beat(repo, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
         assert r2.startswith("skip"), r2
         ok += 1
+        # harness_hooks: settings.json の hook の file 名だけ (event 横断、 重複なし)
+        hh_home = Path(td) / "hh"
+        (hh_home / ".claude").mkdir(parents=True)
+        (hh_home / ".claude" / "settings.json").write_text(json.dumps({"hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "~/.claude/hooks/a.sh"}]}],
+            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "~/.claude/hooks/b.py --x"},
+                                                          {"type": "command", "command": "~/.claude/hooks/a.sh"}]}]}}))
+        assert harness_hooks(hh_home) == ["a.sh", "b.py"], harness_hooks(hh_home)
+        assert harness_hooks(Path(td) / "nohome") is None
+        assert essence({"harness_hooks": ["a.sh"]}) != essence({"harness_hooks": ["a.sh", "b.py"]}), "配線された hook の変化は commit する"
+        assert essence({"rewrite_follow": {"capable": True, "state": "current"}}) != essence({}), "追従の能力が届いたら commit する"
+        ok += 1
+        if _rf is not None:
+            ok += _selftest_rewrite(Path(td))
         # inventory: name = 最初の `*` 以降の最初の path 要素 (= 親 dir 名 / file 名の両形)
         inv_root = Path(td) / "invroot"
         for a in ("a1", "a2"):
@@ -682,7 +916,7 @@ def selftest():
             assert essence({"jobs": [ja]}) != essence({"jobs": [dict(ja, log_failure=None)]}), "失敗の原因の変化も即 commit"
         assert job_health("j.nolog", "0", None, [], jroot)["log_failure"] is None
         ok += 1
-    print(f"selftest: {ok}/14 PASS")
+    print(f"selftest: {ok} PASS")
 
 
 def main():

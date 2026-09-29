@@ -25,7 +25,10 @@
 #                                           進行中は触らない / CLAUDE_SYNC_AUTOSTASH=0 で A 行のみに戻す /
 #                                           未 commit の変更と upstream の変更が同じ file に当たるなら
 #                                           stash せず A 行 (= 持ち主の commit 待ち)
-#   behind>0 ∧ ahead>0 (diverged)       → A 行のみ (勝手な merge commit は作らない)
+#   behind>0 ∧ ahead>0 (diverged)       → 履歴が書き換えられた (force-push) repo なら層1 lib/git_rewrite_follow.py で
+#                                           中身で揃える (対応表 / tree の一致だけで判定、 reset --keep = 未 commit は保つ、
+#                                           pull / merge / rebase はしない) → P 行。 揃えられない (手元にしか無い中身) なら
+#                                           A 行のみ (勝手な merge commit は作らない)。 lock の内側で行う
 #   behind==0 ∧ ahead>0                  → U 行のみ
 #   fetch が終わらなかった repo         → A 行 (behind 判定が古い ref 由来で当てにならない)
 #
@@ -48,6 +51,9 @@
 #   CLAUDE_SYNC_AUTOSTASH=0        tracked-dirty を stash しない (A 行のみ)
 #   CLAUDE_SYNC_SWEEP_LOCK_STALE   lock を古いとみなす秒数 (既定 300)
 #   CLAUDE_SYNC_SWEEP_BG=0         timeout した repo の裏 fetch を投げない (kill switch)
+#   CLAUDE_SYNC_SWEEP_FOLLOWER     diverged を中身で揃える engine の path (既定 = 同じ dir の git-rewrite-follow.py、
+#                                  無ければ <root>/claude-config/scripts/ の同名。 存在しない path を渡すと従来の A 行だけ)
+#   CLAUDE_SYNC_SWEEP_FOLLOW_MAPS  追従の対応表 (old new) の glob を空白区切りで (層3 が書き換えの記録の dir を渡す用)
 #   CLAUDE_SYNC_SWEEP_TEST=1 の時だけ効く (test で並走の窓を決定的に開ける):
 #     CLAUDE_SYNC_SWEEP_TEST_HOLD_PRE / _POST  stash push の直前 / 直後に lock を持ったまま止まる秒数
 #     CLAUDE_SYNC_SWEEP_TEST_SKIP_OVERLAP=1     同じ file に当たる検査を外す (pop conflict の経路を test するため)
@@ -70,6 +76,15 @@ done
 
 [ -d "$ROOT" ] || exit 0
 command -v git >/dev/null 2>&1 || exit 0
+
+# diverged を中身で揃える engine (層1 lib/git_rewrite_follow.py の CLI)。 本 script が remote-tracking ref から一時 file で
+# 実行されている時 (呼び元の hook がそうする) は同じ dir に無いので、 root の下の本 repo の checkout を見る
+_FOLLOWER="${CLAUDE_SYNC_SWEEP_FOLLOWER:-}"
+if [ -z "$_FOLLOWER" ]; then
+  _FOLLOWER="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)/git-rewrite-follow.py"
+  [ -f "$_FOLLOWER" ] || _FOLLOWER="$ROOT/claude-config/scripts/git-rewrite-follow.py"
+fi
+[ -f "$_FOLLOWER" ] || _FOLLOWER=""
 
 # 手順の表示用 (= $HOME 配下なら ~ で書く)
 _DISP="$ROOT"
@@ -304,13 +319,7 @@ classify() {
     fi
     return 0
   fi
-  if [ "$ahead" -gt 0 ]; then
-    printf 'A\t%s: behind=%s ahead=%s dirty=%s (= diverged、 作業前に手動解決)\n' \
-      "$name" "$behind" "$ahead" "$dirty"
-    return 0
-  fi
-
-  # ---- ここから HEAD / tree を書き換える = 並走ロックの内側でだけ行う ----
+  # ---- ここから HEAD / tree を書き換える = 並走ロックの内側でだけ行う (diverged の追従も同じ) ----
   gcd="$(git rev-parse --git-common-dir 2>/dev/null)" || gcd=""
   gcd="$( [ -n "$gcd" ] && cd "$gcd" 2>/dev/null && pwd)" || gcd=""
   if [ -z "$gcd" ]; then
@@ -327,8 +336,35 @@ classify() {
     printf 'L\t%s: 前回の sync-sweep が残した古い lock (%s) を除去して処理した\n' \
       "$name" "$(_lock_desc "$_LOCK_BROKE")"
   fi
-  _pull_locked "$name"
+  if [ "$ahead" -gt 0 ]; then
+    _follow_locked "$name"
+  else
+    _pull_locked "$name"
+  fi
   _lock_release "$lk"
+  return 0
+}
+
+# lock の内側 (diverged): 履歴が書き換えられた repo なら層1 lib で中身で揃える (P 行)、 揃えられなければ A 行。
+# 判定は fetch 済みの remote-tracking ref だけを読む (--no-fetch = §1 の fetch を使う)。 merge / rebase はしない。
+_follow_locked() {
+  local name="$1" behind ahead dirty out g
+  behind="$(git rev-list --count HEAD..@{u} 2>/dev/null)"; behind="${behind:-0}"
+  ahead="$(git rev-list --count @{u}..HEAD 2>/dev/null)"; ahead="${ahead:-0}"
+  dirty="$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')"; dirty="${dirty:-0}"
+  { [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; } 2>/dev/null || return 0   # lock を取るまでに状態が変わった = 次の sweep で
+  if [ -n "$_FOLLOWER" ] && command -v python3 >/dev/null 2>&1; then
+    local -a fargs
+    fargs=()
+    for g in ${CLAUDE_SYNC_SWEEP_FOLLOW_MAPS:-}; do fargs+=(--map "$g"); done
+    out="$(_t 60 python3 "$_FOLLOWER" follow --repo "$PWD" --no-fetch --tsv ${fargs[@]+"${fargs[@]}"} 2>/dev/null)"
+    case "$out" in
+      F*) printf '%s\n' "$out" | awk -F'\t' '$1=="F"{print "P\t"$2}'; return 0 ;;
+      S*) printf '%s\n' "$out" | awk -F'\t' '$1=="S"{print "A\t"$2}'; return 0 ;;
+    esac
+  fi
+  printf 'A\t%s: behind=%s ahead=%s dirty=%s (= diverged、 作業前に手動解決。 remote の履歴が書き換えられたなら pull / merge / rebase をせず中身で揃える = python3 %s follow --repo %s/%s)\n' \
+    "$name" "$behind" "$ahead" "$dirty" "${_FOLLOWER:-claude-config/scripts/git-rewrite-follow.py}" "$_DISP" "$name"
   return 0
 }
 

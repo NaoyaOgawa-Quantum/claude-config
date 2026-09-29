@@ -142,6 +142,7 @@
 - **[generate-doc-index.py](generate-doc-index.py)** — regenerate a slug index FROM its markdown, so Claude writes
 - **[generate-tree.py](generate-tree.py)** — CLAUDE.md 構造 tree (conventions/hooks/scripts) + CONVENTIONS.md 冒頭列挙 +
 - **[git-drop-path-history.py](git-drop-path-history.py)** — ある file の全版を git の履歴から落とす (不可逆) を、 予行演習・本番・他 machine の追従の 3 段で安全に行う。
+- **[git-rewrite-follow.py](git-rewrite-follow.py)** — 書き換えられた (force-push された) 履歴に手元の clone を中身で揃える / 古い世代の commit・blob の push を止める / 揃える機構が各マシンに届いたかを状態で答える (engine = scripts/lib/git_rewrite_follow.py、 追従の判定は書き換えられない層 = 本 repo に置く)
 - **[gmail-mcp-engines.test.sh](gmail-mcp-engines.test.sh)** — gmail MCP engine 2 本 (reauth / install-runtime-links) の hermetic self-test
 - **[gmail-mcp-install-runtime-links.sh](gmail-mcp-install-runtime-links.sh)** — ~/.gmail-mcp/ の runtime credential を config repo canonical への symlink に張り替える冪等エンジン (generic、 layer 1 が実行実体。 runbook = conventions/gmail-mcp-multiaccount.md)
 - **[gmail-mcp-reauth.sh](gmail-mcp-reauth.sh)** — 多アカウント Gmail MCP の OAuth (再)認証エンジン (generic、 layer 1 が実行実体。 runbook = conventions/gmail-mcp-multiaccount.md)
@@ -322,6 +323,7 @@
 - **[lib/config_dir_auth.py](lib/config_dir_auth.py)** — Claude Code の設定フォルダ (CLAUDE_CONFIG_DIR) の認証が切れているかを、 `claude` を呼ばずに読む共有判定。
 - **[lib/find-personal-layer.sh](lib/find-personal-layer.sh)** — `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
 - **[lib/git_blob.py](lib/git_blob.py)** — git の blob を worktree に出したときの中身で読む helper (git-crypt で暗号化される path も平文で)。
+- **[lib/git_rewrite_follow.py](lib/git_rewrite_follow.py)** — 書き換えられた (force-push された) 履歴に手元の clone を **中身で** 揃え、 古い世代の commit / blob の push を止める共有部品。
 - **[lib/gmail_read.py](lib/gmail_read.py)** — Gmail を**読むだけ**の最小 helper (service の組み立て / thread の message 列 / 本文の取り出し)。
 - **[lib/hook-exec-probe.bash](lib/hook-exec-probe.bash)** — lib/hook-exec-probe.bash — hook の exec 検査で BASH_ENV に渡す file (bash が $BASH_ENV として読む。 直接は実行も source もしない)
 - **[lib/hook-stub.sh](lib/hook-stub.sh)** — lib/hook-stub.sh — hook stub installer 共通の「既存 stub の扱い」 (source して使う、 単体実行しない)
