@@ -215,3 +215,26 @@ grep して、 別の台帳に記録済みの続報を「未記録」 と判定�
   正本 = [`mail-thread-ledger.md#drafts-are-not-messages`](mail-thread-ledger.md#drafts-are-not-messages)。
 - 索引の名前・向きのような派生値は id から引き直せる形に保ち、 書き方の規則を変えたら引き直す道具で揃える
   (手で直さない。 [`convention-design-principles.md#relabel-derived-from-key`](../docs/convention-design-principles.md#relabel-derived-from-key))。
+- 記録の道具が項目の現在地を**上書き**するなら、 上書きされる前の値を毎回見せる (実測: 返事を 1 件記録した
+  「次の一手」 がその 1 件だけを書き、 前の現在地に残っていた別の手順が項目から消えた。 `record-reply.py` は
+  dry-run でも apply でも前の値を出す = 残っている手順は「次の一手」 に書き直す)。
+
+## <a id="record-bound-mark-read"></a>未読を鍵にした見張りは対応済みで埋まる — 既読化を記録に束縛した道具で払う
+
+Layer 3 の「ラベルの未読」 の段は、 記録を付けても Gmail の UNREAD が残るので、 対応済みの mail で膨らみ続け、
+本物の数件が数百件に埋もれる (実測)。 記録を付ける側と既読にする側が別の操作で、 後者を誰もしないのが根。
+
+- **既読化の判定を記録に束縛する**: 外す対象は「対応済み」 と記録で言えるものに限る = messageId か threadId が
+  記録の台帳に在る (harvester は他の網と同じ関数 = [`#recorded-id-notation`](#recorded-id-notation))、 または
+  「見て対応不要と決めた」 ack の台帳に日付と理由つきで在る。 どちらでもない未読は触らず、 仕分けの対象として一覧に出す。
+  外すのは UNREAD だけ (ほかのラベル・削除・移動はしない)、 既定は dry-run。 道具 = `scripts/mark-handled-read.py`
+  (個人の構成 = 見るラベルと台帳の場所は呼び出し側が渡す)。
+- **仕分けの流れに入れる**: 記録を付けたら同じ流れで既読化まで回す (人の記憶に頼らない)。 ML の議論のように
+  「読んで対応不要」 と決めたものは、 候補 (`--ack-snippet`) の件名を見てから ack に足す (見ずに貼らない)。
+- **auto mode**: その場で書いた一括の既読化 script は外部への書き込みとして止められる (実測)。 判定を記録に束縛した
+  専用の道具にし、 その path だけを allow に宣言する (宣言した rule を各マシンへ配る仕組みで。 settings を session 中に
+  手で直さない = [`claude-code-permissions.md`](claude-code-permissions.md))。
+- **ack の台帳は許可そのもの**: 止められた既読化を通すために agent が自分で ack を書くと、 自己承認として止められる
+  (実測)。 ack を足すのは本人の OK の後 (件名と日付を見せて判断を仰ぐ)。
+- 見張りの段自体も同じ判定で「未対応の未読」 だけを出す形に寄せると、 既読化を待たずに埋もれが消える
+  (既読化は Gmail 側の見た目、 段の中身は判定で決まる = 両方を同じ関数で)。

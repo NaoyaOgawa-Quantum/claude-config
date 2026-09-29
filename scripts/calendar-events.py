@@ -123,6 +123,27 @@ def find_duplicates(items: list[dict]) -> list[tuple[str, list[str]]]:
     return [(f"{k[0]} {k[2][:40]}", v) for k, v in sorted(seen.items()) if len(v) > 1]
 
 
+def same_day_existing(specs: list[dict], existing: list[dict]) -> list[tuple[str, list[str]]]:
+    """足す予定の日付ごとに、 同じ日に既に在る予定 (終日を含む) を返す = [(足す予定の要約, [既存の 'HH:MM 要約' / '終日 要約'])]。
+
+    足す前に同じ日を見ないと、 学年暦などから入っている終日の予定と同じものを時刻つきで二重に足す
+    (実測: 確認の list と add を 1 つの command で流し、 list の結果を読む前に add が走った)。
+    重複かどうかの判定はしない (要約の言い回しが違う = 機械では決められない) = 並べて見せるだけ。
+    """
+    by_day: dict[str, list[str]] = {}
+    for e in existing:
+        st = e.get("start", "")
+        day = st[:10]
+        label = ("終日 " if len(st) == 10 else st[11:16] + " ") + (e.get("summary") or "").strip()
+        by_day.setdefault(day, []).append(label)
+    out = []
+    for s in specs:
+        day = str(s.get("start", ""))[:10]
+        if by_day.get(day):
+            out.append((f"{day} {str(s.get('summary', ''))[:50]}", by_day[day]))
+    return out
+
+
 def select_for_delete(items: list[dict], match: str | None, protect: str | None,
                       cutoff: str | None) -> tuple[list[dict], list[tuple[dict, str]]]:
     """削除対象と保護対象に仕分ける。 **保護側の理由も返す** (= 消さない根拠を出す)。
@@ -322,6 +343,17 @@ def cmd_add(a) -> int:
         specs = specs.get("events", [])
     tz = os.environ.get("CLAUDE_CALENDAR_TZ", "Asia/Tokyo")
     bodies = [build_event_body(s, tz) for s in specs]      # 先に全件 validate
+    # 同じ日の既存の予定を dry-run でも apply でも見せる (= 重複は dry-run の出力で気づく。 読めなければ 1 行で言う)
+    svc = None
+    try:
+        svc = get_service()
+        days = sorted({str(s["start"])[:10] for s in specs})
+        nxt = (datetime.date.fromisoformat(days[-1]) + datetime.timedelta(days=1)).isoformat()
+        hits = same_day_existing(specs, fetch(svc, _cfg("CLAUDE_CALENDAR_ID"), days[0], nxt))
+        for label, ex in hits:
+            print(f"  ⚠️ 同じ日に既に在る予定 ({label} を足す前に見る): " + " / ".join(x[:40] for x in ex))
+    except Exception as e:   # 読めなくても add 自体は止めない (見られなかったことは言う)
+        print(f"  ⚪ 同じ日の既存の予定を読めなかった ({type(e).__name__}) = 重複は未確認")
     if not a.apply:
         for b in bodies:
             print(f"  + {b['start']['dateTime'][:16]} {b['summary'][:66]}")
@@ -480,6 +512,13 @@ def selftest() -> int:
         check(False, "T25: 指定なしの patch は ValueError")
     except ValueError:
         check(True, "T25: 指定なしの patch は ValueError")
+
+    ex = [{"start": "2030-01-20", "summary": "式典 (学年暦)"}, {"start": "2030-01-20T09:00:00+09:00", "summary": "会議"},
+          {"start": "2030-01-21", "summary": "別の日"}]
+    hits = same_day_existing([{"start": "2030-01-20T10:00", "summary": "式典の手伝い"},
+                              {"start": "2030-01-22T10:00", "summary": "空いている日"}], ex)
+    check(len(hits) == 1 and hits[0][1] == ["終日 式典 (学年暦)", "09:00 会議"],
+          "T26: add の前に同じ日の既存の予定 (終日と時刻つき) を並べる、 別の日と空いている日は出さない")
 
     print(f"\n==== RESULT: PASS={ok} FAIL={fail} ====")
     return 1 if fail else 0

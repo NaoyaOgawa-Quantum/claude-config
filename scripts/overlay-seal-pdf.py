@@ -38,6 +38,9 @@ Usage
   Nth hit (1-based, default 1).
 * The image's left edge lands at the anchor's right edge + ``dx``; vertically
   centered on the anchor line + ``dy``. ``size`` is the square edge in points.
+* To centre the seal *on* a printed mark used as the anchor (e.g. the form's own
+  seal-circle glyph next to a name), use ``dx = -(anchor_width + size) / 2``, where
+  ``anchor_width`` is the width of the ``search_for`` rectangle of that glyph.
 * In-place editing is refused: ``--out`` must differ from the input.
 
 * **Multiply compositing (the core realism trick)**: real seal ink is
