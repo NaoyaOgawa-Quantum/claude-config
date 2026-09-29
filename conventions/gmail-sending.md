@@ -78,6 +78,8 @@ for p in full["payload"].get("parts", []):
 
 これも送信 script の送信後処理に焼き込むのが正解 (= 手順書でなく機械が検証する)。
 
+<a id="oversize-silent-failure"></a>**送信済みに残っても届いたとは限らない — 25 MB を超えるメール**: Gmail は encode 後のメール全体が 25 MB を超えると配達しないが、 API の `messages.send` は messageId を返し、 送信済みの message も読み直せる (上の MIME 検証も通る)。 失敗は同じ thread に届く mailer-daemon の「メッセージは送信されませんでした」 1 通だけで、 理由は書かれていない (実測: 600 dpi の raster を無圧縮で埋めた 1 頁の PDF が 35 MB)。 ∴ 送信 script は**送る前に** `len(msg.as_bytes())` を測って上限超えを止める (dry-run でも)。 raster の PDF をメールで渡すなら 300 dpi・圧縮 (PNG の stream + `deflate`) で作る (1 頁で数百 KB)。
+
 ## <a id="dry-run-truncation"></a>5. dry-run 表示の truncation に注意
 
 dry-run が `msg.as_string()[:N]` のような先頭 truncate だと、base64 本文の後ろにある**添付 part の header が表示されず**、「添付が入っていない」ようにしか見えない。truncate された MIME dump から「無い」を結論しない (= 不在主張は表示仕様を確認してから)。dry-run 実装は「header 全部 + part 構造 + 本文 decode」の構造表示にする。
