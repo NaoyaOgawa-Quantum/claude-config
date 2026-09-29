@@ -235,7 +235,8 @@ def build_reason(findings: list[dict], root: str) -> str:
         lines.append(f"- {BT}{f['path']}{BT} ({kind}、 {where_of[f['reason']]}) → {cands}")
     lines.append(
         "直し方: link の href は絶対 path か上のフォルダからの path に、 inline code は上のフォルダからの path に"
-        "書き直して、 最終メッセージ全体を出し直してください (候補が複数なら意図した方)。 "
+        "書き直した参照だけを短い追記として出してください (最終メッセージ全体は出し直さない = 返事が 2 通並ぶ。"
+        " 候補が複数なら意図した方)。 "
         "フォルダの外の file は絶対 path でも右パネルで開けないことがあります — "
         "その場合は内容を本文に出すか open で開く。 "
         "開けない形を例として見せたいだけなら fenced code block に入れる。 "

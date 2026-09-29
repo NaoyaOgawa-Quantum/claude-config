@@ -13,7 +13,8 @@
   frontend は問わない (CLI でも literal に出る)。
 
 挙動: fire 時 decision=block + reason (見つけた comment と、 marker の正しい置き場所 = Bash command の末尾 comment)。
-  差し戻された turn の出し直しでは本文から comment を除いた全文を出す。 stop_hook_active=true は即 exit 0 (1 回だけ)。
+  差し戻された turn では全文を出し直さず (返事が 2 通並ぶ = hook-authoring.md §17)、 comment に込めた中身があれば見える文で短く
+  書き足す。 stop_hook_active=true は即 exit 0 (1 回だけ)。
   fail-open: transcript / 部品 (scripts/lib/transcript_turns.py) の不在や例外は沈黙。
 
 ⚠️ 射程の限界: 出た後に止める網で、 最初の 1 回の露出は防げない (Stop hook は表示の後に走る)。 露出そのものを無くすのは
@@ -63,7 +64,8 @@ def main() -> int:
         "Claude Code の chat は HTML comment を literal に表示するので、 user の画面にそのまま出ました。\n"
         "hook 向けの marker は応答本文でなく tool 入力に置く (例: Bash command の末尾に `# <marker>`)。 "
         "marker が要るのは、 その hook の発火条件を満たす turn だけ。\n"
-        "いまの応答を、 comment を除いた全文で出し直し、 以後の turn で本文に置かない。 "
+        "応答の全文は出し直さない (返事が 2 通並ぶ)。 comment に込めた中身があれば、 それを見える文で短く書き足し、"
+        " 以後の turn で本文に置かない。 "
         "comment を例として見せたいだけなら inline code か fenced code block に入れる。\n"
         "正本 = claude-config/conventions/mid-turn-text-visibility.md#html-comment-not-hidden"
     )
