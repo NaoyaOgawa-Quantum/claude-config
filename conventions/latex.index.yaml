@@ -91,6 +91,9 @@ sections:
   - id: supplement-in-same-pdf
     level: 2
     title: "Supplemental Material は、 まず同じ PDF の文献表の後に置く"
+  - id: companion-paper-split
+    level: 2
+    title: "原稿の一部を別論文 (companion paper) に分ける"
   - id: compilers
     level: 2
     title: "コンパイラ"

@@ -177,6 +177,7 @@
 - **[kakenhi-preflight.py](kakenhi-preflight.py)** — 科研費 研究計画調書の「機関事務が必ず突く点」を提出前に機械検出（様式骨格の生存 / 埋め込み指示の抽出 / 表記 lint / 経費明細の粒度・費目帰属、kakenhi-proposal.md#office-review-loop）
 - **[keynote-iwa-text.py](keynote-iwa-text.py)** — Extract a text inventory from Keynote .key slide IWA archives (layout/order not reconstructed).
 - **[latex-pdf-audit.py](latex-pdf-audit.py)** — Audit a LaTeX log and PDF, and optionally render numbered pages for visual review.
+- **[latex-split-deps.py](latex-split-deps.py)** — 原稿の一部 (節・\input の file) を別の文書へ移す前に、 移すと切れる参照・引用と、 移した文の中で旧い入れ物を指す語を列挙する (読むだけ)。
 - **[latexdiff-review-snapshot.sh](latexdiff-review-snapshot.sh)** — 共著レビュー用「変更点カラー版 PDF」を 1 コマンドで生成・配備（baseline を git rev から取り出し → レビュー markup unwrap --strip-cmd/--strip-color → latexdiff → compile → snapshot 命名〔#snapshot-artifact-naming 準拠、head = main tex 最終 commit に pin〕→ 同 baseline 旧版 supersede → commit+push+open。behind/dirty guard + --selftest 内蔵、conventions/latex.md#latexdiff-review-snapshot）
 - **[latexdiff-safecmd.py](latexdiff-safecmd.py)** — Derive latexdiff's --append-safecmd list from the manuscript preamble.
 - **[latexdiff-strip-dup-labels.py](latexdiff-strip-dup-labels.py)** — Drop \label{...} from the DELETED side of a latexdiff output, so each label survives only on the new text.

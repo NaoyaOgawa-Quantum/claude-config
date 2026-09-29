@@ -44,7 +44,7 @@ engine = [`scripts/manuscript-claim-guard.py`](../scripts/manuscript-claim-guard
 
 原稿固有の領域名は `title` / `abstract` / `intro` / `conclusion` / `eq:<label>` / `math` (その file の全数式) / `math-add` (式の追加だけ) / `section:<見出し>`。拒否メッセージに出た領域を用いる。規則・設定の変更には共通手順の `--candidate` も必要になる。
 
-`section:<見出し>` の見出しは `\section{…}` の文字列 (小文字化) であって、 label (`sec:…`) ではない。 記録の前に source の `\section{` 行から取る (`scan` は差分が無いうちは何も出さない)。 領域を誤って記録すると、 書き込みは通っても commit で止まり、 引ける発言は最新のものだけなので、 著者に同じ裁定を言い直してもらうことになる (実測)。 記録と最初の書き込みは別の tool call にする: 同じ command 行に `approve && 書き込み` と並べると、 書き込みの検査が記録より先に走って止まる。
+`section:<見出し>` の見出しは `\section{…}` の文字列 (小文字化) であって、 label (`sec:…`) ではない。 記録の前に source の `\section{` 行から取る (`scan` は差分が無いうちは何も出さない)。 領域を誤って記録すると、 書き込みは通っても commit で止まり、 引ける発言は最新のものだけなので、 著者に同じ裁定を言い直してもらうことになる (実測)。 記録と最初の書き込みは別の tool call にする: 同じ command 行に `approve && 書き込み` と並べると、 書き込みの検査が記録より先に走って止まる。 `git commit` も同じで、 同じ command 行の記録は commit の検査に間に合わない (実測)。 file を改名したときは、 旧い path の削除と新しい path の追加の両方の領域を記録する。 `\input` の行を消すと、 その行を含む節の変更として数える。
 
 ## <a id="adoption"></a>4. 既定の選び方と導入
 
