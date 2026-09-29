@@ -1552,3 +1552,19 @@ jq '.hooks.PostToolUse[] | select(.hooks[]?.command | contains("pdf-read-fallbac
 **判断 4 = 事後監査は帰属を主張しない**。 [`scripts/audit-push-provenance.py`](scripts/audit-push-provenance.py) は reflog の `update by push` の範囲と `Agent-Session` trailer から「ある session の commit と他の commit が同じ push で公開された」 事実だけを出す。 git は誰が push したかを残さない (同じ clone を全 session が共有する) ので、 「誰が巻き込んだか」 までは言わない。 別 clone・別 machine の push と期限切れの reflog は範囲外と docstring に明記した。
 
 **判断 5 = SoT registry への追加は、 登録した日から赤くなる topic を WARN でなく拒否する** (道具は個人層 `odakin-prefs/scripts/sot-registry-add.py`)。 登録直後に drift 検出器が鳴るのは、 home 以外に既に同文があるか token が特異でないかのどちらかで、 どちらも登録前に人が決めること (pointer を足す / allow_globs に入れる / token を選び直す)。 WARN にすると suite が赤いまま commit され、 赤が常態化する。
+
+## <a id="wiring-lock-data-files-by-location"></a>2026-09-29: data 形式の file の配線 lock は場所で決める (名前の言及では lock しない)
+
+**判断**: engine の名前を含む file を全文 `authority:wiring` として lock する述語は、 code (.py .sh .js .ts と拡張子の無い script) だけに当て、 data 形式 (.json .toml .yaml .yml .rules) は組み込みの制御 path と manifest の宣言で守る ([`agent-rule-ownership.md#wiring-scope`](conventions/agent-rule-ownership.md#wiring-scope))。
+
+**根拠**: 記録の file (TODO の台帳・掲示板の event・検証の manifest) は engine を呼ばず設定もしないのに、 名前を書いただけで全文 lock になり、 auto mode では承認の記録の経路そのものが止まることがあった (実測)。 fleet を数えると、 data 形式で engine を配線する file はどれも制御 path か manifest の下にあり、 言及だけの file は記録だった。 失う保護 = 宣言していない場所に置いた data 形式の配線 (実測 0)、 置くなら manifest に宣言する。
+
+**test**: 述語 engine の selftest に「言及だけの data file は lock しない」 5 件 + 「制御 path / manifest / code は lock のまま」 3 件。 新しい 5 件は変更前の述語で失敗する (= 修正前の対照)。
+
+## <a id="approval-cli-allow-in-auto-mode"></a>2026-09-29: auto mode で承認 CLI が classifier に止まる経路は、 本人の狭い allow の宣言で開ける
+
+**判断**: guard の deny 文と規約が案内する承認の記録 (`approve` / `apply`) を auto mode の classifier が Self-Modification として止めることがある (context 依存 = 同じ command が別の session ではそのまま通る)。 直しは 3 つ: (1) deny 文と規約に「止められたら迂回せず本人に allow の宣言か mode 切替を頼む」 を足す ([`tool-call-robustness.md#classifier-blocks-guard-approval-cli`](conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli)) (2) 本人が settings の `permissions.allow` に engine の CLI を絶対 path で宣言する (狭い Bash の allow は公式 docs で classifier より先に解決される。 宣言は git に載る設定の層に置き、 session 開始の auto-apply が各機械に当てる) (3) hook の `--liveness` が、 mode が auto で宣言の無い機械に 🟡 を出す。
+
+**採らなかった案**: guard が transcript を直読して「名指し」 を判定する (意味判断を機械に置く = 既存の設計と矛盾) / 本人が打つ書式を hook が承認として記録する (裁定を自由文でなくする) / `autoMode.allow` の prose rule (classifier の中の例外で soft_deny にしか効かない) / ask rule (dialog 1 回ずつ = 本人不在の worker が止まる。 代案として残す)。
+
+**線**: allow は classifier の二重判定を外すだけ。 CLI 自身の照合 (本人の最新の発言だけを引く・候補の hash に束縛・Stop で返事に書かせる) は不変。 agent が宣言 file を commit する操作は classifier が止める (実測) = 宣言の commit と auto-apply の 1 command は本人の terminal。 直接の証拠: 止められていた session で、 宣言の後に同じ command (絶対 path) がそのまま通った (実測)。 相対 path や複合 command は rule に当たらず classifier に回る = deny 文は絶対 path の command を出す。
