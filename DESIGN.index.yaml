@@ -173,3 +173,11 @@ sections:
     legacy: "2026-09-13"
     level: 2
     title: "2026-09-13: link の壊れ方を止める guard と、安全に書き換え・commit する道具 — 極性と既定値の判断"
+  - id: wiring-lock-data-files-by-location
+    legacy: "2026-09-29"
+    level: 2
+    title: "2026-09-29: data 形式の file の配線 lock は場所で決める (名前の言及では lock しない)"
+  - id: approval-cli-allow-in-auto-mode
+    legacy: "2026-09-29"
+    level: 2
+    title: "2026-09-29: auto mode で承認 CLI が classifier に止まる経路は、 本人の狭い allow の宣言で開ける"
