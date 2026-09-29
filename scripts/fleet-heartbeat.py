@@ -683,7 +683,10 @@ def _selftest_rewrite(td: Path):
     rf_env = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
               "GIT_AUTHOR_EMAIL": "t@" + "example.invalid", "GIT_COMMITTER_NAME": "t",
               "GIT_COMMITTER_EMAIL": "t@" + "example.invalid",
-              _rf.LOG_ENV: str(td / "rf.log"), _rf.MAPS_FILE_ENV: str(td / "no-maps"), _rf.MAPS_ENV: ""}
+              _rf.LOG_ENV: str(td / "rf.log"), _rf.MAPS_FILE_ENV: str(td / "no-maps"), _rf.MAPS_ENV: "",
+              # 旧履歴と新履歴の日時を固定して分ける: 同じ中身・同じ message の c1 が同じ秒に作られると sha が一致し (Linux の CI で実測)、
+              # 「旧 sha が remote に無い」 の assert が偽に落ちる
+              "GIT_AUTHOR_DATE": "2000-01-01T00:00:00 +0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00 +0000"}
     saved = {k: os.environ.get(k) for k in rf_env}
     os.environ.update(rf_env)
     n = 0
@@ -720,6 +723,7 @@ def _selftest_rewrite(td: Path):
         b1 = g1(mac, "rev-parse", "HEAD")
         beat_json = (mac / "fleet" / f"{hostname_short()}.json").read_bytes()
         # 書き換え: c2 の a.txt を scrub、 c3 と beat の tree は同じ。 対応表 + forbidden-blobs を通常 commit で置く
+        os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-02T00:00:00 +0000"   # 新履歴は別の日時 (sha の一致を避ける)
         new = td / "new"
         subprocess.run(["git", "init", "-q", "-b", "main", str(new)], check=True)
         n1 = wc(new, {"a.txt": "one\n", ".rewrite-follow/ignore-paths": "fleet/\n"}, "c1")

@@ -562,7 +562,9 @@ def _selftest():
     os.environ.update({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
                        "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
                        "GIT_COMMITTER_EMAIL": "t@example.invalid", LOG_ENV: os.path.join(td, "follow.log"),
-                       MAPS_FILE_ENV: os.path.join(td, "no-maps.txt"), MAPS_ENV: ""})
+                       MAPS_FILE_ENV: os.path.join(td, "no-maps.txt"), MAPS_ENV: "",
+                       # 旧履歴の日時を固定 (新履歴は別の日時 = 同じ中身・message の commit が同じ秒で同じ sha になるのを避ける、 Linux の CI で実測)
+                       "GIT_AUTHOR_DATE": "2000-01-01T00:00:00 +0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00 +0000"})
     tmp = Path(td)
 
     def init(p):
@@ -613,7 +615,8 @@ def _selftest():
     commit(a_beat, {"status/x.json": '{"beat": 1}\n'}, "heartbeat")
     commit(a_beat, {"status/x.json": '{"beat": 2}\n'}, "heartbeat")
 
-    # --- 書き換え 1: message だけ (tree は全部同じ)
+    # --- 書き換え 1: message だけ (tree は全部同じ)。 新履歴は別の日時で作る
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-02T00:00:00 +0000"
     new1 = tmp / "new1"
     init(new1)
     n1 = commit(new1, {"a.txt": "one\n", "status/x.json": "{}\n"}, "c1")
@@ -644,7 +647,9 @@ def _selftest():
     m3 = commit(new2, {"b.txt": "id=<学籍番号>\n", "c.txt": "3\n"}, "c3 cleaned")
     # 「書き換えの前に ignore-paths を置いた」 状態を旧履歴側にも作る: 旧履歴に通常 commit で ignore-paths を足し、 それを土台に
     git(src, "fetch", "-q", "origin")
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-01T00:00:00 +0000"   # 旧履歴側の commit
     o0 = commit(src, {".rewrite-follow/ignore-paths": "# volatile\nstatus/\n"}, "add manifest")
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-02T00:00:00 +0000"   # 新履歴側に戻す
     # 旧側は o1..o3 + o0。 新側 = m1..m3 + 同じ manifest commit 相当 (tree が o0 と同じになるよう c.txt/b.txt を揃える)
     m0 = commit(new2, {}, "add manifest")  # allow-empty: tree は m3 と同じ = ignore-paths 込み
     check("fixture: content rewrite keeps HEAD tree", git(new2, "rev-parse", m0 + "^{tree}") == git(src, "rev-parse", o0 + "^{tree}"))
