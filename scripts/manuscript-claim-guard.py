@@ -550,6 +550,8 @@ def checked_git(repo: Path, *args: str) -> subprocess.CompletedProcess:
 _HEAD_REF: dict[str, str | None] = {}                   # repo -> HEAD の commit id (unborn = None)
 _HEAD_TREE: dict[tuple[str, str], frozenset[str]] = {}   # (repo, commit id) -> HEAD にある path
 _BLOB_CACHE: dict[tuple[str, str], str | None] = {}      # (repo, spec) -> まとめて読んだ blob (None = 無い / 読めない)
+_GIT_MODE_CACHE: dict[str, dict[str, dict[str, str]]] = {}  # repo -> {index / HEAD: {path: mode}} (authority_paths が読む一覧)
+_REACH_CACHE: dict[str, list[tuple[str, bool]]] = {}        # repo -> 保護 path の固定部分 (正規化・symlink 解決済み, glob か)
 
 
 def head_ref(repo: Path, refresh: bool = False) -> str | None:
@@ -596,6 +598,8 @@ def reset_caches() -> None:
     _HEAD_REF.clear()
     _HEAD_TREE.clear()
     _BLOB_CACHE.clear()
+    _GIT_MODE_CACHE.clear()
+    _REACH_CACHE.clear()
 
 
 _INPUT_CACHE: dict[tuple[str, str], set[str]] = {}
@@ -927,6 +931,7 @@ def authority_paths(repo: Path | None) -> list[str]:
             info, rel = row.split("\t", 1)
             candidates.add(rel)
             modes[source][rel] = info.split(" ", 1)[0]
+    _GIT_MODE_CACHE[key] = modes
     candidates.update(p for p in paths if not any(c in p for c in "*?["))
     candidates.update(_rule_guard.ENTRYPOINT_NAMES)
     discovered: set[str] = set()
@@ -1927,6 +1932,67 @@ def looks_binary(p: Path, repo: Path | None = None) -> bool:
     return bool(versions) and all(versions)
 
 
+def is_gitlink(p: Path, repo: Path | None = None) -> bool:
+    """submodule の path (index・HEAD に在る版が全部 mode 160000) なら True。
+    gitlink は text の blob を持たない = 読もうとすると blob-unreadable で commit ごと止まる
+    (実測: 親 repo での submodule の pin の更新)。 blob の版 (100644 / 100755 / 120000) が 1 つでも
+    あれば False = file を submodule に置き換えて検査を外す経路を塞ぐ。 worktree が通常 file か
+    symlink なら False。 mode は authority_paths が検査ごとに 1 回読む一覧 (ls-files --stage と
+    ls-tree -r) から引く = path ごとに git を呼ばない (多数の gitlink でも hook の時間内)。
+    ls-tree -r は tree を列挙しないので、 directory を submodule に置き換えた path も gitlink になる。"""
+    if repo is None or p.is_symlink() or p.is_file():
+        return False
+    authority_paths(repo)
+    rel = os.path.relpath(p.absolute(), repo).replace(os.sep, "/")
+    seen = [modes[rel] for modes in _GIT_MODE_CACHE.get(str(repo), {}).values() if rel in modes]
+    return bool(seen) and all(mode == "160000" for mode in seen)
+
+
+def _reach_key(path: str) -> str:
+    """比べる前の正規化: Unicode は NFC、 大文字小文字は畳む (macOS の既定の filesystem は両方を区別しない
+    = 表記が違っても同じ file を読む)。 区別する filesystem では保守側に倒れるだけ。"""
+    import unicodedata
+    return unicodedata.normalize("NFC", path.replace(os.sep, "/")).casefold()
+
+
+def _repo_relative_real(repo: Path, rel: str) -> str | None:
+    """rel の worktree 上の実体 (symlink を解決) を repo 相対で。 repo の外なら None。"""
+    base = os.path.realpath(repo)
+    real = os.path.realpath(os.path.join(base, rel)) if rel else base
+    out = os.path.relpath(real, base)
+    return None if out == ".." or out.startswith("../") else ("" if out == "." else out)
+
+
+def declared_reaches_inside(rel: str, repo: Path) -> bool:
+    """保護 path (manifest の宣言と、 symlink を解決した後の path の両方) のどれかが submodule rel の
+    中を指しうるか (glob は保守側)。 親 repo からは submodule の中を読めない = 指しうるなら検査不能で
+    止める (fail-closed)。 抜け道を塞ぐ比べ方: 固定部分 (最初の glob 文字の前) の directory を worktree で
+    symlink 解決した形も比べる (glob を symlink の先へ延ばす宣言) / Unicode (NFC) と大文字小文字を
+    揃えてから比べる。 固定部分の一覧は検査ごとに 1 回作る (gitlink ごとには文字列の比較だけ)。"""
+    key = str(repo)
+    if key not in _REACH_CACHE:
+        entries: set[tuple[str, bool]] = set()
+        for pattern in (*_MANIFEST_PATTERN_CACHE.get(key, ()), *authority_paths(repo)):
+            literal = re.split(r"[*?\[]", pattern, maxsplit=1)[0]
+            glob = literal != pattern
+            entries.add((_reach_key(literal), glob))
+            head, sep, tail = literal.rpartition("/")
+            real_head = _repo_relative_real(repo, head) if sep else ""
+            if real_head is not None and real_head != head:
+                joined = f"{real_head}/{tail}" if real_head else tail
+                entries.add((_reach_key(joined), glob))
+        _REACH_CACHE[key] = sorted(entries)
+    targets = {_reach_key(rel)}
+    real_rel = _repo_relative_real(repo, rel)
+    if real_rel:
+        targets.add(_reach_key(real_rel))
+    for target in targets:
+        for literal, glob in _REACH_CACHE[key]:
+            if literal == target or literal.startswith(target + "/") or (glob and (target + "/").startswith(literal)):
+                return True
+    return False
+
+
 def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
     """repo を渡すと file ごとの rev-parse を省く (呼び元が root を知っている commit の検査)。"""
     if p.is_symlink():
@@ -1939,7 +2005,10 @@ def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
     # ただし版のどれかが text なら対象のまま (looks_binary)。
     if repo is None:
         repo = repo_root(p.parent)
-    if p.suffix.lower() in TEXT_SUFFIXES and not (p.suffix == "" and looks_binary(p, repo)):
+    # submodule (gitlink) は text の版を持たない = 拡張子の無い binary と同じく、 宣言が無ければ対象外。
+    # pin の更新は commit id を記録するだけで、 中の変更は submodule の repo の commit で検査される。
+    gitlink = is_gitlink(p, repo)
+    if not gitlink and p.suffix.lower() in TEXT_SUFFIXES and not (p.suffix == "" and looks_binary(p, repo)):
         return True
     # Explicit policy declarations outrank the convenience text-extension list.
     # Use the lexical parent: a protected symlink's suffix/role must not vanish
@@ -1947,6 +2016,8 @@ def relevant_text_file(p: Path, repo: Path | None = None) -> bool:
     if repo is None:
         repo = repo_root(p.parent)
     rel = os.path.relpath(p.absolute(), repo) if repo else str(p.absolute())
+    if gitlink and declared_reaches_inside(rel.replace(os.sep, "/"), repo):
+        return True
     return _rule_guard.protected_path(rel, authority_paths(repo))
 
 
@@ -4348,6 +4419,100 @@ def selftest() -> int:
         check("HEAD が text の拡張子なし file は binary に上書きしても検査対象", relevant_text_file(plain_bin, repo))
         g("rm", "-q", "--cached", "custom/helper"); g("commit", "-qm", "drop helper")
         plain_bin.unlink(); declared_bin.unlink()
+        # submodule (gitlink = mode 160000) は text の blob を持たない = 宣言が無ければ対象外。 対象にすると
+        # HEAD の版を blob として読めず、 pin を更新する commit が blob-unreadable で止まる (実測: 親 repo の
+        # submodule の pin)。 宣言が中を指しうる path と、 blob の版を持つ path は対象のまま。
+        # 実物の submodule と同じく、 指す commit は親 repo の object に無い (在ると git show が読めてしまう)
+        pin_a, pin_b = "1" * 40, "2" * 40
+        subs = [repo / f"vendor/s{i}" for i in range(3)]
+        for d in subs:
+            d.mkdir(parents=True)
+            g("update-index", "--add", "--cacheinfo", f"160000,{pin_a},{d.relative_to(repo).as_posix()}")
+        g("commit", "-qm", "add submodule pins")
+        reset_caches()
+        check("submodule (gitlink) は宣言が無ければ検査対象外", not relevant_text_file(subs[0], repo))
+        counted: list[tuple] = []
+        real_git = globals()["git"]
+        globals()["git"] = lambda *a, **k: (counted.append(a), real_git(*a, **k))[1]
+        try:
+            for d in subs:
+                relevant_text_file(d, repo)
+        finally:
+            globals()["git"] = real_git
+        check("gitlink の判定は path ごとに git を呼ばない (mode の一覧は検査ごとに 1 回)", not counted)
+        g("update-index", "--cacheinfo", f"160000,{pin_b},vendor/s0")
+        reset_caches()
+        try:
+            pin_changes = changes_for_repo(repo, "index", [])
+        except InspectionError:
+            pin_changes = None
+        check("submodule の pin 更新を検査不能で止めない",
+              pin_changes is not None and all(not c.get("file", "").startswith("vendor/") for c in pin_changes))
+        g("commit", "-qm", "bump pin")
+        g("rm", "-q", "--cached", "vendor/s1"); subs[1].rmdir()
+        reset_caches()
+        try:
+            rm_changes = changes_for_repo(repo, "index", [])
+        except InspectionError:
+            rm_changes = None
+        check("submodule を git rm しても検査不能で止めない", rm_changes is not None)
+        g("commit", "-qm", "drop one submodule")
+        prev_manifest = manifest.read_text()
+        for declared in (["vendor/s0"], ["vendor/s0/AGENTS.md"], ["vendor/**"]):
+            manifest.write_text(json.dumps({"version": 1, "protect_paths": declared}))
+            reset_caches()
+            check(f"宣言が submodule を指しうるなら検査対象のまま (fail-closed): {declared[0]}",
+                  relevant_text_file(subs[0], repo))
+        rules_link = repo / "rules"
+        rules_link.symlink_to("vendor/s0/rules")
+        g("add", "rules"); g("commit", "-qm", "rules link into a submodule")
+        manifest.write_text(json.dumps({"version": 1, "protect_paths": ["rules/AGENTS.md"]}))
+        reset_caches()
+        check("保護 path が symlink で submodule の中を指すなら検査対象のまま (fail-closed)",
+              relevant_text_file(subs[0], repo))
+        inner = subs[0] / "rules"                       # submodule の checkout の中身 (親 repo は追跡しない)
+        inner.mkdir(); (inner / "AGENTS.md").write_text("rule text\n")
+        for declared, target in ((["rules/*"], "vendor/s0/rules"), (["rules"], "Vendor/S0/rules")):
+            rules_link.unlink(); rules_link.symlink_to(target)
+            g("add", "rules"); g("commit", "-qm", "relink rules")   # index・HEAD も新しい行き先に
+            manifest.write_text(json.dumps({"version": 1, "protect_paths": declared}))
+            reset_caches()
+            check(f"symlink の先を glob / 大文字小文字違いで指す宣言も検査対象のまま: {declared[0]} -> {target}",
+                  relevant_text_file(subs[0], repo))
+        g("rm", "-q", "--cached", "rules"); g("commit", "-qm", "drop rules link"); rules_link.unlink()
+        (inner / "AGENTS.md").unlink(); inner.rmdir()
+        nfc_sub = repo / "vendor" / "caf\u00e9"
+        nfc_sub.mkdir()
+        g("update-index", "--add", "--cacheinfo", f"160000,{pin_a},vendor/caf\u00e9")
+        nfd_link = repo / "rules2"
+        nfd_link.symlink_to("vendor/cafe\u0301/rules")
+        manifest.write_text(json.dumps({"version": 1, "protect_paths": ["rules2/AGENTS.md"]}))
+        reset_caches()
+        check("symlink の先の Unicode 正規化 (NFD) が違っても検査対象のまま", relevant_text_file(nfc_sub, repo))
+        nfd_link.unlink()
+        g("rm", "-q", "--cached", "vendor/caf\u00e9"); nfc_sub.rmdir()
+        manifest.write_text(prev_manifest)
+        g("rm", "-q", "--cached", "vendor/s0", "vendor/s2"); g("commit", "-qm", "drop submodule pins")
+        subs[0].rmdir(); subs[2].rmdir()
+        tree_dir = repo / "vendor/lib"
+        tree_dir.mkdir()
+        (tree_dir / "notes.txt").write_text("plain\n")
+        g("add", "vendor/lib"); g("commit", "-qm", "plain directory")
+        g("rm", "-q", "--cached", "vendor/lib/notes.txt")
+        g("update-index", "--add", "--cacheinfo", f"160000,{pin_a},vendor/lib")
+        reset_caches()
+        check("directory を submodule に置き換えた path も gitlink として扱う", not relevant_text_file(tree_dir, repo))
+        g("rm", "-q", "--cached", "vendor/lib"); g("commit", "-qm", "drop replaced directory")
+        (tree_dir / "notes.txt").unlink(); tree_dir.rmdir(); (repo / "vendor").rmdir()
+        swapped = repo / "custom/tool"
+        swapped.write_text("# agent-authority:file\nrule text\n")
+        g("add", "custom/tool"); g("commit", "-qm", "text tool")
+        swapped.unlink(); swapped.mkdir()
+        reset_caches()
+        check("text の版がある path は directory に置き換えても検査対象", relevant_text_file(swapped, repo))
+        swapped.rmdir()
+        g("rm", "-q", "--cached", "custom/tool"); g("commit", "-qm", "drop tool")
+        reset_caches()
         # A declared symlink protects its implementation, and the link itself
         # remains the identity when approving a retarget of the Git entry.
         gate_link = repo / "custom/release.rb"
