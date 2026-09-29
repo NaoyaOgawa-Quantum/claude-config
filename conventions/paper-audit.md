@@ -678,3 +678,13 @@ origin: 2026-09-12、長く改稿を重ねた原稿で、共著者が外部 tool
 (χ² の χ、 相対 CP 偶奇の η、 ξ_a の ξ、 レプトン方向の n̂ は使用済み、 のように) → 採否は著者。 改名の実施は
 [latex.md#symbol-rename](latex.md#symbol-rename)。 読み手の note には「見てほしい点」 の 1 項として衝突の list を置く
 ([manuscript-value-triage.md](manuscript-value-triage.md))。
+
+## <a id="induced-vs-bare-same-variables"></a>「ループが bare の係数 X を補正する」 と書く前に、 誘導項と bare 項を同じ変数に直す — 一階形式の項を二階形式の項と同一視できるのは接続を消した枝だけ (2026-09-29)
+
+bare 作用が一階形式 (vierbein + 独立な接続) で、 誘導作用が二階形式 (metric の Levi-Civita 曲率 + contorsion) で書かれている時、 「誘導された R 項が bare の Planck 質量を補正する」 は**そのままでは 2 つの項を等置していない**。 bare の一階の項は (g, K) 変数に直すと R(g) と捩率² の固定した組合せの和で、 誘導された R(g) 項はその**前半だけ**を rescale する。 後半 (捩率²) は bare の係数のまま残る。 「補正する」 が文字どおり正しいのは K = 0 (接続 = Levi-Civita、 = tree で接続を消した枝) のときで、 原稿はたいてい序論でその同一視を明示し (「接続を消せば Einstein–Hilbert になる」)、 結果の節で暗黙に引き継ぐ。
+
+**検査 (結果の節を書く時に 1 回)**: ① bare 項と誘導項を同じ変数 (metric + contorsion、 または vierbein + 接続) に直す ② 「補正される」 と言う係数がどの単項式の係数かを名指す (「R(g) の係数」 か 「一階の項全体の係数」 か) ③ 残る差 (捩率² の bare 係数と誘導係数のずれ) をどの帳簿に載せるか決め、 **同じ節の中で帳簿を混ぜない** (R 項は 「一階の項の係数が動いた」 と言い、 捩率² 項は 「一階の項の係数 (bare) の固定組合せ」 と言うのは混在)。 ④ 「invisible to the two-point function」 型の免責で覆えるかを確かめる: 捩率² は揺らぎの 2 次なので接続側の 2 点関数に tree で見える = 免責の外。
+
+**なぜ**: 物理 (metric sector の Newton 定数が動く) は正しいのに、 どの係数が動いたかの文が変数の混在で曖昧になり、 「Planck 質量」 が R(g) の係数か一階の項の係数かで読者ごとに割れる。 定義で答える型 ([#dissolve-by-definition](#dissolve-by-definition)) の一例。
+
+起源 (2026-09-29): 著者の問い 「この文は背景の接続 = Levi-Civita を暗黙に仮定していないか」 に対する読み。 背景そのものは explicit に torsion-free を選んでいて仮定漏れは無かったが、 「補正する」 の文だけが一階 = 二階の同一視に依っていた (実測)。 隣接: [#invariant-structure-before-asymmetry-claim](#invariant-structure-before-asymmetry-claim) (2 次形式を書いてから 「固有の運動項」 を言う) / [#headline-claim-budget-check](#headline-claim-budget-check)。
