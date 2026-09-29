@@ -318,6 +318,56 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$(dirname "$RUNNER")/check-activi
 fi
 
 # ====================================================================
+# Stage 0 (2026-09-29): 学生の識別子 (check-student-identifiers.py --commit-msg)。 公開 repo (= ここ) でも、
+# marker の無い private repo でも止まる (= Stage 0 は marker の safety net より前)。 この test だけの架空の一覧を env で渡す。
+# 学籍番号の形の値は実行時に組み立てる (この file 自体が gate に当たらないように)。 述語の SoT = engine の docstring。
+# ====================================================================
+if command -v python3 >/dev/null 2>&1 && [ -f "$(dirname "$RUNNER")/check-student-identifiers.py" ]; then
+  SID_LIST="$TMPDIR_TEST/student-identity.json"
+  printf '%s\n' '{"schema": 1, "full_names_cjk": ["仮野 名子"], "full_names_latin": [["karino", "nako"]], "surnames_latin": ["karino"]}' > "$SID_LIST"
+  SID_PAT="$TMPDIR_TEST/pii-patterns.txt"
+  printf '%s\n' '(?i)(?<![0-9a-z])[a-z][0-9]{2}[a-z][0-9]{3,4}(?![0-9a-z])' > "$SID_PAT"
+  SID_ID="$(printf 'A%02dX%s' 12 3456)"
+  CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+    expect_block "block-student-name-in-message" "fix: 仮野 名子 さんの提出物の扱い"
+  CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+    expect_block "block-student-id-in-message" "fix: see $SID_ID"
+  CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+    expect_pass "pass-student-surname-only-in-message" "fix: karino さんの件 (姓だけは message に当てない)"
+  CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+    expect_pass "pass-student-name-in-merge-message" "Merge branch 仮野 名子" "merge"
+  # escape hatch: exit 0 (= 止めたのがこの gate だという証拠。 skip の 1 行が stderr に出るので expect_pass は使わない)
+  esc_msg="$TMPDIR_TEST/msg-esc-$RANDOM.txt"; printf '%s' "fix: see $SID_ID" > "$esc_msg"
+  CLAUDE_STUDENT_ID_GUARD=0 CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+    "$RUNNER" "$esc_msg" message >/dev/null 2>&1
+  esc_rc=$?
+  if [ "$esc_rc" = "0" ]; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); FAILED_CASES="${FAILED_CASES}  [exit!=0] pass-student-id-escape-hatch-proves-which-gate (exit=$esc_rc)\n"; fi
+  # marker の無い private repo: Stage 0 は走り、 公開 repo の leak 検出 (偽 private repo 名) は走らない
+  PRIV="$TMPDIR_TEST/private-repo"
+  mkdir -p "$PRIV" && git -C "$PRIV" init -q -b main
+  sid_priv() { # <case> <want exit> <message> → private repo の中で runner を回す
+    local name="$1" want="$2" content="$3" f rc
+    f="$TMPDIR_TEST/msg-priv-$RANDOM.txt"; printf '%s' "$content" > "$f"
+    (cd "$PRIV" && CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" "$RUNNER" "$f" message >/dev/null 2>&1)
+    rc=$?
+    if [ "$rc" = "$want" ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); FAILED_CASES="${FAILED_CASES}  [exit!=$want] $name (exit=$rc)\n"; fi
+  }
+  sid_priv "block-student-name-in-private-repo" 1 "fix: 仮野 名子 さんの件"
+  sid_priv "block-student-id-in-private-repo" 1 "fix: see $SID_ID"
+  sid_priv "pass-private-repo-name-in-private-repo" 0 "fix mockpriv-foo/CLAUDE.md path"
+  # engine が見出しなしで落ちた: commit は通し、 1 行出す (= 故障を違反と読まない)
+  SID_FAKE="$TMPDIR_TEST/fake-scripts-sid"; mkdir -p "$SID_FAKE/lib"
+  cp "$RUNNER" "$SID_FAKE/commit-msg-leak-guard-runner.sh"
+  for f in "$(dirname "$RUNNER")"/lib/*; do ln -s "$f" "$SID_FAKE/lib/$(basename "$f")"; done
+  printf 'import sys\nsys.exit(1)\n' > "$SID_FAKE/check-student-identifiers.py"
+  crash_msg="$TMPDIR_TEST/msg-crash-$RANDOM.txt"; printf '%s' "fix: see $SID_ID" > "$crash_msg"
+  crash_err="$(cd "$PRIV" && bash "$SID_FAKE/commit-msg-leak-guard-runner.sh" "$crash_msg" message 2>&1 >/dev/null)"; crash_rc=$?
+  if [ "$crash_rc" = "0" ] && printf '%s' "$crash_err" | grep -q '学生の識別子の検査が異常終了'; then PASS=$((PASS+1)); else
+    FAIL=$((FAIL+1)); FAILED_CASES="${FAILED_CASES}  [exit=$crash_rc, line shown?] pass-student-id-engine-crash-is-not-a-block\n"; fi
+fi
+
+# ====================================================================
 echo ""
 echo "=== commit-msg-leak-guard-runner self-test ==="
 echo "PASS: $PASS"

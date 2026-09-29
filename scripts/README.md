@@ -110,7 +110,7 @@
 - **[codex_mail_install.py](codex_mail_install.py)** — Install/audit only the owner-selected Codex mail skill and narrow prompt rule.
 - **[commit-from-origin-worktree.py](commit-from-origin-worktree.py)** — 自分の変更を origin/<branch> から切った使い捨て worktree で commit・push する (live checkout の未 commit 変更・未 push commit・index に一切触れず、 相手の未 push commit を巻き込んで公開しない)。 git-crypt repo も復号済みで扱い、 push 直前の再 fetch + rebase、 衝突時は push せず worktree を残す。--selftest 内蔵。
 - **[commit-hunk-anchors.py](commit-hunk-anchors.py)** — Where did each hunk of a commit land? file, new-side line and the nearest section anchor (Markdown <a id>) or Python def/class, without printing any changed text, so a cleanup or leak ledger can cite locations only; --selftest
-- **[commit-msg-leak-guard-runner.sh](commit-msg-leak-guard-runner.sh)** — 公開リポ commit-msg hook（BLOCK mode、 2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
+- **[commit-msg-leak-guard-runner.sh](commit-msg-leak-guard-runner.sh)** — git commit-msg hook（BLOCK mode）: 全 repo = 学生の識別子 (2026-09-29) / 公開 repo = leak 検出 (2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
 - **[commit-msg-leak-guard-runner.test.sh](commit-msg-leak-guard-runner.test.sh)** — 上記 runner の self-test（15 case、 BLOCK / PASS / merge skip 等）
 - **[count-malformed-tool-call-events.py](count-malformed-tool-call-events.py)** — local transcript から malformed-tool-call bug の genuine event を集計（synthetic 文言の user entry のみ = doc/議論 echo を除外〔naive substring は 19x overcount〕、 month×model×client-version 内訳 + model 別 rate、 upstream issue への occurrence 報告用 data point 生成、 read-only、 --selftest 内蔵、 conventions/tool-call-robustness.md#root-cause）
 - **[decode-qr.py](decode-qr.py)** — Decode QR payloads from screenshots without opening them.
@@ -170,6 +170,7 @@
 - **[install-precommit-bib.test.sh](install-precommit-bib.test.sh)** — install-precommit-bib.sh の test (repo が管理する pre-commit を置き換えない)
 - **[install-pty-leak-mitigation.sh](install-pty-leak-mitigation.sh)** — pty-leak-watch.sh watchdog + persistent bump LaunchDaemon を現ユーザに 1 コマンド install（--persist / --replace-agent / --replace-daemon、idempotent、macOS 限定）
 - **[install-public-commit-msg.sh](install-public-commit-msg.sh)** — 各 public repo に commit-msg stub を冪等配置（marker check + core.hooksPath cascade）
+- **[install-public-commit-msg.test.sh](install-public-commit-msg.test.sh)** — commit-msg stub の installer の test: marker の無い repo は既定で断る / --any-repo で置く / 2 回目は触らない / 置いた stub で private repo の commit が学生の識別子で止まる (hermetic)
 - **[install-public-precommit.sh](install-public-precommit.sh)** — 各 public repo に pre-commit stub を冪等配置
 - **[install-remote-control-server.sh](install-remote-control-server.sh)** — Remote Control サーバーモードを launchd 常駐化（--dir / --replace-agent / --status / --uninstall、KeepAlive 60s 自動復帰、preflight で auth/同意の欠落を案内、idempotent、macOS 限定、conventions/remote-control-server.md）
 - **[install-session-trailer.sh](install-session-trailer.sh)** — 各 repo に prepare-commit-msg stub を冪等配置 (agent/session/model/effort trailer)
@@ -214,7 +215,7 @@
 - **[post-length.py](post-length.py)** — SNS 投稿文の長さを X / Bluesky / Mastodon / Vivaldi Social の数え方で並べて数え、上限を超えるものを示す。--selftest 内蔵。
 - **[pptx-to-pdf.sh](pptx-to-pdf.sh)** — PowerPoint pptx → PDF 変換（fidelity-first = PowerPoint native export 優先 → LibreOffice fallback、HFS path 罠 + 網掛け/pattern fill 潰し回避 + EMF ラスタライズ verify、PowerPoint 経路は事前 grant 済み staging dir 経由、office-automation.md#pptx-to-pdf-powerpoint）
 - **[pre-commit-bib](pre-commit-bib)** — Git pre-commit hook（上記を呼ぶ）
-- **[pre-commit-bib.test.sh](pre-commit-bib.test.sh)** — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate と変数の直後の全角文字の gate が commit を止める / 通す / escape hatch で通る (hermetic)
+- **[pre-commit-bib.test.sh](pre-commit-bib.test.sh)** — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate・変数の直後の全角文字の gate・学生の識別子の gate が commit を止める / 通す / escape hatch で通る (hermetic)
 - **[pre-commit-google-url-warn.py](pre-commit-google-url-warn.py)** — Warn when staged additions contain unstable account-bound Google URLs.
 - **[pre-commit-sot-declaration-warn.py](pre-commit-sot-declaration-warn.py)** — Warn when staged additions introduce a source-of-truth declaration.
 - **[prepare-commit-msg-session.sh](prepare-commit-msg-session.sh)** — commit に発生元 agent/session/model/effort の trailer block を付ける (並列 session の事後追跡)
@@ -335,6 +336,7 @@
 - **[lib/launchd_job_log.py](lib/launchd_job_log.py)** — launchd の無人ジョブについて「直近の run が既知の形で失敗したか」 を log 末尾から読む共有判定。
 - **[lib/ledger_page.py](lib/ledger_page.py)** — 行で書かれた台帳を、 一目で読める 1 枚の HTML にする。
 - **[lib/macos_apps.py](lib/macos_apps.py)** — Discover macOS app bundles and read their declared identity without launching them.
+- **[lib/mail_delivery.py](lib/mail_delivery.py)** — Gmail で送ったメールが「届かなかった」 ことを、 送る前と送った直後に機械で拾う部品。
 - **[lib/mail_watch.py](lib/mail_watch.py)** — 既知スレッドを辿るだけでは拾えない mail を拾う helper（待ち項目の検索条件 / 決着済み案件への自動督促の判定 / 本文 text の取り出し。 Gmail API の service を受け取る、 python3 mail_watch.py で selftest）
 - **[lib/merge-hook-event.sh](lib/merge-hook-event.sh)** — settings.json への hook event merge (単一リスト駆動)
 - **[lib/merge-hook-event.test.sh](lib/merge-hook-event.test.sh)** — merge_hook_event の self-test (hermetic、 実 settings.json 不使用)

@@ -190,7 +190,7 @@ schema (= そもそも書けなくする) で守る。 片方で両方を守ろ�
   hook を突き合わせる。 marker を pull した直後の別マシンは `--hooks-only --fix-hooks` が hook を揃える)。
 - **配線の確認は 2 段**: `--check-wiring` = 本番の索引でカナリアが止まるか。 `--check-wiring --through-hooks` = 一時の公開 repo に両 hook を入れ、 引用を含む stage と message が実際の commit で拒否され、 平文の commit が通るか。 後者は runner の配線切れや設定の解決失敗まで捕まえる (約 5 秒)。
 - 止まったときは file と行と源の名前だけを出し、 一致した本文は出さない。 公刊版に在る文だと確かめた場合だけ
-  `CLAUDE_UNPUBLISHED_GUARD=0` で 1 回通す。
+  `CLAUDE_UNPUBLISHED_GUARD=0` で 1 回通す (agent が使うのは本人の指示があるときだけ = [agent-rule-ownership.md#guard-escape-hatch](agent-rule-ownership.md#guard-escape-hatch))。
 
 ---
 

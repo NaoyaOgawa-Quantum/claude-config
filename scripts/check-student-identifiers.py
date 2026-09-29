@@ -15,6 +15,9 @@
   (c) 学生の姓の token — **path だけ** (ローマ字 4 文字以上 = 英字以外か camelCase の境で区切った token と完全一致、
       漢字 2 文字以上 = 前に漢字・かなが無く後ろに漢字が無い位置 〔「_姓_」「姓さん」 は当て、 基金名の「姓名奨学」 の
       ような漢字の続きは当てない〕)。 教員・同僚と同じ姓は一覧の `surname_allow` で外す。
+      一覧の `surname_conditional` の姓 (例: 同僚として動く研究室のメンバー) は、 同じ path (新しく入る部分だけでなく
+      path 全体) に `path_role_patterns` のどれかが在るときだけ当てる (= 学生としての用件 〔推薦・成績・奨学金・TA の
+      勤務など〕 と並んだ path は止め、 出張・共同研究の path は通す)。
       本文と commit message には姓を当てない (教員の姓と衝突して、 止める理由の無い commit を止めるため)。
 
   値の一覧は machine-local の JSON (既定 ~/.claude/student-identity.json、 env CLAUDE_STUDENT_IDENTITY で差し替え)。
@@ -31,6 +34,8 @@
        "surname_allow": [...],                       # (c) から外す語 (教員・同僚の姓、 path に普通に出る語)
        "surname_allow_by_repo": {"<repo の dir 名>": [...]},  # (c) をその repo の path でだけ外す語
        "surname_skip_repos": ["<repo の dir 名>", ...],     # (c) をしない repo (論文の著者名で file を名付ける repo)
+       "surname_conditional": [...],                 # (c) 役割の語と同じ path でだけ当てる姓 (surname_allow が優先)
+       "path_role_patterns": ["<正規表現>", ...],    # 役割の語 (大文字小文字を問わず path 全体を search)
        "full_name_allow": [...]}                     # (b) から外す氏名 (例示用の架空の名前など)
 
   一覧が無く pattern file も無い = 対象外 (何もせず exit 0)。 pattern file だけが在る機械では (a) だけを検査し、
@@ -57,6 +62,8 @@
 
   exit: 0 = 当たり無し / 1 = 当たりあり (見出し `check-student-identifiers: BLOCK`、 --tree は --strict のときだけ) /
         3 = 検査が走っていない (git repo でない・git が失敗・一覧が壊れている・内部の例外。 見出しつきで 1 行)。
+  呼び元 = scripts/pre-commit-bib と scripts/public-precommit-runner.sh (--staged) + scripts/commit-msg-leak-guard-runner.sh
+  の Stage 0 (--commit-msg、 marker の無い repo にも install-public-commit-msg.sh --any-repo が stub を置く)。
   呼び元は「exit 1 かつ BLOCK 見出し」 のときだけ止め、 見出しの無い非 0 は 1 行出して通す
   (= docs/convention-design-principles.md#failure-exit-equals-violation-exit)。
   escape hatch: CLAUDE_STUDENT_ID_GUARD=0 (--staged / --commit-msg。 一覧の誤検出を 1 回通すとき。 誤検出が続くなら
@@ -225,6 +232,18 @@ class Detector:
         self.allow_by_repo: Dict[str, Set[str]] = {
             str(k): {str(a).strip().lower() for a in (v or []) if str(a).strip()} for k, v in by_repo.items()}
         self.surname_skip_repos: Set[str] = {str(r) for r in (cfg.get("surname_skip_repos") or [])}
+        # 条件つきの姓: 当てる姓の集合に足し (一覧の surnames_* に無くても)、 当たったら役割の語を見て決める
+        cond = {_norm_cjk(c).replace(" ", "").lower() for c in (cfg.get("surname_conditional") or []) if str(c).strip()}
+        self.conditional: Set[str] = {c for c in cond if c not in allow_sn}
+        try:
+            self.role_res = [re.compile(str(r), re.I) for r in (cfg.get("path_role_patterns") or [])]
+        except re.error as e:
+            raise ConfigError("path_role_patterns の正規表現が壊れている: %s" % e)
+        self.latin_sn |= {c for c in self.conditional if len(c) >= 4 and c.isascii() and c.isalpha()}
+        cjk_cond = {c for c in self.conditional if not c.isascii() and len(c) >= 2}
+        if cjk_cond - cjk_sn:
+            rx = _trie_regex(cjk_sn | cjk_cond, "")
+            self.cjk_sn_re = re.compile(CJK_BEFORE + rx + CJK_AFTER) if rx else None
         self.has_names = bool(self.cjk_full_re or self.latin_full_re or self.cjk_sn_re or self.latin_sn)
 
     # --- 当たり
@@ -257,26 +276,36 @@ class Detector:
             out.extend((m.start(), m.end(), "name-latin") for m in self.latin_full_re.finditer(text))
         return out
 
-    def surnames(self, text: str, repo: Optional[str] = None) -> List[Span]:
+    def surnames(self, text: str, repo: Optional[str] = None, context: Optional[str] = None) -> List[Span]:
+        """path の姓。 context = 役割の語を探す範囲 (既定 = text。 --staged は新しく入る部分を text、 path 全体を context に渡す)。"""
         out: List[Span] = []
         if repo and repo in self.surname_skip_repos:
             return out
         skip = self.allow_by_repo.get(repo or "", set())
+        role: List[Optional[bool]] = [None]
+
+        def keep(tok: str) -> bool:
+            if tok not in self.conditional:
+                return True
+            if role[0] is None:
+                role[0] = any(r.search(context if context is not None else text) for r in self.role_res)
+            return bool(role[0])
+
         if self.latin_sn:
             for m in LATIN_TOKEN.finditer(text):
                 tok = m.group(0).lower()
-                if tok in self.latin_sn and tok not in skip:
+                if tok in self.latin_sn and tok not in skip and keep(tok):
                     out.append((m.start(), m.end(), "surname-latin"))
         if self.cjk_sn_re is not None and not text.isascii():
             out.extend((m.start(), m.end(), "surname-cjk") for m in self.cjk_sn_re.finditer(text)
-                       if m.group(0) not in skip)
+                       if m.group(0) not in skip and keep(m.group(0)))
         return out
 
     def text_hits(self, text: str) -> List[Span]:
         return _dedupe(self.ids(text) + self.names(text))
 
-    def path_hits(self, text: str, repo: Optional[str] = None) -> List[Span]:
-        return _dedupe(self.ids(text) + self.names(text) + self.surnames(text, repo))
+    def path_hits(self, text: str, repo: Optional[str] = None, context: Optional[str] = None) -> List[Span]:
+        return _dedupe(self.ids(text) + self.names(text) + self.surnames(text, repo, context))
 
 
 def _dedupe(spans: List[Span]) -> List[Span]:
@@ -442,7 +471,7 @@ def run_staged(repo: Optional[str]) -> int:
     findings: List[str] = []
     for p in paths:
         start = _new_part_start(p, head_dirs)
-        spans = [(s + start, e + start, k) for s, e, k in det.path_hits(p[start:], repo_name)]
+        spans = [(s + start, e + start, k) for s, e, k in det.path_hits(p[start:], repo_name, p)]
         if spans:
             kinds = sorted({KIND_LABEL.get(k, k) for _s, _e, k in spans})
             findings.append("  path %s: %s" % (mask_text(p, spans), " / ".join(kinds)))
@@ -730,6 +759,22 @@ def selftest() -> int:
            det_s.path_hits("x/karino-2020.pdf", "papers") == []
            and kinds(det_s.path_hits("x/karino-nako.pdf", "papers")) == ["name-latin"]
            and kinds(det_s.path_hits("x/karino-2020.pdf", "other")) == ["surname-latin"])
+    det_m = Detector(dict(cfg, surname_conditional=["kakuuda", "共野", "tester"],
+                          path_role_patterns=[r"(?<![a-z])suisen", "推薦", r"(?<![a-z])ta(?![a-z])"]), [shape])
+    expect("(c) 条件つきの姓は役割の語の無い path では当てない (出張・共同研究)",
+           det_m.path_hits("todo/2026-01-01-kakuuda-shucchou.yaml") == [] and det_m.path_hits("notes/共野_出張.md") == [])
+    expect("(c) 条件つきの姓も役割の語と同じ path なら当てる",
+           kinds(det_m.path_hits("todo/2026-01-01-kakuuda-suisensho.yaml")) == ["surname-latin"]
+           and kinds(det_m.path_hits("推薦/共野.pdf")) == ["surname-cjk"]
+           and kinds(det_m.path_hits("docs/ta-2026/kakuuda.yaml")) == ["surname-latin"])
+    expect("(c) 役割の語は context (path 全体) にあれば効く = 既存の dir の下に足した file も止める",
+           kinds(det_m.path_hits("kakuuda.pdf", None, "docs/suisen-2026/kakuuda.pdf")) == ["surname-latin"])
+    expect("(c) 条件つきでない学生の姓は役割の語が無くても当てる (授業の学生は今までどおり)",
+           kinds(det_m.path_hits("todo/2026-01-01-karino-shucchou.yaml")) == ["surname-latin"])
+    expect("(c) 役割の語は token の一部では当たらない (data の ta は役割の語でない)",
+           det_m.path_hits("data/kakuuda-2026.csv") == [])
+    expect("(c) surname_allow は条件つきより優先 (教員と同じ姓は役割の語があっても当てない)",
+           det_m.path_hits("todo/x-tester-suisen.yaml") == [])
     det_r = Detector(dict(cfg, surname_allow_by_repo={"talks": ["kakuuda"]}), [shape])
     expect("(c) surname_allow_by_repo はその repo の path でだけ外す",
            det_r.path_hits("docs/kakuuda/a.md", "talks") == []
@@ -853,6 +898,28 @@ def selftest() -> int:
                    rc == 0 and "r: path 2 件" in out and "plain.md:2" in out and "暗号化 1" in out and clean(out), out)
             rc, out = run(["--tree", str(repo), "--strict"])
             expect("--tree --strict: 当たりで exit 1", rc == 1, out)
+            # 条件つきの姓 (e2e): 役割の語の dir が HEAD に在っても、 その下に足した file は path 全体で判定する
+            lst_m = base / "identity-middle.json"
+            lst_m.write_text(json.dumps(dict(cfg, surname_conditional=["kakuuda"],
+                                             path_role_patterns=[r"(?<![a-z])suisen"]), ensure_ascii=False),
+                             encoding="utf-8")
+            (repo / "docs" / "suisen-2026").mkdir(parents=True)
+            (repo / "docs" / "suisen-2026" / "README.md").write_text("x\n", encoding="utf-8")
+            git("add", "-A")
+            git("commit", "-q", "-m", "t", "--no-verify")
+            (repo / "docs" / "suisen-2026" / "kakuuda.pdf").write_bytes(b"%PDF-1.4\n")
+            git("add", "-A")
+            rc, out = run(["--staged"], {ENV_LIST: str(lst_m)})
+            expect("--staged: 条件つきの姓も、 HEAD に在る役割の語の dir の下に足した file は止める",
+                   rc == 1 and BLOCK_HEADING in out and "kakuuda" not in out, out)
+            git("reset", "-q", "--hard")
+            git("clean", "-qfd")
+            (repo / "todo" / "2026-01-02-kakuuda-shucchou.yaml").write_text("id: z\n", encoding="utf-8")
+            git("add", "-A")
+            rc, out = run(["--staged"], {ENV_LIST: str(lst_m)})
+            expect("--staged: 条件つきの姓は役割の語の無い path なら通る", rc == 0, out)
+            git("reset", "-q", "--hard")
+            git("clean", "-qfd")
             # 設定の欠け・壊れ
             rc, out = run(["--staged"], {ENV_LIST: str(base / "none.json"), ENV_PATTERNS: str(base / "none.txt")})
             expect("--staged: 一覧も形も無い機械では何もせず exit 0", rc == 0 and out.strip() == "", out)

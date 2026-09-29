@@ -57,6 +57,15 @@
           "timeout": 30
         }
       ]
+    },
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/session-start-rewrite-follow.sh",
+          "timeout": 90
+        }
+      ]
     }
   ],
   "UserPromptSubmit": [
@@ -148,6 +157,16 @@
         {
           "type": "command",
           "command": "~/.claude/hooks/office-inplace-guard.py"
+        }
+      ]
+    },
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/escape-hatch-guard.py",
+          "timeout": 20
         }
       ]
     },

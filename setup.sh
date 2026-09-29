@@ -28,6 +28,8 @@
 #        marker の警告。 commit-msg layer は 2026-05-26 追加 (= claude-code
 #        2.1.x harness invoke bug 修復 option B、 詳細は
 #        conventions/hook-authoring.md#delivery-audit-4-axes (d))
+#   8b2. commit-msg stub を marker の無い repo にも置く（commit-msg の無い repo だけ。
+#        runner の Stage 0 = 学生の識別子は全 repo で走る、 2026-09-29）
 #   8c. (macOS) exec で kill される git hook を同じ中身の新しい file に作り直す
 #        （conventions/hook-authoring.md#killed-hook-stub）
 #   6d. zsh の interactive_comments を有効化（貼り付けたコマンドの行内 `#` が
@@ -1357,6 +1359,29 @@ else
     done
     echo "  Installed prepare-commit-msg stubs in $SESSION_COUNT repo(s)."
     echo "  Opt-out per repo: git config agent.sessionTrailer false"
+fi
+
+# --- 8b2. Install the commit-msg stub on private repos too (student identifiers in commit messages) ---
+echo ""
+echo "=== Step 8b2: Installing commit-msg stubs on private repos (student identifiers) ==="
+# Step 8 は marker を持つ public repo にだけ commit-msg stub を置く。 runner の Stage 0 (学生の識別子 =
+# scripts/check-student-identifiers.py --commit-msg、 値の一覧は machine-local) は全 repo で効かせたいので、
+# 同じ stub を marker の無い repo にも置く (--any-repo)。 runner の marker の safety net が、 private repo では
+# Stage 1 以降 (公開 repo の leak 検出) を飛ばす。 既存の自前 commit-msg は installer が退避する (track 済みなら触らない)
+# ので、 ここでは commit-msg の無い repo にだけ呼ぶ (= user の hook を黙って置き換えない)。
+if [ -x "$INSTALLER_COMMITMSG" ]; then
+    CM_COUNT=0
+    for d in "$CLAUDE_DIR"/*/; do
+        [ -e "$d.git" ] || continue
+        [ -f "$d.claude/public-repo.marker" ] && continue   # Step 8 が置いた
+        hp="$(git -C "$d" rev-parse --git-path hooks/commit-msg 2>/dev/null)" || continue
+        case "$hp" in /*) ;; *) hp="$d$hp" ;; esac
+        [ -e "$hp" ] && continue
+        if "$INSTALLER_COMMITMSG" --any-repo "${d%/}" >/dev/null 2>&1; then
+            CM_COUNT=$((CM_COUNT + 1))
+        fi
+    done
+    echo "  Installed commit-msg stubs in $CM_COUNT private repo(s)."
 fi
 
 # --- 8c. macOS に exec で kill される git hook を作り直す (conventions/hook-authoring.md#killed-hook-stub) ---

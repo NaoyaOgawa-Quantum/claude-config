@@ -143,6 +143,22 @@ if [ -f "$UMV_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
+# 学生の識別子 (学籍番号の形・氏名・path の姓) を平文で新しく入れる commit の gate (pre-commit-bib と同じ engine・同じ契約)。
+# 値の一覧は machine-local、 無い機械では何もしない。 述語・escape hatch (CLAUDE_STUDENT_ID_GUARD=0) の SoT =
+# check-student-identifiers.py docstring。 止めるのは「exit 1 かつ engine の BLOCK 見出し」 のときだけ。
+SID_ENGINE="$(dirname "$0")/check-student-identifiers.py"
+if [ -f "$SID_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
+  sid_rc=0
+  sid_out="$(python3 "$SID_ENGINE" --staged 2>&1)" || sid_rc=$?
+  [ -n "$sid_out" ] && printf '%s\n' "$sid_out" >&2
+  if [ "$sid_rc" -eq 1 ] && printf '%s' "$sid_out" | grep -q 'check-student-identifiers: BLOCK'; then
+    exit 1
+  fi
+  if [ "$sid_rc" -ne 0 ] && ! printf '%s' "$sid_out" | grep -q 'check-student-identifiers:'; then
+    echo "⚠️ pre-commit: 学生の識別子の検査が異常終了した (rc=${sid_rc}) — この commit では走っていない (commit は止めない)。 確認: python3 ${SID_ENGINE} --selftest" >&2
+  fi
+fi
+
 # SESSION.md の形の gate (= 案件ごとの現在地 + 正本への link。 日付を見出しにした節・commit hash・messageId・経緯を詰めた
 # 1 行・200 行を超えて育つ commit を止める。 README の自称正本 = 公開 repo では warn / CLAUDE.md の「SESSION・README に書け」 = warn)。
 # 述語・閾値・escape hatch (CLAUDE_SESSION_SHAPE_GUARD=0) の SoT = check-session-shape.py docstring、 規約 = CONVENTIONS.md#session-no-durable-record。
