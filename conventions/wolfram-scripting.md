@@ -321,6 +321,17 @@ grep -o '(\*' foo.wls | wc -l; grep -o '\*)' foo.wls | wc -l   # 個数が合わ
 
 コメント内の glob は `[*.nb]` か `*.nb` と書く。 文字列リテラルの中の `"(*"` はコメントにならないので code 側は影響しない。
 
+## <a id="logplot-drops-nonpositive"></a>7. `LogPlot` / `LogLogPlot` は 0 以下の値を**黙って描かない** — 符号つきの曲線は「途中で切れた線」 になる
+
+**症状**: 符号を持つ量 (干渉項・差・実部) を `LogLogPlot` に渡すと、 正の区間だけが描かれ、 負の区間は warning も無く抜ける。 曲線が「真ん中だけ」「左だけ」 に見え、 式や規約 (共役の取り方・全体符号・parameter) を変えると見える区間が動くので、 変更の効果を「線が消えた / 現れた」 と誤読する (実測: 共役と全体符号を直したら、 破線が中央だけから左だけに変わった)。
+
+**対処**:
+- 符号つきの量は `Abs[f[x]]` を描き、 符号反転の位置は別に求めて (`FindRoot` / 符号の grid scan) caption と検証 script に記録する。 反転位置は `Abs` の曲線の cusp として見える。
+- 検証 script (Python 側の SoT) に「符号反転は N 回、 位置は x = …」 を assertion として持たせ、 規約や parameter を変えるたびに再計算する。 描画に符号の情報を任せない。
+- 凡例には `|f|` と書く (符号つきの量をそのまま描いたと読ませない)。 図に `PlotLabel` で parameter を文字列で書いているなら、 代入表を変えた時にその文字列も変える (文字列は自動では追従しない)。
+
+関連: [#logplot-ticks](#logplot-ticks) (目盛の silent 消失)、 [scientific-computing.md](scientific-computing.md) の silent failure 群。
+
 ---
 
 ## 関連

@@ -351,6 +351,7 @@ giving-talks の題の基準 (主題 / レベル / 引き / 既知語、 平叙�
 2. **副題は非自明な情報を運ぶときだけ付ける** — 読者が本文を読まなくても知っていること (分野の標準的な定性事実) は副題にしない。 副題候補ごとに「これは読者に自明か」 を問い、 自明なら削るか、 観測が要求する量に置換する。
 3. **題の主張は paper 自身が列挙した caveat が倒れても生き残る形にする** — 機構が実際に働くことを断定する題 (「X が宇宙を reheat する」) は、 その regime の整合性が open なら書けない。 「観測は A と B を見分ける」 型は caveat の帰趨に依らず成立する (= [#assumption-dependent-claim-framing](#assumption-dependent-claim-framing) の題版)。
 4. **2σ の主張を題・abstract で「requires」 にしない** — 忠実な形は「within two standard deviations the data leave only X」。 別 baseline で対抗シナリオが生きているなら「requires」 は偽 (= [#claim-strength-three-tests](#claim-strength-three-tests) の偽検査。 対抗シナリオが残っていないかを問う user の一言で発覚)。
+5. **否定語で始まる複合名詞は hyphen で結ぶ** — 英語の「No X does Y」 は「Y する X は無い」 (全称否定)。 「X が無いこと」 を名詞化した「No-X」 を主語にするなら hyphen が意味を担う: 合成例 "No-collision term dominates the sum" と "No collision term dominates the sum" は逆の主張。 冠詞を落とした題ほど滑りやすい ("The no-X …" なら誤読しない)。 "Non-" / "Zero-" / "Null-" を頭に置く題も同じ検査。
 
 起源 (2026-09): 再構成中の private paper で題を何度も回して確定した session。 却下理由は上の 4 検査にそのまま対応した (無次元量に尺度の語 / 副題が自明 / 「requires」 は統計的な過大表現 / 機構の断定は整合性が未解決)。 確定形 = 「A vs B in ⟨model⟩: The ⟨observable⟩ can tell」 (疑問の形をした平叙断定、 "can tell" が現状の分離の強さに忠実)。 却下案は原稿 header に理由つきで温存する。
 
@@ -552,6 +553,20 @@ giving-talks の題の基準 (主題 / レベル / 引き / 既知語、 平叙�
 **Downstream (誤りが published だったとき)**: 影響を「全体定数か、 力学変数 ($L$, $T$, 運動量移行) に依存するか」 で仕分ける。 全体定数なら物理的結論 (コヒーレンス長・位相・局在・保存則因子) は無傷なので erratum は規格化に限定できる。 ⚠️ ただし **abstract が「全体確率は X で決まる」 型の主張をしていればそこが直撃する**。 誤りの伝播先 (自分の他稿・引用した進行中原稿) を同じ turn で grep し、 carrier (TODO・erratum) に落とすまでを 1 単位にする。
 
 **Downstream 2 (published の符号 1 つ、 縮約の途中で落ちる型)**: 盲検や読者の「符号が逆では」 は、 ① 規約に依らない別経路 (例: スピン和の重みを不変量で書き直す) と直接求積の両方で確かめ、 印字 / 訂正 / 直接の 3 列で数点並べる ② その記号が現れる式を source で全数列挙し、 形が変わる式と値だけ変わる式に分ける ③ erratum に書く式番号は preprint でなく誌面の PDF で照合する (版で番号がずれうる) ④ 訂正版が既知の極限を保つことを 1 行書く。 draft は carrier に紐づく file に置き、 共著者への連絡・投稿・preprint の差し替えを段取りとして列挙する (実測: ①〜④ で 1 session)。
+
+## <a id="figure-input-is-a-claim"></a>図に入れる量は本文が導いた量 — 「置き換えられるはず」 の外部値は新しい主張 (2026-09)
+
+**Pattern**: 本文が模型 (特定の交換粒子・特定の結合) で導いた式を数値にする段で、 agent が「この block は一般の振幅に等しいから、 実測値 (現象論の parametrization) を入れた方が物理的」 と判断し、 図の入力だけを本文に無い量に差し替える。 図と caption はその外部値の語彙で書かれ、 本文のどの式もそれを導いていない。 著者から見れば「勝手に変えた量で、 今の計算に関係が無い」 = 図が論文を説明しなくなる。
+
+**規則**:
+1. 図・表の入力は、 本文の式に**その値を代入した**ものだけ。 本文が導いていない同定 (「この block は一般の振幅」) に基づく差し替えは、 式を 1 本足すのと同じ**新しい主張**で、 著者の項目ごとの裁定を経る (裁定は台帳に verbatim、 [manuscript-claim-ownership.md](manuscript-claim-ownership.md))。
+2. 差し替えを提案するときは、 図を差し替える前に「本文の何行目がこの同定を導くか」 を示す。 導いていなければ図は本文の量で描き、 提案は別 note に置く。
+3. caption は本文が計算した模型を名指す (交換粒子の質量・幅・結合)。 外部値の語彙で本文に無い物理を語らない。
+4. 結合や parameter の**値**も同じ線: 本文が値を決めていないなら、 図に使った値は「仮置き」 か「著者が採った標準値 (出典つき)」 のどちらかを caption に明記し、 台帳にその裁定を残す。
+
+**なぜ滑るか**: agent は「より正しい物理」 に寄せることを改善と感じるが、 論文の図の仕事は**論文が導いたことを見せる**ことで、 世界の真の値を見せることではない。 実測: 図の入力を外部値に替えた版は、 交点の位置も干渉の符号も本文の模型と違い、 著者の一言で全部差し戻しになった (差し戻しは台帳に 1 entry、 図・caption・検証 script を本文の量に戻す)。
+
+関連: [#figures-bound-to-a-convention](#figures-bound-to-a-convention) (図は本文の source で描く)、 [#figure-irreproducible-taxonomy](#figure-irreproducible-taxonomy)。
 
 ## <a id="figures-bound-to-a-convention"></a>本文の規約に縛られる図は本文の source で描く — 外部画像は drift して誰も気づかない (2026-09)
 
