@@ -371,10 +371,17 @@ def run_staged(repo: Optional[str]) -> int:
     if read_blob is None:
         print("%s (lib/git_blob.py を読めない)" % NOT_RUN, file=sys.stderr)
         return 3
+    # submodule (gitlink = mode 160000) は text の版を持たない (中身は submodule の repo の commit で検査される)。
+    # 読みに行くと「読めない」 で exit 3 になり、 pin を上げる commit のたびに「検査が走っていない」 が出る (実測)。
+    stage = _git(["ls-files", "--stage", "-z"], root)
+    if stage.returncode != 0:
+        print("%s (git ls-files --stage が失敗: rc=%d)" % (NOT_RUN, stage.returncode), file=sys.stderr)
+        return 3
+    gitlinks = {row.partition(b"\t")[2] for row in stage.stdout.split(b"\0") if row.startswith(b"160000 ")}
     findings: List[str] = []
     unread: List[str] = []
     for raw in names.stdout.split(b"\0"):
-        if not raw:
+        if not raw or raw in gitlinks:
             continue
         path = raw.decode("utf-8", "surrogateescape")
         suffix = Path(path).suffix.lower()
@@ -610,6 +617,13 @@ def selftest() -> int:
                    rc == 1 and "hook:2:" in out and "tool.py" not in out, out)
             git("reset", "-q", "--hard")
             git("clean", "-qfd")
+            (Path(td) / "vendor" / "sub").mkdir(parents=True)
+            git("update-index", "--add", "--cacheinfo", "160000," + "1" * 40 + ",vendor/sub")
+            rc, out = staged()
+            expect("--staged: submodule (gitlink) は読まない (「検査が走っていない」 にしない)",
+                   rc == 0 and NOT_RUN not in out, out)
+            git("rm", "-q", "--cached", "vendor/sub")
+            shutil.rmtree(Path(td) / "vendor")
             # clean / smudge = rot13 (index の blob は別物になる = git show で読むと token が変わる)
             (Path(td) / ".gitattributes").write_text("*.rot.sh filter=rot\n")
             git("config", "filter.rot.clean", "tr 'A-Za-z' 'N-ZA-Mn-za-m'")
