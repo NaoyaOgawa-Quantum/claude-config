@@ -329,6 +329,12 @@ sections:
   - id: shared-state-file-merge
     level: 2
     title: "§18. 並列の session の hook が同じ state file を読んで書くなら、 lock の中で読み直して合わせる (2026-09)"
+  - id: command-flag-normalization
+    level: 2
+    title: "§19. command の option を当てる hook は、 略形と同じ効果の別経路まで正規化してから当てる"
+  - id: git-fixture-pinned-dates
+    level: 2
+    title: "§20. test の git fixture は日付を固定する — 同じ秒に作った 2 つの履歴は同じ sha になる"
   - id: related-docs
     level: 2
     title: "関連"
