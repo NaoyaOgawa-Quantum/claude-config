@@ -4,7 +4,7 @@
 
 # conventions/ — カテゴリ別 index
 
-layer 1 (public) のドメイン固有規約 141 file をカテゴリ別に列挙する。全 file の名前順 1 行列挙は [CONVENTIONS.md](../CONVENTIONS.md) 冒頭、リポ全体の構造 tree は [CLAUDE.md](../CLAUDE.md) を参照。
+layer 1 (public) のドメイン固有規約 142 file をカテゴリ別に列挙する。全 file の名前順 1 行列挙は [CONVENTIONS.md](../CONVENTIONS.md) 冒頭、リポ全体の構造 tree は [CLAUDE.md](../CLAUDE.md) を参照。
 
 ## Claude Code / harness 運用 (`harness-core`)
 
@@ -252,6 +252,8 @@ layer 1 (public) のドメイン固有規約 141 file をカテゴリ別に列�
   - 単一 HTML 配布の地図図法ビューアの知見集 — 図法の性質 (正積・極・断裂) は自称でなく d3 で実測して守る、経度回転で外郭不変な図法だけ fit をキャッシュ、拡大は viewBox 切り出し + 動作中 110m / 静止時 50m の 2 段、国名は候補閾値と大国優先の衝突判定を分離、配色は Natural Earth MAPCOLOR9 をデータのまま (国ごとの手直しはしない)、南を上 = 鏡像でなく 180° 回転、自転表示は中央経線を減算。web 一般の罠 (hidden 属性 vs display、Number(null)=0、色 literal の同形異字、headless で高さ 0) も同梱
 - **[web-tools.md](web-tools.md)** — WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check)
   - #javascript-tool-gotchas (async IIFE → `{}` / 出力 filter / 内部 endpoint 直叩き) + Claude in Chrome の permission 障害は再インストール前に `list_connected_browsers` (再ログイン後の stale 接続) + WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + CSR SPA は fetch に空シェル (200≠実在、 実ブラウザ描画で検証) + booking.com の宿への連絡は確認メールに返信しても届かない = web のメッセージ画面を pane で開きログインは本人 (#booking-property-messaging) + **claude.ai share ページは in-app Browser pane が素通し / page 内 same-origin fetch は snapshot API も 200 (= headless / curl は全滅、 #claude-share-page-access)** + **browser cookie replay は OAuth-token SPA を認証しない (= Box `/f/` 等 member 限定クラウドフォルダは無人 upload 不可、 session API 401 / shared-item 404 で spike 1 回で確定)** + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block) + **内蔵 Browser pane で frameset / popup / 連動 select の古い web app を JS で読み書き (#browser-pane-frameset-popups、 拡張が prompt 無しで拒否する domain の逃げ道)**
+- **[webgl-f32-numerics.md](webgl-f32-numerics.md)** — WebGL / GLSL shader で物理量を f32 で計算するとき + 事前計算 table (texture) の定義域の外まで写像を延ばすとき + shader の出力を f64 の参照実装と画素単位で照合するとき + 実時間 simulation の 1 frame の時間予算を決めるとき
+  - shader の f32 計算と f64 参照の組み方 — table の端は物理の境界ではない (外は最終行 + 弱い領域の厳密な積分で継ぐ、 近似の差分引き継ぎと分岐点の継ぎ目を避ける) / f32 の条件付け (sin≈1・acos≈1・端点の平方根特異性・冪の溢れ) / f32 emulation を export の関門に / 色でなく計算値を画素に書く probe channel で f64 と照合 / 継ぎ目の画素差は「またがない同じ幅」 と比べる / 時間予算は倍率に比例 / 再生成の最下位桁の揺れで公開資産を churn しない
 - **[zenn.md](zenn.md)** — Zenn.dev 記事を執筆・入稿するとき
   - Zenn.dev 記事執筆規約（platform 仕様: タイトル 70 字 / HTML サニタイズ / `:::message`系 / 文字数見積もり、 GFM bold×全角句読点 等の執筆落とし穴。 substack.md の対、 zenn-cli 運用は各リポ CLAUDE.md 側）
 

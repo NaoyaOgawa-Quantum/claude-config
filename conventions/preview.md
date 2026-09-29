@@ -71,42 +71,42 @@ push 成功は deploy 成功ではない。静的 hosting が GitHub check-run �
 
 公開 engine = [`scripts/check-pages-deploy.py`](../scripts/check-pages-deploy.py)。repo 一覧は利用者の運用 state なので引数 `--repo` で下層から渡し、layer 1 に特定 owner / site を焼かない。GitHub API が読めない状態を「健全」と同じ沈黙にせず、未検査として明示する。既定の check 名は `Cloudflare Pages` だが `--check-name` で同じ契約を持つ別 deploy provider に使える。
 
-## Claude Preview の headless throttling 制約
+## <a id="browser-pane-visibility"></a>Browser pane の表示状態と rAF / timer (Claude Preview の headless throttling 制約)
 
-Claude Preview (MCP `preview_*` ツール) の headless Chrome には、アニメーション駆動アプリを事実上動かなくする **二重制約** がある。React Three Fiber / Three.js / Canvas 2D animation / WebGL ゲーム / `requestAnimationFrame` ベースのどの app でも発火する。
+Claude の Browser pane (MCP `preview_*` / `mcp__Claude_Browser__*`) では、**pane が表示されているかどうかで**アニメーション駆動の app の動きが変わる。 React Three Fiber / Three.js / Canvas 2D animation / WebGL ゲーム / `requestAnimationFrame` ベースのどの app でも同じ。
 
-### 症状
+### 表示中
 
-- (a) `document.hidden === true` 常時 (`visibilityState === 'hidden'`)。`visibilitychange` ガードを持つコードは毎 tick 早期 return
-- (b) 仮に (a) を `Object.defineProperty` で override しても効かない。Chrome が **occluded/headless context として rAF と timer を強制 throttle** する。実測 (2026-04-22 LorentzArena):
-  - `requestAnimationFrame` → 2 秒で **0 fire** (実質停止)
-  - `setInterval(16ms)` → 2.2 秒で **4 fire** (≈ 500 ms/fire。普通なら ~140 fire のはずが ~2% 以下)
-- 原因は Page Visibility API 判定ではなく、Chrome が headless の occluded window を背景 tab 扱いで throttle する内部機構。Page Visibility 経由で fix できない。
+rAF と timer は通常どおり動く。 実測: WebGL viewer が 60 fps で回り、 `javascript_tool` から合成の `KeyboardEvent` を `window.dispatchEvent` し `await` で待ちながら、 操作の連続 (押し続け・離す・一時停止) を検証できた。
 
-### 帰結
+### 非表示 (occluded / headless)
 
-以下の類型の検証が **Claude Preview では不可能**:
+`tabs_context` が「The Browser pane is currently hidden」 と返す状態 (旧来の headless 実行も同じ)。
 
-- ゲーム物理ループ (FPS / player 動作 / projectile / hit / damage / respawn)
-- アニメーション遷移 / transition timing
-- rAF-driven camera / view update
-- WebSocket / WebRTC の長時間 keep-alive (timer throttle で ping/pong が遅延)
-- `setTimeout(...)` / `setInterval(...)` を使う debounce や timeout の挙動検証
+- (a) `document.hidden === true` 常時 (`visibilityState === 'hidden'`)。 `visibilitychange` ガードを持つコードは毎 tick 早期 return
+- (b) (a) を `Object.defineProperty` で override しても効かない。 Chrome が **occluded / headless context として rAF と timer を強制 throttle** する。 実測: `requestAnimationFrame` → 2 秒で **0 fire** / `setInterval(16ms)` → 2.2 秒で **4 fire** (普通なら ~140)。 `setTimeout` の `await` を並べた `javascript_tool` の script は 45 s の timeout に当たる
+- 原因は Page Visibility API 判定ではなく、 Chrome が occluded window を背景 tab 扱いで throttle する内部機構。 Page Visibility 経由で fix できない
 
-screenshot を撮っても「止まった時空」が映るだけで、FPS 0 / 動的状態の初期値が残った静止画になる。
+非表示のあいだは、 ゲーム物理ループ・アニメーション遷移・rAF 駆動の camera 更新・WebSocket / WebRTC の長時間 keep-alive・`setTimeout` / `setInterval` を使う debounce や timeout の挙動は検証できない。 screenshot は止まった状態を写すだけ (HUD の fps が 0 になる)。
 
 ### 回避策
 
 | 対象 | 手段 |
 |---|---|
-| Pure 関数 (stateless、決定論的入出力) | `javascript_tool` + `await import('.../pure-module.ts')` で unit-test 相当 |
-| Single-tab の静的 UI 確認 (初期レンダのみ) | `computer {action:"screenshot"}` + `read_page` / `get_page_text` で初期状態は撮れる |
-| Stateful な動的挙動全般 | **実ブラウザ検証を odakin に依頼** — localhost URL (`pnpm dev` background) か staging/prod URL を毎ターン明示 (本ファイル上部「ルール」節) |
-| マルチ client 必須 (peer-to-peer、multi-tab race) | 実ブラウザ 2 tab 以上を odakin に依頼。Claude 側の 1 tab を Claude Preview で補完する手も throttle で動かないので不可 |
+| 動的な挙動全般 | 先に `tabs_context` で表示状態を見る。 非表示なら user に pane の表示を頼む |
+| 描画結果の数値照合 | **時間を進めない同期の描画 hook** (1 回だけ描いて `readPixels`) を app に持たせる = 非表示でも動く (設計 = [`webgl-f32-numerics.md#probe-channel`](webgl-f32-numerics.md#probe-channel)) |
+| 同期的に走る event handler (click・keydown の即時処理) | `javascript_tool` から直接呼び、 同じ script の中で状態を読む (timer を挟まない) |
+| Pure 関数 (stateless、 決定論的入出力) | `javascript_tool` + `await import('.../pure-module.ts')` で unit-test 相当 |
+| Single-tab の静的 UI 確認 (初期レンダのみ) | `computer {action:"screenshot"}` + `read_page` / `get_page_text` |
+| マルチ client 必須 (peer-to-peer、 multi-tab race) | 実ブラウザ 2 tab 以上を user に依頼 (localhost URL か staging / prod URL を毎ターン明示 = 本ファイル上部「ルール」節) |
+
+### <a id="tool-result-to-file"></a>大きな戻り値を file に落とす
+
+`javascript_tool` の戻り値 (画素の probe 結果など) を Python 側で検査するとき、 **戻り値を読んで file に書き写さない** (数値の写し間違い = 生成の混入)。 戻り値は session の transcript に残るので、 [`scripts/transcript-tool-result.py`](../scripts/transcript-tool-result.py) で取り出して file にする (`--contains` で結果の中の目印、 `JSON.stringify` で返した値は `--json-string` で 1 段 decode)。 戻り値そのものも小さく保つ (画素の方向ではなく camera 基底を返す等)。
 
 ### 誤誘導を避けるための書き方
 
-過去 CLAUDE.md 等で「`document.hidden=true` が原因」と書いていた箇所があるが、これは症状の一部であり **原因は Chrome の headless throttle 機構**。document.hidden override で解決するかもしれない、という誤った workaround 期待を招かないよう、「override しても効かない」まで書く。
+「`document.hidden=true` が原因」 は症状の一部で、 **原因は Chrome の occluded throttle 機構**。 override で解決するかもしれない、 という誤った workaround 期待を招かないよう、 「override しても効かない」 まで書く。 逆に「Browser pane では rAF が動かない」 と一般化もしない (表示中は動く)。
 
 ## Vite dev server の sleep-wake full page reload
 

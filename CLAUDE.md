@@ -165,6 +165,7 @@ claude-config/
 │   ├── web-form-automation.md              # 過負荷・レガシー・validation の噛み合わない web サイトの入力フォームを browser automation (Chrome MCP 等) で代行するとき
 │   ├── web-map-projections.md              # d3-geo / Natural Earth で世界地図ビューア (図法切替・中央経線回転・国境・国名・拡大) を作る・直すとき
 │   ├── web-tools.md                        # WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check)
+│   ├── webgl-f32-numerics.md               # WebGL / GLSL shader で物理量を f32 で計算するとき + 事前計算 table (texture) の定義域の外まで写像を延ばすとき + shader の出力を f64 の参照実装と画素単位で照合するとき + 実時間 simulation の 1 frame の時間予算を決めるとき
 │   ├── windows-msys.md                     # Windows (Git Bash / MSYS) 上で本リポの script・hook を動かす / 移植性のある shell・Python を書くとき
 │   ├── wolfram-scripting.md                # wolframscript を書く・debug するとき + 対数プロット (LogPlot / LogLogPlot) の目盛・凡例を触るとき
 │   ├── writing-discipline.md               # AI が文章を書く・直すとき常時 (論文・研究ノート・報告書・README・chat・code の docstring と図のラベルまで) + 「kernel」 と書きそうになった瞬間
@@ -184,7 +185,7 @@ claude-config/
 ├── notify-app/                  # macOS 通知の投稿元 applet (= 通知の click に行き先を与える)。 install.sh が build + deploy、 click 先は --click-script で呼ぶ側の層が渡す（正本 = conventions/macos-clickable-notifications.md）
 <!-- agent-free:begin id=auto-tree-scripts -->
 <!-- AUTO-TREE:scripts BEGIN (generate-tree.py --write が生成 — 手編集禁止、 同期検査 = --check。 全列挙 + 説明は scripts/README.md 〔生成物〕 へ移設 = 2026-09-01) -->
-├── scripts/              # 運用 script 群 (272 file + formcase/ 24 module + lib/ 57 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
+├── scripts/              # 運用 script 群 (273 file + formcase/ 24 module + lib/ 57 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
 <!-- AUTO-TREE:scripts END -->
 <!-- agent-free:end id=auto-tree-scripts -->
 ├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
