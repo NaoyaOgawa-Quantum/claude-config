@@ -1,11 +1,12 @@
 # SESSION — claude-config
 
-最終更新: 2026-09-28 (sweep 済: b3d981a)
+最終更新: 2026-09-29
 
 > 📌 **このファイル = 案件ごとの現在地 + Open items**。 entry は案件 (状態が進む単位) ごとに 1 つ、 進んだら置き換える。 経緯・commit・実測は正本 (DESIGN.md / conventions / docs) が持ち、 過去の索引は [`SESSION-archive.md`](SESSION-archive.md) (grep 専用)。 契約 = [CONVENTIONS.md#session-no-durable-record](CONVENTIONS.md#session-no-durable-record)、 止められたら [memory-file-slimming.md#session-shape-gate](conventions/memory-file-slimming.md#session-shape-gate)。
 
 ## 現在地
 
+- **履歴から個人の識別子を消す書き換えと再発防止** — 規約 = [confidential-repo-boundary.md#role-words-in-names](conventions/confidential-repo-boundary.md#role-words-in-names) / [#history-scrub-identity-from-all-versions](conventions/confidential-repo-boundary.md#history-scrub-identity-from-all-versions)。 `check-pii-filenames.py` は小文字の識別子に対応、 `check-unbraced-multibyte-var.py` は全 repo の pre-commit に配線済み。 進行中 = 改名・置き換えの書き換えの道具 (`git-drop-path-history.py` の兄弟)、 commit 時の識別子の検査、 書き換えられた remote への汎用の追従
 - **SESSION / README の形の gate** — engine・書き込み hook・全 repo の pre-commit・規約・一括移行の道具 (`migrate-session-shape.py`) まで済、 既存 file は寄せた。 残り = 他の machine での hook と pre-commit の実走の観測 (bootstrap と pull で入る) → [DESIGN.md#session-shape-gate](DESIGN.md#session-shape-gate)
 - **規則保護 gate の echo flood + Stop の全文再送** — 修正を適用済み、 別 session の検収で確認済み (差し戻し後も照合 / 追記だけ求める / 他の session の分は file ごとに 1 行 / 同じ表示の行を畳む / 返事に書く行を先に渡す / 処理状態を lock で合わせる / 照合し直しは Stop と同じ消費の照合)。 残り = iMac-3 での観測 (次の session 開始の 📜 と、 `additive-log --audit` の ★ の件数)。 設計判断 = [DESIGN.md#additive-echo-bookkeeping](DESIGN.md#additive-echo-bookkeeping)、 実測の記録 = odakin-prefs/plans/2026-09-29-rule-change-echo-flood-results.md、 規則 = [agent-rule-ownership.md#additive-and-free-zones](conventions/agent-rule-ownership.md#additive-and-free-zones) / [hook-authoring.md#stop-hook-addendum-not-reemission](conventions/hook-authoring.md#stop-hook-addendum-not-reemission)
 - **規則保護の gate (agent-rule-guard)** — 運用中。 auto mode の classifier が承認 CLI を止める場合の経路 (本人が狭い allow を宣言 / mode 切替、 deny 文が案内、 `--liveness` が宣言の無い機械に 🟡) と、 data 形式の file の配線 lock を場所に限定した判定 = [tool-call-robustness.md#classifier-blocks-guard-approval-cli](conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli) / [agent-rule-ownership.md#wiring-scope](conventions/agent-rule-ownership.md#wiring-scope) / [DESIGN#wiring-lock-data-files-by-location](DESIGN.md#wiring-lock-data-files-by-location)。 残りは下の Open items (SSO 実走 / cwd 解決 / Codex hook の timeout / transcript の user 役の穴 / liveness の観察) → [agent-rule-ownership.md](conventions/agent-rule-ownership.md) / [DESIGN.md#rule-doc-change-by-vocabulary-not-form](DESIGN.md#rule-doc-change-by-vocabulary-not-form)
