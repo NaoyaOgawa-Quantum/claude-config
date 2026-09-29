@@ -116,6 +116,6 @@ ask "⚠️ 定型 Cc の不足候補:
 trigger keyword 検出: \"$TRIGGER_HIT\"
 不足 Cc:$MISSING
 
-$LABEL は config の required_cc 全員の Cc が要る。${DOC:+ 正本 = $DOC。}
+$LABEL は config の required_cc 全員の Cc が要る。${DOC:+ 正本 = ${DOC}。}
 
 意図して Cc 構成を変えるメールなら承認で通る。 そうでなければ止めて Cc を足してから送る。"

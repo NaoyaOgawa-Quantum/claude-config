@@ -43,8 +43,9 @@ from pathlib import Path
 PATTERN_FILE = Path.home() / ".claude" / "pii-filename-patterns.txt"
 # 16 進の長い連なり (= build 成果物の hash) は識別子ではない。
 # 例: `Foo.dll_A55E1029D67B7172.mvfrm` は `A55E1029` が固定長 ID の形に一致してしまう
-# (2026-09-12 に 20 件の誤検知を出した)。
-HEX_RUN = re.compile(r"[0-9A-F]{12,}")
+# (2026-09-12 に 20 件の誤検知を出した)。 pattern を大文字小文字の両方に当てる設定 (`(?i)`) でも効くよう、 小文字の hash も外す
+# (メールの local part から来た小文字の識別子を素通りさせない設定が要る = 2026-09-29 実測)。
+HEX_RUN = re.compile(r"[0-9A-Fa-f]{12,}")
 
 
 def load_patterns(path: Path = None):
@@ -157,12 +158,26 @@ def selftest():
         if check(base, pats=P) != 0:
             fails.append("追跡から外した file をまだ数えている")
 
+    # 小文字の識別子 (メールの local part から来た file 名) は (?i) の pattern で拾い、 小文字の 16 進 hash は外す
+    P2 = [re.compile(r"(?i)[a-z][0-9]{2}[a-z][0-9]{4}")]
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        repo = base / "r"; repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], capture_output=True)
+        (repo / "docs-a00x0001").mkdir()
+        (repo / "docs-a00x0001" / "memo.txt").write_text("x", encoding="utf-8")
+        (repo / "foo.dll_a55e1029d67b7172.mvfrm").write_text("x", encoding="utf-8")
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], capture_output=True)
+        got = sorted(n for _r, n in scan(base, P2))
+        if got != ["docs-a00x0001/memo.txt"]:
+            fails.append(f"小文字の識別子 / 小文字の hash の扱いが違う: {got}")
+
     if fails:
         print("SELFTEST FAIL:", file=sys.stderr)
         for f in fails:
             print("  -", f, file=sys.stderr)
         return 1
-    print("SELFTEST PASS (5 checks)")
+    print("SELFTEST PASS (6 checks)")
     return 0
 
 
