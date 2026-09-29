@@ -398,7 +398,7 @@ def run_staged(repo: Optional[str]) -> int:
             continue
         findings.extend(format_hit(path, h) for h in hits if h[0] in added)
     if findings:
-        print("%s 変数の直後に全角文字 (UTF-8 の locale では bash 3.2 が先頭 byte を変数名に取り込み、 set -u なら落ち、"
+        print("%s 変数の直後に全角文字 (UTF-8 の locale では macOS の bash が先頭 byte を変数名に取り込み、 set -u なら落ち、"
               " 無ければ値が黙って消える) — %d 件" % (BLOCK_HEADING, len(findings)), file=sys.stderr)
         for f in findings:
             print(f, file=sys.stderr)
@@ -552,8 +552,8 @@ def selftest() -> int:
            [h[0] for h in hits(b"cat <<-'EOF'\n\t$a" + ten + b"\n\tEOF\necho \"$b" + ten + b"\"\n")] == [4])
     expect("算術の << は heredoc と読まない (後ろの行を飲み込まない)",
            [h[0] for h in hits(b"x=$((1 << 2))\ny=$(( a << b ))\necho \"$c" + ten + b"\"\n")] == [3])
-    expect("終わりの行が無い << は heredoc と読まない",
-           [h[0] for h in hits(b"echo x << NOPE\necho \"$c" + ten + b"\"\n")] == [2])
+    expect("終わりの行が無い <<'X' は heredoc と読まない (後ろの行を literal として飲み込まず報告に倒す)",
+           [h[0] for h in hits(b"echo x <<'NOPE'\necho \"$c" + ten + b"\"\n")] == [2])
     # 対象の file
     expect("拡張子 .sh / .bash / .zsh は対象", all(is_shell_path("a" + s, None) for s in (".sh", ".bash", ".zsh")))
     expect("拡張子の無い bash / sh / zsh の shebang は対象",
@@ -625,6 +625,11 @@ def selftest() -> int:
             err = r.stderr.decode("utf-8", "replace")
             expect("--staged: git repo でなければ exit 3 + 1 行 (違反の 1 と区別)", r.returncode == 3 and NOT_RUN in err,
                    err)
+            r = subprocess.run([sys.executable, os.path.abspath(__file__), "--staged"], cwd=td2, capture_output=True,
+                               check=False, env=dict(os.environ, PATH=os.path.join(td2, "no-bin")))
+            err = r.stderr.decode("utf-8", "replace")
+            expect("--staged: 内部の例外 (git が PATH に無い) は exit 3 + 1 行 (traceback の rc 1 にしない)",
+                   r.returncode == 3 and NOT_RUN in err and "Traceback" not in err, err)
             p = Path(td2) / "x.sh"
             p.write_bytes(b"echo \"$v" + ten + b"\"\n")
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--paths", str(p)], capture_output=True,

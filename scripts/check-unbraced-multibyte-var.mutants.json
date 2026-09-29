@@ -1,0 +1,73 @@
+{
+  "_comment": "check-unbraced-multibyte-var.py の selftest の foil に歯があることを、 述語・読み方・終了値の一部を外した mutant 8 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。 expect_pass は、 その foil が他の foil の失敗に引きずられずに判定していることを見る。",
+  "target": "check-unbraced-multibyte-var.py",
+  "run": "python3 {} --selftest",
+  "fail_marker": "  FAIL ",
+  "pass_marker": "  PASS ",
+  "mutants": [
+    {
+      "name": "--staged が足した行に絞らない (既存の当たりまで出して、 触っていない行で commit を止める)",
+      "pairs": [
+        ["findings.extend(format_hit(path, h) for h in hits if h[0] in added)", "findings.extend(format_hit(path, h) for h in hits)"]
+      ],
+      "expect_fail": ["足した行だけを出す"],
+      "expect_pass": ["足した違反の行で exit 1"]
+    },
+    {
+      "name": "shell の行で逆斜線の escape を読まない (\\$name を当たりにする)",
+      "pairs": [
+        ["        if c == 0x5C:\n            i += 2\n            continue\n        if state == 2 and c == 0x22:", "        if state == 2 and c == 0x22:"]
+      ],
+      "expect_fail": ["(escape) は当たらない"],
+      "expect_pass": ["波括弧"]
+    },
+    {
+      "name": "shell の行で先頭 byte の閾値を 0xE4 に上げる (かなの 0xE3 を取り逃す)",
+      "pairs": [
+        ["            if nxt in IDENT_START:\n                j = i + 1\n                while j < n and line[j] in IDENT_CHARS:\n                    j += 1\n                if j < n and line[j] >= 0xC0:", "            if nxt in IDENT_START:\n                j = i + 1\n                while j < n and line[j] in IDENT_CHARS:\n                    j += 1\n                if j < n and line[j] >= 0xE4:"]
+      ],
+      "expect_fail": ["違反: 引用符の外の", "足した違反の行で exit 1"],
+      "expect_pass": ["引用符の無い heredoc の本文は当たる"]
+    },
+    {
+      "name": "単一引用符を開かない (1 行で閉じた '...' の中の $ を当たりにする)",
+      "pairs": [
+        ["            if c == 0x27:\n                state = 1\n            elif c == 0x22:", "            if False:\n                state = 1\n            elif c == 0x22:"]
+      ],
+      "expect_fail": ["1 行で閉じた '...' の中は当たらない"],
+      "expect_pass": ["二重引用符の中の '...' は literal でないので当たる"]
+    },
+    {
+      "name": "行末で引用符が閉じない行でも行の解析を信用する (複数行の文字列の途中の行を取り逃す)",
+      "pairs": [
+        ["    if state != 0 or _unbalanced_ignoring_comment(line):", "    if False:"]
+      ],
+      "expect_fail": ["行末で引用符が開いたままの行は規約の正規表現で数える", "複数行の文字列の途中の行"],
+      "expect_pass": ["行末の comment は当たらない"]
+    },
+    {
+      "name": "終わりの行の無い << も heredoc として後ろを飲み込む",
+      "pairs": [
+        ["            if _terminates(lines, idx + 1, delim, strip):", "            if True:"]
+      ],
+      "expect_fail": ["終わりの行が無い"],
+      "expect_pass": ["引用符つき heredoc の本文は当たらない"]
+    },
+    {
+      "name": "index の blob を filter を通さずに読む (git show = clean 後の別物)",
+      "pairs": [
+        ["rc, data = read_blob(\":\" + path, cwd=root)", "_r = subprocess.run([\"git\", \"show\", \":\" + path], cwd=root, capture_output=True); rc, data = _r.returncode, _r.stdout"]
+      ],
+      "expect_fail": ["filter つき path は平文で読む"],
+      "expect_pass": ["足した違反の行で exit 1"]
+    },
+    {
+      "name": "内部の例外を exit 1 (違反と同じ値) で返す",
+      "pairs": [
+        ["        sys.exit(3)\n", "        sys.exit(1)\n"]
+      ],
+      "expect_fail": ["内部の例外"],
+      "expect_pass": ["git repo でなければ exit 3"]
+    }
+  ]
+}
