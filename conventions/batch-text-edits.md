@@ -29,7 +29,7 @@ open(path, "w", encoding="utf-8").write(txt)
 | 1-2 箇所 | Edit tool | 差分がそのまま可視になり人間 review が効く |
 | 3 箇所以上 / 長い string / 系統的 sweep | 本 pattern | 手数と転記ミスが線形に増えるのを止める |
 
-## <a id="batch-text-failure-modes"></a>9 つの失敗モード
+## <a id="batch-text-failure-modes"></a>11 の失敗モード
 
 ### <a id="assert-does-not-gate-downstream"></a>1. assert の verdict は下流に伝わらない
 
@@ -121,6 +121,22 @@ open(path, "w", encoding="utf-8").write(txt)
 
 **対処**: (1) 終点は始点より後ろで探す — `s.index(B, s.index(A) + 1)` (2 引数目で範囲を絞る)。 anchor は見出しの**行頭からの一意な形** (`\n### lint\n`) にする。 (2) 計算で作った old にも同じ assert を当てる = `assert old and s.count(old) == 1` ([`scripts/apply-text-pairs.py`](../scripts/apply-text-pairs.py) は空の old を拒否する)。 (3) **書いた後に形を測る**: `wc -l` の前後差か `git diff --stat` を同じ command 行で出し、 意図した箇所数と桁が合うことを見る (下の検証 5)。 (4) commit の stat を捨てない — `git commit -q` の後に `git show --stat HEAD | tail -1` を同じ行に置く。 (5) 機械の門 = [`scripts/check-degenerate-text.py`](../scripts/check-degenerate-text.py) `--staged` が全 repo の pre-commit (pre-commit-bib と public stub) で「1 行の異常な繰り返し」「HEAD 比 10 倍以上かつ +1,000 行以上」 を止め、 既定の fleet scan が commit をすり抜けた壊れを見つける (閾値は fleet の実測から、 SoT = その docstring)。 門は形しか見ないので (1)-(4) の代わりにはならないが、 (1)-(4) は多 commit・並行 session の圧力下で skip されるので門も外さない。
 
+### <a id="span-by-first-terminator"></a>10. 入れ子の範囲を「最初の終端」 で取ると、 途中で切れる
+
+**症状** (実測): LaTeX の display 環境の中だけで記号を置き換えるため、 範囲を「開始の印から、 最初の『改行 + 閉じ中括弧』 まで」 の正規表現で取った。 ある display は途中の行が閉じ中括弧で始まっていたので範囲がそこで切れ、 その後ろの行の記号が置換から漏れた。 置換の件数の assert は漏れた分を含まない件数で通る。
+
+**なぜ契約が守ってくれないか**: 契約が見るのは old の一意性であって、 置換を当てる**範囲**の正しさではない。 範囲の判定は置換の前段にあり、 そこで短く切れても error にならない。
+
+**対処**: (1) 入れ子の構造 (中括弧・環境) は、 開き括弧からの対応を数えて閉じ位置を決める (escape された括弧は飛ばす)。 (2) 置換の後に、 範囲の判定を使わない全文走査で「置換対象が範囲の外に残っていないか」 を数える。 範囲の判定と検証に同じ関数を使うと、 同じ穴を 2 回通るだけになる。
+
+### <a id="line-number-target-check"></a>11. 行番号で指した行が、 意図した行とは限らない
+
+**症状** (実測): 「段落の 1 行目の末尾に 1 文を足す」 を行番号で書いたら、 その番号は見出しの直後の空行だった。 足した文は段落の外に 1 文だけの段落として入った。 build は通り、 見た目の異常は「段落の前に孤立した 1 文」 だけなので、 後の作業で読み返すまで気づかなかった。
+
+**なぜ契約が守ってくれないか**: 行番号の指定は old を持たないので、 一意性の契約そのものが働かない。 番号がずれていても、 空行でも、 書き込みは成功する。
+
+**対処**: 行番号で読み書きするときは、 その行の中身 (先頭の文字列) を assert してから書く。 「段落の末尾」 は番号でなく、 段落の最後の文の中身で指す。 空行に追記しない。
+
 ## <a id="batch-text-verification"></a>適用後の検証
 
 1. **再 build が通る** (LaTeX なら error 0 + 頁数が期待どおり)
@@ -136,4 +152,4 @@ open(path, "w", encoding="utf-8").write(txt)
 - **byte 単位の文字列切り詰め** = [shell-multibyte-truncation.md](shell-multibyte-truncation.md)。 同じ「byte で見ろ」でも kernel は truncation であって matching ではない。
 - **docx / xlsx の中身を XML 文字列で置換する場合** = [office-automation.md#docx-fill-xml-edit](office-automation.md#docx-fill-xml-edit)。 binary container 固有の罠 (run 分割・宣言・rels 整合) が別途あるので、 本 doc の契約だけでは足りない。
 
-origin: 2026-07 の LaTeX 原稿改訂 session で本 pattern を約 10 回実戦投入 (最大 66 箇所を 1 pass) し、 上記 4 モードすべてを同日中に実測した。 モード 5・6 は 2026-09-13 (fleet の link 修正と script の hoist) で実測して追加。 モード 7 は 2026-09-14 (相対 path の不具合を直す途中で symlink の TARGET を試して) 実測して追加。 モード 9 は 2026-09-22 (設計 doc の節の差し替えで終点の見出しが前の節にも在り、 file が全文字の間に膨れた) に実測して追加、 同時に commit gate と fleet scan を機械化。
+origin: 2026-07 の LaTeX 原稿改訂 session で本 pattern を約 10 回実戦投入 (最大 66 箇所を 1 pass) し、 上記 4 モードすべてを同日中に実測した。 モード 5・6 は 2026-09-13 (fleet の link 修正と script の hoist) で実測して追加。 モード 7 は 2026-09-14 (相対 path の不具合を直す途中で symlink の TARGET を試して) 実測して追加。 モード 9 は 2026-09-22 (設計 doc の節の差し替えで終点の見出しが前の節にも在り、 file が全文字の間に膨れた) に実測して追加、 同時に commit gate と fleet scan を機械化。 モード 10・11 は実測して追加。

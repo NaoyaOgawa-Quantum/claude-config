@@ -459,6 +459,15 @@ for y0, y1, s in sorted((b[1], b[3], b[4][:40]) for b in p.get_text("blocks") if
 
   題名の上端が本文頁の text top (例: 109 pt) より上に出たら詰めすぎ。 詰めた結果 1 頁目に本文が流れ込むのが嫌なら abstract の後に `\newpage` (目次を挟むなら `\newpage\tableofcontents\newpage`)。
 
+## <a id="supplement-in-same-pdf"></a>Supplemental Material は、 まず同じ PDF の文献表の後に置く
+
+付録が長すぎて、 導出・別表現・検算を Supplemental Material へ移すときの形。 投稿まで同じ source で組み、 相互参照を壊さないため。
+
+- **置き方**: `\bibliography{...}` の後に `\input{supplement-....tex}` を置く。 その file の冒頭で `\clearpage`、 section と equation の counter を 0 に戻し、 `\thesection` と `\theequation` を `S\arabic{...}` にする。 hyperref を読んでいるなら `\theHsection` と `\theHequation` も同じ形にして、 PDF の destination 名を本文の節・式と重ねない。 題は `\section*{Supplemental Material}` とし、 冒頭の 1 文で「S のついた番号はこの補足、 他は本文」 と断る。
+- **利点**: 本文・付録・補足の間の `\ref` がそのまま働く。 付録から補足の式を指すことも、 補足から本文の式を指すこともできる。 雑誌が別 PDF を求める段になったら、 xr で外部参照に切り替えて分ける。
+- **移し方**: 移設は verbatim で、 行の対応を機械で照合する ([`paper-audit.md#relocation-rebinding-sweep`](paper-audit.md#relocation-rebinding-sweep)、 [`scripts/verify-verbatim-move.py`](../scripts/verify-verbatim-move.py))。 付録に残す式が、 移した block の中でだけ定義された記号を使っていないかも見る ([`paper-audit.md#orphaned-definition-after-move`](paper-audit.md#orphaned-definition-after-move))。 付録の側には「入力 (定義) と出力 (結果・限界)」 を残し、 補足への案内を 1 文置く。
+- **量の目安** (実測): 導出と検算が主な付録は 4 分の 1 ほどに縮む。 定義と結果が主で散文の注意書きが多い付録は、 移設だけでは 2〜3 割しか縮まない。 そこから先は文を詰める書き直しで、 著者の通読が要る。
+
 ## <a id="compilers"></a>コンパイラ
 
 odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2 段ワークフローは**英語論文では使わない**。
@@ -496,6 +505,8 @@ odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2
 ⚠️ **`ptex2pdf` / `platex` の exit code は信用しない**: clean な DVI（`Output written on ....dvi`）が出ていても wrapper が非ゼロ exit を返すことがある。確実な build は **`platex → platex → dvipdfmx` を個別実行**し、(a) log を `grep -iE "^! |Overfull"`、(b) `.pdf` が実際に再生成されたか（timestamp / `dvipdfmx` の `... bytes written`）で判定する。exit code 単独を成功 signal にしない。
 
 ⚠️ <a id="latexmk-pdf-overrides-rc"></a>**`latexmk -pdf` は `.latexmkrc` の engine 指定を上書きする** — repo が `.latexmkrc` で `$pdf_mode = 4` (lualatex) を宣言していても、コマンドラインの `-pdf` は `$pdf_mode = 1` (pdflatex) を意味するので、**error 0・警告なしで別 engine の PDF が出る**。壊れないので気付かない: 変わるのは合字・アクセント・分数まわりの組で、抽出テキストでは `Poincaré` → `Poincar´e`、`spin-1/2` の分数が潰れる形で出る (2026-09-12 実測)。→ **`.latexmkrc` を持つ repo では `latexmk` を素で叩く** (engine を明示したいときは `-pdf` でなく `-lualatex` / `-pdflatex`)。焼き直した PDF を比較検証に使うなら、まず `metadata['producer']` が旧版と一致するかを見る (= 中身の diff を読む前に engine の同一性を確かめる)。
+
+⚠️ <a id="partial-aux-cleanup"></a>**`.aux` だけ消して `.fdb_latexmk` を残すと、 latexmk が止まる**: latexmk は前回の記録 (`.fdb_latexmk`) を見て、 source が変わっていないと engine を回さずに bibtex だけを呼ぶ。 `.aux` が空なので bibtex は `I found no \citation commands` で失敗し、 latexmk は exit 12 で終わる (実測)。 PDF は古いまま残るので、 頁数だけ見ると成功に見える。 中間 file は `latexmk -c` でまとめて消すか、 `.aux` と一緒に `.fdb_latexmk`・`.fls`・`.bbl` も消す。
 
 ⚠️ <a id="nonstopmode-hides-undefined-env"></a>**`-interaction=nonstopmode` は undefined environment を握り潰して PDF を出す**: クラスが `amsmath` を読んでいないのに `\begin{equation*}` を書くと `! LaTeX Error: Environment equation* undefined.` が出るが、**nonstopmode では build が続き PDF も生成される** (中身は壊れた組版)。学会・申請書の配布クラスは `amsmath` を仮定できない (実測: 科研費の LaTeX クラス)。→ **build の度に `grep -c "^!" *.log` が 0 であることを確認する**。素の `\[ ... \]` は amsmath なしで動くので、可搬性が要る文書ではこちらを既定にする。
 
