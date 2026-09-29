@@ -57,7 +57,7 @@ repo 内 shell script (hooks/ + scripts/ + setup.sh) の統一方針 (2026-07-10
 - **例外: `fix-snapshot-path-patch.sh` は `#!/bin/zsh`** (= zsh 環境の PATH snapshot を patch する対象整合で zsh、 launchd WatchPaths 起動)。
 - **hook (hooks/*.sh) は `set -uo pipefail` を標準**。 `set -e` は**使わない** — hook 内の grep / git は「no match」 等で正当に非ゼロ exit するので、 -e は最初のそれで hook を殺す (git-state-nudge.sh header の設計 note 参照)。 optional な env / 変数は `${VAR:-default}` で明示するのが -u との契約。
 - **set -u を既存 script に後付けする時は、 先に .test.sh で挙動を固定してから** (= unbound 参照が実行 path 依存で潜んでいることがあり、 挙動変化 (途中死) が silent に起きるため。 hooks/ の guard hook は全数 .test.sh 持ち)。
-- **日本語の直前の変数は `${var}` と書く** — UTF-8 の locale では bash 3.2 が全角文字の先頭 byte を変数名に取り込み、 `set -u` なら落ち、 無ければ値が黙って消える ([`shell-multibyte-truncation.md#unbraced-var-before-multibyte`](shell-multibyte-truncation.md#unbraced-var-before-multibyte))。
+- **日本語の直前の変数は `${var}` と書く** — UTF-8 の locale では bash 3.2 が全角文字の先頭 byte を変数名に取り込み、 `set -u` なら落ち、 無ければ値が黙って消える ([`shell-multibyte-truncation.md#unbraced-var-before-multibyte`](shell-multibyte-truncation.md#unbraced-var-before-multibyte))。 書いた script は [`scripts/check-unbraced-multibyte-var.py`](../scripts/check-unbraced-multibyte-var.py) `--paths <file>` で確かめる (C locale の test は通るので test の緑では分からない)。
 - scripts/ 側の `set` は script の性質で選ぶ (fail-open が契約の surface 系は敢えて緩くする場合がある) が、 新規 script は `set -u` 以上を default とする。
 
 ### <a id="substitution-fallback-stdout-mixing"></a>§0 補足 2: `$(a || b)` fallback は「a の部分 stdout」 を混入させる — BSD/GNU 分岐は exit code でなく出力検証で
