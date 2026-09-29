@@ -264,6 +264,7 @@
 - **[tex2plain.py](tex2plain.py)** — .tex から LaTeX タグを除いたテキストを生成する (数式は Unicode で線形化、図キャプションは末尾へ)。
 - **[todo-ledger-split.py](todo-ledger-split.py)** — 1 file の list (`TODO.yaml`) の TODO 台帳を 1 entry 1 file (`todo/<id>.yaml`) に分割する (既定 dry-run)。
 - **[transcript-images.py](transcript-images.py)** — Claude Code の会話記録 (jsonl) から、 user が貼った画像 (画面写真) を file に取り出す
+- **[transcript-tool-result.py](transcript-tool-result.py)** — Claude Code の会話記録 (jsonl) から tool の戻り値を file に取り出す
 - **[tune-seal-image.py](tune-seal-image.py)** — Calibrate a digitized seal PNG against a *printed* reference — stroke width and ink color.
 - **[uyghur-tts.py](uyghur-tts.py)** — Generate Uyghur speech through the public Idirak/MMS-TTS endpoint.
 - **[validate-codex-skills.test.sh](validate-codex-skills.test.sh)** — shipped Codex skills の discovery metadata を検証する
