@@ -343,6 +343,36 @@ out="$(run)"
 if printf '%s' "$out" | grep -q "stash push が何も作らなかった"; then ng "stash の空振りで中止した"; else ok "stash の空振りで中止しない"; fi
 git config --global --unset filter.fake.clean; git config --global --unset filter.fake.smudge
 
+echo "=== T19: remote の履歴が書き換えられた (message だけ、 tree は同じ) → 中身で揃えて P 行、 HEAD = 新しい先頭 ==="
+RR="$(mk_remote r)"; git_quiet clone -q "$RR" "$ROOT/repoR"
+( cd "$TMP/seed-r" && git_quiet commit -q --amend -m "rewritten message" && git_quiet push -q --force origin HEAD:main )
+new_tip="$(cd "$TMP/seed-r" && git rev-parse HEAD)"
+echo "untracked" > "$ROOT/repoR/keep.txt"
+out="$(run)"
+line_of "$out" P repoR | grep -q "追従した" && ok "書き換えに追従して P 行" || ng "expected P repoR 追従 (got: $out)"
+[ "$(cd "$ROOT/repoR" && git rev-parse HEAD)" = "$new_tip" ] && ok "repoR の HEAD = 新しい履歴の先頭" || ng "repoR HEAD が動いていない"
+[ -f "$ROOT/repoR/keep.txt" ] && ok "未追跡 file は残る" || ng "keep.txt が消えた"
+[ -z "$(line_of "$out" A repoR)" ] && ok "A 行は出ない" || ng "A 行が出た: $(line_of "$out" A repoR)"
+
+echo "=== T20: 書き換え + 手元にしか無い commit → 揃えず A 行 (pull / merge / rebase を案内しない)、 HEAD は動かない ==="
+RS="$(mk_remote s)"; git_quiet clone -q "$RS" "$ROOT/repoS"
+( cd "$ROOT/repoS" && echo "mine" > mine.txt && git_quiet add -A && git_quiet commit -qm "local only" )
+( cd "$TMP/seed-s" && git_quiet commit -q --amend -m "rewritten message" && git_quiet push -q --force origin HEAD:main )
+before="$(cd "$ROOT/repoS" && git rev-parse HEAD)"
+out="$(run)"
+line_of "$out" A repoS | grep -q "手元にしか無い" && ok "揃えられない理由を A 行で" || ng "expected A repoS 手元にしか無い (got: $out)"
+[ "$(cd "$ROOT/repoS" && git rev-parse HEAD)" = "$before" ] && ok "repoS の HEAD は動かない" || ng "repoS HEAD が動いた"
+if line_of "$out" A repoS | grep -q "pull --rebase をして"; then ng "危ない案内が出た"; else ok "pull --rebase を案内しない"; fi
+
+echo "=== T21: follower が無い環境 (path 不在) → 従来の diverged A 行 ==="
+RT="$(mk_remote t)"; git_quiet clone -q "$RT" "$ROOT/repoT"
+( cd "$TMP/seed-t" && git_quiet commit -q --amend -m "rewritten message" && git_quiet push -q --force origin HEAD:main )
+out="$(CLAUDE_SYNC_SWEEP_FOLLOWER=/nonexistent/git-rewrite-follow.py run)"
+line_of "$out" A repoT | grep -q "diverged" && ok "follower 不在なら diverged の A 行" || ng "expected A repoT diverged (got: $out)"
+[ "$(cd "$ROOT/repoT" && git rev-list --count @{u}..HEAD)" = "1" ] && ok "repoT は触られていない (ahead=1 のまま)" || ng "repoT が動いた"
+out="$(run)"
+line_of "$out" P repoT | grep -q "追従した" && ok "follower が在れば次の sweep で揃う" || ng "expected P repoT (got: $out)"
+
 echo
 echo "==== RESULT: PASS=$PASS FAIL=$FAIL ===="
 [ "$FAIL" -eq 0 ]
