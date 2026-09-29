@@ -60,7 +60,7 @@ public repo の GitHub-hosted runner は無料で上限が無いが、 **private
 (Free plan。 超過分は支払い方法と spending limit しだい)。 上限を越えると以後の run は **数秒で failure** になり、
 job は runner に載らないまま残る (`runner_name` 空・steps 0、 annotation = 「recent account payments have failed or
 your spending limit needs to be increased」)。 **コードの失敗ではない**のに、 その account の private repo の
-全 workflow が一斉に red に見える (Dependabot の update job も、 検査でない定期 job も止まる)。
+全 workflow が一斉に red に見える (検査でない定期 job も、 Dependabot の PR に反応する auto-merge の workflow も止まる。 Dependabot が PR を作る更新そのものは、 枠が切れている間も PR を作った = 実測)。
 
 - **枠に収まる形** (実測): 食うのは「毎 push の Semgrep」 で、 `paths` filter つきの軽い検査 (code を触った push だけ走る、 1 run 1〜2 分) は月の枠に収まる。 戻すなら Semgrep は `schedule` (weekly) + `workflow_dispatch` だけにして push / pull_request の trigger を外し、 軽い検査は per-push のまま enable する。 どの repo を戻したかは非公開層の記録が正本。 ⚠️ 使い切った月の残りは enable しても起動されない (枠が戻る月初から)
 - **使い切る形**: push の多い private repo に per-push の検査 (Semgrep / test) を置く。 実測: push の多い private
