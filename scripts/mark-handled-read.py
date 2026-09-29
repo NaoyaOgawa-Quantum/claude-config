@@ -41,12 +41,16 @@ HERE = Path(__file__).resolve().parent
 REASON_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \S")
 
 
+def _yaml_safe_load(stream):  # yaml.safe_load と同じ結果を C 版 (libyaml) で返す = 約 10 倍速 (run-all-checks の fast YAML loader)
+    import yaml
+    return yaml.load(stream, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+
+
 def acked_ids(text: str | None) -> set[str]:
     """ack の台帳 text から、 reason が「YYYY-MM-DD 理由」 の形の id だけを返す。"""
-    import yaml
     if not text:
         return set()
-    data = yaml.safe_load(text) or {}
+    data = _yaml_safe_load(text) or {}
     out = set()
     for row in data.get("ack", []) or []:
         if not isinstance(row, dict):
