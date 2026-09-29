@@ -3068,6 +3068,41 @@ def pending_lines(rows: list[dict], me: str) -> list[str]:
     return out
 
 
+def reconcile_written(state: dict) -> list[dict]:
+    """持ち主の session の返事に、 記録の後でその行がもう書かれている未処理の記録を処理済みにする。 返事 = 持ち主の transcript の
+    各 turn の最終発話、 照合は Stop と同じ (印字そのもの、 無ければ引用の冒頭 20 字)。 読めない transcript は飛ばす (処理済みに
+    しない)。 実測: 直す前の engine は差し戻しの後の Stop で照合しなかったので、 書かれた行が未処理のまま残り、 別の session の
+    開始で再要求された。 返り値 = 処理済みにした記録。"""
+    import transcript_turns as tt
+    by_owner: dict[str, list[dict]] = {}
+    for e in pending_additive(state):
+        agent, _, sid = str(e.get("session") or "").partition(":")
+        if agent == "claude" and SAFE_ID.match(sid):
+            by_owner.setdefault(sid, []).append(e)
+    done: list[dict] = []
+    for sid, rows in by_owner.items():
+        try:
+            path = find_transcript("claude", sid)
+            # 返事の時刻 = turn の最後の行の時刻 (turn の先頭 = 本人の発言は記録より前のことがある)
+            finals = [(max(str(x.get("timestamp", "")) for x in t), tt.summarize(t)[0])
+                      for t in tt.turns(tt.load_entries(path))] if path else []
+        except Exception:
+            continue
+        for e in rows:
+            at = str(e.get("at", ""))[:19]
+            body = printed_body(e)
+            if any(text and ts[:19] >= at and (any(body in collapse_ws(line) for line in text.splitlines())
+                                              or additive_disclosed(e, text)) for ts, text in finals):
+                done.append(e)
+    if done:
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        for e in done:
+            state["handled"][additive_key(e)] = {"how": "reply-found", "session": e.get("session"), "at": now}
+            state["assigned"].pop(additive_key(e), None)
+        save_handled(state)
+    return done
+
+
 def live_claude_sessions() -> set[str]:
     """生きている Claude session の id (registry ~/.claude/sessions で pid が生きているもの、 scripts/lib/session_model.py)。
     読めなければ空 = 従来どおり全部割り当てる。"""
@@ -3102,12 +3137,20 @@ def additive_log_mode(args: argparse.Namespace) -> int:
               " 正本 = conventions/agent-rule-ownership.md#additive-and-free-zones")
         return 0
     state = load_handled()
+    if getattr(args, "reconcile", False):
+        done = reconcile_written(state)
+        print(f"持ち主の返事にもう書かれていた記録を処理済みにした: {len(done)} 件")
+        for e in done:
+            print("  " + additive_line(e))
+        return 0
     if args.surface:
         # 人のいる session の開始だけ: 返事で伝わっていない追記をこの session に割り当てて出し、 その session の Stop が
         # 返事に書くまで求める。 session が分からない開始 (人のいない session 等) には出さず、 割り当てもしない
         # = 誰も見ていない表示で処理済みにしない。
         session = parse_session(args.session) if getattr(args, "session", None) else None
         pend = pending_additive(state)
+        if pend and session is not None and reconcile_written(state):
+            pend = pending_additive(state)  # 持ち主がもう返事に書いていた記録は、 割り当てる前に処理済みにする
         if session is None or not pend or getattr(args, "source", None) == "compact":
             # 圧縮 (compact) の開始は同じ session の続き = 自分の追記は Stop が書かせ、 他の session の分は次の本当の開始に回す
             return 0
@@ -4738,6 +4781,39 @@ def selftest() -> int:
         os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
         check("人のいない session には返事に書く行を渡さない (Stop も求めない)、 記録はする",
               "🧾" not in out.getvalue() and len(pending_additive()) == 1)
+        print("[持ち主がもう返事に書いていた記録は、 session の開始 (と --reconcile) で処理済みにする]")
+        rf = {"kind": "insert", "repo": "/r/demo", "file": "conventions/rf.md", "session": "claude:sess-rf", "at": at(0)}
+        wrote = {**rf, "sha": "w", "text": "持ち主が差し戻しの後に書いた行の文"}
+        before = {**rf, "sha": "b", "text": "記録より前の返事にだけ書いた行の文", "at": at(1)}
+        never = {**rf, "sha": "n", "text": "持ち主が一度も書いていない行の文"}
+        nofile = {**rf, "sha": "x", "session": "claude:sess-none", "text": "transcript の無い持ち主の行の文"}
+        fresh([wrote, before, never, nofile])
+        tr_rf = one_msg("sess-rf", "直して", -2)
+        with open(tr_rf, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": at(0.5), "message": {"content": [
+                {"type": "text", "text": "直しました。\n" + additive_line(wrote) + "\n" + additive_line(before)}]}},
+                ensure_ascii=False) + "\n")
+        done = reconcile_written(load_handled())
+        check("持ち主が記録の後の返事に書いていた行は処理済みにする (記録より前の返事だけ・書いていない・transcript の無い持ち主は残す)",
+              [e["sha"] for e in done] == ["w"] and keys_left() == ["b", "n", "x"]
+              and load_handled()["handled"][additive_key(wrote)]["how"] == "reply-found")
+        wrote2 = {**rf, "sha": "w2", "text": "二つ目の、 持ち主が後で書いた行の文", "at": at(2)}
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(wrote2, ensure_ascii=False) + "\n")
+        with open(tr_rf, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "isMeta": True, "timestamp": at(2.5),
+                                 "message": {"content": "Stop hook feedback: manuscript-claim-guard"}}) + "\n")
+            fh.write(json.dumps({"type": "assistant", "timestamp": at(2.6), "message": {"content": [
+                {"type": "text", "text": additive_line(wrote2) + " (追記)"}]}}, ensure_ascii=False) + "\n")
+        out = surface("claude:sess-rs")
+        check("session の開始は、 割り当てる前に同じ照合を回す (書かれていた記録は出さない)",
+              "二つ目の" not in out and "w2" not in keys_left() and keys_left() == ["b", "n", "x"] and "rf.md" in out)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            additive_log_mode(argparse.Namespace(ack=False, surface=False, days=None, quote=None, session=None, reconcile=True))
+        check("--reconcile は処理済みにした件数を出す (書かれていなければ 0)", "0 件" in buf.getvalue())
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
         subprocess.run(["git", "reset", "-q"], cwd=rr, env=genv, capture_output=True, check=False)
         (rr / "conventions" / "mail.md").write_text(rules, encoding="utf-8")
         (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
@@ -4948,6 +5024,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--ack", action="store_true", help="廃止 (返事に書いた時点で処理済みになる)")
     g.add_argument("--quote", help="廃止")
     g.add_argument("--source", help="SessionStart の source (startup / resume / clear / compact)。 compact では割り当てない")
+    g.add_argument("--reconcile", action="store_true",
+                   help="持ち主の返事にもう書かれていた未処理の記録を処理済みにする (session の開始でも回る)")
     dn = sub.add_parser("denied-log", help="止めた変更の記録 (検出だけ) を出す")
     dn.add_argument("--days", type=float, default=None)
     args = ap.parse_args(argv)
