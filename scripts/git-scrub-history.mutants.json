@@ -1,0 +1,57 @@
+{
+  "_comment": "git-scrub-history.py の selftest の foil に歯があることを、 検証の独立性と教訓の部品を 1 つずつ外した mutant で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が回す)。",
+  "target": "git-scrub-history.py",
+  "run": "python3 {} --selftest",
+  "fail_marker": "  NG: ",
+  "pass_marker": "  ok: ",
+  "mutants": [
+    {
+      "name": "16 進だけの token を形から外さない (git の短い hash を識別子と見なす)",
+      "pairs": [
+        ["        return bool(self.hex_rx and self.hex_rx.fullmatch(tok))\n", "        return False\n"]
+      ],
+      "expect_fail": ["git の短い hash の形"],
+      "expect_pass": ["既知の一覧に在るものは 16 進に見えても置き換える"]
+    },
+    {
+      "name": "既知の一覧を先に当てない (16 進に見える既知の識別子が残る)",
+      "pairs": [
+        ["            text = self.known_rx.sub(repl if callable(repl) else (lambda m: repl), text)\n", "            text = text\n"]
+      ],
+      "expect_fail": ["既知の一覧に在るものは 16 進に見えても置き換える"],
+      "expect_pass": ["git の短い hash の形"]
+    },
+    {
+      "name": "commit ごとの tree の照合を外す (改名した file の復活を見逃す)",
+      "pairs": [
+        ["        if sorted(t_old) != sorted(t_new):\n", "        if False:\n"]
+      ],
+      "expect_fail": ["改名した file の削除が旧名のまま"],
+      "expect_pass": ["規則どおりの書き換えは PASS"]
+    },
+    {
+      "name": "姓の path の関門を外す (置き換えの一覧と独立した検出が無くなる)",
+      "pairs": [
+        ["    if (unrev and \"paths\" in gate)", "    if (False and \"paths\" in gate)"]
+      ],
+      "expect_fail": ["判定していない姓の path"],
+      "expect_pass": ["message に残った識別子"]
+    },
+    {
+      "name": "構文の検査を FAIL にしない (code が読む file を壊しても通る)",
+      "pairs": [
+        ["    if syn.get(\"broken\"):\n        fail.append(\"syntax\")\n", "    if False:\n        fail.append(\"syntax\")\n"]
+      ],
+      "expect_fail": ["置き換えで壊れた JSON"],
+      "expect_pass": ["判定していない姓の path"]
+    },
+    {
+      "name": "今の tree の path が番号に落ちても止めない (履歴と今の tree で番号がずれうる)",
+      "pairs": [
+        ["            if p in numbered:\n", "            if False:\n"]
+      ],
+      "expect_fail": ["今の path が番号に落ちるなら止まる"],
+      "expect_pass": ["plan-current: dry-run は書かない"]
+    }
+  ]
+}

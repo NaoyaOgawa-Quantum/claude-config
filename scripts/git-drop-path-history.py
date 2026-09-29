@@ -8,6 +8,8 @@ repo は縮まない。 落とすには履歴を書き換えて force-push す�
 他の machine の clone は古い履歴のまま分岐し、 他の session の push を消し、 commit の message に残した
 判断の記録が消え、 書類に書いた commit 番号が引けなくなる。 本 script はその穴を 1 段ずつ塞ぐ。
 手順と理由の正本 = [`docs/sensitive-repo-patterns.ja.md#pattern-2-4`](../docs/sensitive-repo-patterns.ja.md#pattern-2-4)。
+file を落とさずに path 名・平文の中身・commit message の中の識別子だけを置き換える書き換え = [`git-scrub-history.py`](git-scrub-history.py)
+(手順の正本 = [`docs/sensitive-repo-patterns.ja.md#pattern-2-5`](../docs/sensitive-repo-patterns.ja.md#pattern-2-5))。
 
 ## 3 段
 

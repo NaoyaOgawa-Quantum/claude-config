@@ -132,7 +132,30 @@ git-crypt は file を丸ごと暗号化するので、 **版ごとに全文の�
 - **agent には走らせられないことがある**: Claude Code の auto mode は `git filter-repo` を、 scratch の複製に対してでも破壊的な git 操作として止める (実測)。 予行演習と本番を別々の手順にし、 本人が terminal で走らせる。 3 段 (予行演習・本番・他 machine の追従) の道具 = [`scripts/git-drop-path-history.py`](../scripts/git-drop-path-history.py) (`rehearse` / `apply` / `follow`。 追従と本番の止まる条件は `--selftest` が合成 repo で確かめ、 書き換えそのものの確認 `--selftest-rewrite` は本人が走らせる)。
 - **remote がすぐ縮むとは限らない**: force-push の後も旧 object は host 側の gc まで残る (GitHub は数日〜数か月 = [`identity-in-config.md`](../conventions/identity-in-config.md)、 急ぐなら support に依頼)。 手元の clone も、 本番・追従の直後は旧 object を reflog が掴んだまま新しい object が増えるので書き換え前より**大きい** (実測)。 放っておけば 30 日後の自動 gc で縮み、 今すぐなら stash が無いことを確かめて届かない reflog を切って gc する (道具の `shrink`)。 書き換えの前に `git bundle create <file> --all` で全体の控えを取っておく。
 
-道具: [`scripts/lib/todo_ledger.py`](../scripts/lib/todo_ledger.py) (loader と分割の部品、 `python3` で selftest) / [`scripts/todo-ledger-split.py`](../scripts/todo-ledger-split.py) (分割、 既定 dry-run) / [`scripts/check-ledger-merge-loss.py`](../scripts/check-ledger-merge-loss.py) (merge・rebase の後に消えた entry を id で照合。 dir を渡すと file 名で照合)。 履歴に残った旧 file の全版は、 移行が landed した後に別途 (履歴の書き換えは不可逆、 全 clone の再取得が要る)。
+道具: [`scripts/lib/todo_ledger.py`](../scripts/lib/todo_ledger.py) (loader と分割の部品、 `python3` で selftest) / [`scripts/todo-ledger-split.py`](../scripts/todo-ledger-split.py) (分割、 既定 dry-run) / [`scripts/check-ledger-merge-loss.py`](../scripts/check-ledger-merge-loss.py) (merge・rebase の後に消えた entry を id で照合。 dir を渡すと file 名で照合)。 履歴に残った旧 file の全版は、 移行が landed した後に別途 (履歴の書き換えは不可逆、 全 clone の再取得が要る)。 file を残したまま path 名・中身・message の識別子だけを消すなら [パターン 2-5](#pattern-2-5)。
+
+### <a id="pattern-2-5"></a>パターン 2-5: 履歴の中の識別子を、 改名と置換で消す (path 名・平文の版・commit message)
+
+> 消す一覧の作り方と、 検証を一覧から独立させる理由 = [`conventions/confidential-repo-boundary.md#history-scrub-identity-from-all-versions`](../conventions/confidential-repo-boundary.md#history-scrub-identity-from-all-versions)。 file の全版を丸ごと落とすなら [パターン 2-4](#pattern-2-4) の後半 ([`scripts/git-drop-path-history.py`](../scripts/git-drop-path-history.py))。 本節の道具 = [`scripts/git-scrub-history.py`](../scripts/git-scrub-history.py) (設定 1 つ、 `--selftest` = filter-repo を使わない部分、 `--selftest-rewrite` = filter-repo を通す経路)。
+
+暗号化した repo でも、 file 名と commit message は平文で、 暗号化を入れる前に平文で積んだ版も履歴に残る ([パターン 1-1](#pattern-1-1))。 人を指す識別子 (学籍番号のような ID・氏名) が path・平文の版・message に入っていたら、 file は残して識別子だけを置き換える書き換えになる。 不可逆なので人間の判断で、 次の順に (実測):
+
+1. **今の tree を先に、 通常の commit で直す** (`plan-current` → `refs`): 書き換えと同じ規則の改名と平文の中身の置き換えを、 path を明示した commit にする (道具は 1 本 2400 byte 以下の commit の command を印字し、 改名の旧と新を同じ command に入れる)。 他の repo と同じ repo の暗号化 file の中の参照 (旧 path・改名した file の名前 = id) も置き換えて commit する。 こうしておくと書き換えは最新の tree を 1 byte も変えない = 他の clone は追従で差分が出ず、 追従は tree の一致だけで揃えられる。 履歴の識別子の順位で番号を振る規則は、 今の tree には使わない (履歴が伸びると番号がずれる) = 今の path には明示の規則を書く (道具は番号に落ちる今の path で止まる)
+2. **予行演習** (`rehearse`): remote から mirror clone し、 origin を外す (素の `git push` で mirror の全 ref を押さないため)。 1 段目 = `--filename-callback` で改名だけ。 2 段目 = `--file-info-callback` で平文の版の中身 (暗号化 blob と binary は触らない) と、 今は暗号化と宣言した path の平文だった版の暗号化し直し (unlock 済みの clone の `git-crypt clean` を、 鍵を読むだけで使う) + `--message-callback`。 旧先頭と 2 段の `commit-map` を残す。 やり直しは同じ 1 行
+3. **検証** (`verify`、 予行演習が呼ぶ): commit 数が同じ / 全 commit の tree = 旧 tree を規則で写したもの / 旧先頭と新先頭の差が規則どおり / blob の集合 (暗号化 blob は減らない) / 識別子・氏名・旧 path が全 path・全 message・全平文 blob に残らない / fsck / 暗号化し直した版が元の平文に戻る / 姓を含む path が改名済みか判定済み / 規則が変えた code の file の構文
+4. **push は本人が terminal で** (`push-command` が印字): remote が予行演習のときのままか・検証が PASS か・設定と識別子の一覧が検証の後に変わっていないかを確かめてから、 控えの bundle と、 URL と `refs/heads/<branch>:refs/heads/<branch>` を明示した `--force-with-lease=refs/heads/<branch>:<旧先頭>` を出す。 lease が拒んだら (予行演習の後に誰かが push した) 予行演習からやり直す
+5. **push の後** (`after-push`): remote の branch が新しい先頭かを確かめ、 旧履歴を抱えたままの ref を `git ls-remote` で列挙する。 main 以外の branch (dependabot など) は消すか、 新しい main の上に作り直す (merge すると旧履歴が戻る)。 pull request の ref (`refs/pull/*/head`) は利用者から消せない = host の support に削除と gc を頼む。 旧 object は host の gc まで sha で取れる
+6. **追従**: 他の machine は [`scripts/git-rewrite-follow.py`](../scripts/git-rewrite-follow.py) が揃える (道具が書く対応表 = `<name>.commit-map`。 filter-repo は同じ repo の 2 回目の実行で前回の表と合成する = 2 段目の表は元 → 最終。 旧世代にしか無い blob = `<name>.commit-map.forbidden-blobs`、 追従の pre-push が読む)。 共同作業者の clone も旧履歴を持つ = pull せず取り直してもらう (pull や merge で旧 commit が remote に戻る)
+
+教訓 (実測。 道具の selftest と検証が機械で見る):
+
+- **改名は `--filename-callback` で**: `--file-info-callback` で改名すると、 後の commit の削除は旧名のまま流れ、 消えたはずの file が最新の版に復活する。 filter-repo は 2 つの callback を同じ実行で受け付けないので、 改名と中身を 2 段に分ける
+- **検証は置き換えの一覧から独立させる**: 識別子は**形** (正規表現) で、 姓は台帳の全ての版の**全部の姓**で、 全 file・全 message・全 path に当てる。 置き換えと同じ一覧で検証すると、 一覧が見落としたものは検証も見落とす (0 件は当然になる)。 姓だけは置き換えない (同じ姓の別人を巻き込む) = 数えて人が見て、 識別子でない path は判定済みの一覧に理由つきで足す
+- **git の短い hash は識別子の形に当たる**: 16 進だけの token は形から外す。 ただし一覧に在る識別子は外さない (16 進に見える識別子もある)
+- **code が読む file の中身を置き換えると code が壊れる** (label・key): 規則が変えた `.py` / `.sh` / `.json` / `.yaml` を構文検査し、 JSON / YAML の key の集合が変わったら、 その file を読む code を確かめる
+- **文字だけの 1 語の旧 token (姓と同じ dir 名など) は、 中身と message では自動で置き換えない**: 同じ語の別人を巻き込む。 要るものだけ対を明示する
+- **識別子と氏名の一覧は repo に入れない**: machine-local に置く (道具は git の work tree の中に在る一覧を拒む)。 規則の設定も旧 path の literal を含みうるので repo の外に置く
+- **lease は予行演習の後の push を拒む**: 並列の session が書く repo なら、 予行演習の前に一声かけて止めてもらう。 拒まれても安全 (何も書き換わらない) で、 やり直しは 1 行
 
 ---
 
