@@ -885,6 +885,10 @@ sections:
     legacy: "8.77"
     level: 3
     title: "8.77 別の process が書く cache に台帳の抑制を効かせるなら、 読む側の全部に当てる — fail-open な検出器は失敗の件数だけでなく種類を残す"
+  - id: reconcile-from-evidence
+    legacy: "8.78"
+    level: 3
+    title: "8.78 照合の不具合を直したら、 溜まった誤った状態は一次の証拠から照合し直す — state を手で書き換えない"
   - id: environment-literal-placement
     legacy: "24"
     level: 2

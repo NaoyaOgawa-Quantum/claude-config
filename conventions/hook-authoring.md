@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: Claude Code hook を作成・配信・debug するとき + bash script / `.test.sh` を書くとき + app や tool の挙動を当てる hook を書くとき (#imitate-target-predicate) + 事後の block の手前に事前の知らせを置くとき (#counter-notice-at-injection) + hook を消す・event から外すとき (#additive-wiring-needs-retirement) + git commit が「hook ... died of signal 9」 で止まったとき (#killed-hook-stub)
+when: Claude Code hook を作成・配信・debug するとき + bash script / `.test.sh` を書くとき + app や tool の挙動を当てる hook を書くとき (#imitate-target-predicate) + 事後の block の手前に事前の知らせを置くとき (#counter-notice-at-injection) + hook を消す・event から外すとき (#additive-wiring-needs-retirement) + git commit が「hook ... died of signal 9」 で止まったとき (#killed-hook-stub) + 返事に書くべき行を Stop で確かめる hook を書くとき (#stop-hook-addendum-not-reemission) + 並列の session の hook が同じ state file を読み書きするとき (#shared-state-file-merge)
 category: harness-core
 summary: Claude Code hooks 作成 + 配信規律 (= bash 3.2 の $(...) + heredoc body quote escape parser bug と runtime backtick 展開を区別 + hook 配信正常性 3 軸 audit 〔symlink + settings.json + try-fire〕 + PreToolUse warn mode 出力 spec uncertainty + partial install state + §9 hook 挙動の build 依存 〔新規 hook の同 session 発火も build 依存 = 2026-06 は session / app 起動時 snapshot、 desktop 2.1.266 は Stop hook を hot-reload → 足した直後に discriminator で測る / permissionDecisionReason silent-skip / updatedInput〕 + **§0 補足 4 gate hook は読めない入力で死んではいけない (#gate-hook-unreadable-input = 1 file の異常が repo 全体の commit を止める、 encoding 明示 + READ_SKIP で 1 行報告して続行)** + **§0 補足 5 set -e の test は落ちた行を自己申告 (#set-e-test-failure-report = scripts/lib/test-err-trap.sh、 ERR trap の bash 3.2 / 5 実測表、 BSD/GNU の手元再現 = scripts/with-gnu-userland.sh)** + **§2 補足 2 #disableallhooks-kill-switch = root 限定の disableAllHooks が「frontend 差」 に化ける 〔自 session では検出不能 = 外側から scripts/hook-liveness-audit.py、 audit-hooks.sh の (d) 自動部分〕** + **test-root-not-parent-dir = test は自分の repo を checkout の親 dir 経由で指さない 〔worktree で落ち・live を検査・python shim は CI でも空振り = 一時 root に symlink 1 本 + 兄弟 repo は正規 layout + 不在は SKIP + mutation で確かめる〕** + **§12 #text-pattern-stop-hook = 最終発話の句で当てる Stop hook は過去の最終発話で校正してから入れる 〔scripts/calibrate-final-message-pattern.py + 共通部品 scripts/lib/transcript_turns.py〕・引用の例示を除く・block は 1 回・fail-open** + **§14 #opt-in-side-effect-hook = 人に向けた副作用だけの hook (音・通知) は層1 に既定 off で置き marker で opt-in、 surface の許可 list は実測値だけ、 実行の証拠を state file に残す** + **#command-guard-calibration = command を見る PreToolUse guard も過去の Bash command で校正 (scripts/calibrate-bash-command-pattern.py) し、 わざと該当する無害な command で live 確認** + **§15 #injection-digest-and-relay = SessionStart の注入は期限の近い item の 1 ブロックに畳み (副作用は止めない・行数で切らない・自分で決めた期日と条件発火は畳まない)、 短い窓の item は伝えたかを Stop で問う 〔scripts/lib/relay_check.py〕**)
 -->
@@ -1033,6 +1033,28 @@ Stop hook が「この行が無い → 返事の全文を出し直す」 と止�
 - §12 (発話を見る Stop hook) と同じ校正を要る = 過去の返事で「同じ行を書いたのに再要求された」 turn を数えてから配線する。
 - **差し戻しの直後の Stop (`stop_hook_active=true`) でも照合は回す** (差し戻さないだけ)。 そこで即 exit すると、 追記に書いた行が
   処理済みにならない (実測: 追記でだけ書かれた行が、 別の session の開始で再要求された)。
+- **照合の順序**: 印字した行そのものを持つ返事の行を、 先にその記録へ当てる。 残りを緩い条件 (引用の冒頭の一致など) で当てる
+  (冒頭が同じ別の記録に行を取られない)。 前の返事を出し直した再送の中の同じ行は 1 本に数える (再送で別の記録を処理済みに
+  しない)。 表示がまったく同じになる記録は 1 行 (×N) で全部 (本人にとって同じ情報を何度も読ませない)。
+- **挙動は transcript で実測する**: `hook_blocking_error` と meta の `Stop hook feedback` 行 → 書き直した返事 → `stop_hook_summary`
+  の並びを、 hook が書く state の時刻と突き合わせる (実測: 処理済みの記録時刻が「差し戻しの後の Stop」 でなく、 その後に別の通知で
+  走った Stop に揃っていたことで、 差し戻しの後の照合の抜けが分かった)。
+- **照合の不具合を直したら、 溜まった誤った状態は証拠から照合し直す** (state を手で書き換えない) = [`convention-design-principles.md#reconcile-from-evidence`](../docs/convention-design-principles.md#reconcile-from-evidence)。
+
+## <a id="shared-state-file-merge"></a>§18. 並列の session の hook が同じ state file を読んで書くなら、 lock の中で読み直して合わせる (2026-09)
+
+hook の state (処理済みの記録・割り当て・既読) を「読む → 判定する (transcript を読むので秒かかる) → 全体を書き戻す」 と、
+その間に別の session の hook が書いた分を古い読みで上書きして消す (lost update)。 並列の session は普通にあるので、 窓は小さく
+ても起きる (実測: 古い読みで書く 24 並列の試験で、 lock なしの版は 24 件中 2 件しか残らなかった)。
+
+形の規則:
+- 書く直前に lock (`fcntl.flock` を state の隣の `.lock` file に) を取り、 **lock の中で file を読み直して合わせてから**書く。
+  判定に使う他の file (記録の log など) も lock の中で読む。
+- 足すだけの欄 (処理済み) は和。 付け替える欄 (割り当て) は **3 方向**で合わせる = 読んだ時点の写しを持ち、 読んだ後に**自分が
+  変えた key だけ**を上に重ね、 自分が外した key だけを外す (全体を重ねると、 別の session の新しい付け替えを古い値に戻す)。
+- 型の壊れた欄は読まずに上書きして直す (読むところで落ちると、 その hook は以後ずっと書けない)。
+- tmp の file 名は process ごとに分け (`<name>.<pid>.tmp`)、 書きかけは `finally` で消す。
+- selftest に「古い読みで書いても、 間に別の session が書いた分が残る」 と「付け替えを戻さない」 を入れる (並列の fork で数える)。
 
 ## <a id="related-docs"></a>関連
 

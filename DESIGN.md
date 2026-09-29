@@ -4,6 +4,9 @@
 
 ## <a id="toc"></a>目次
 
+- [2026-09-29: 規則の文書の変更の報告 — 差し戻しの後も照合し、 他の session の分は file ごとに畳み、 書かれていた記録は証拠から照合し直す](#additive-echo-bookkeeping)
+- [2026-09-29: auto mode で承認 CLI が classifier に止まる経路は、 本人の狭い allow の宣言で開ける](#approval-cli-allow-in-auto-mode)
+- [2026-09-29: data 形式の file の配線 lock は場所で決める (名前の言及では lock しない)](#wiring-lock-data-files-by-location)
 - [2026-09-28: SESSION.md の形を gate にする — 案件ごとの現在地を置き換える file にし、 日付の節・hash・messageId・育つ commit を止める](#session-shape-gate)
 - [2026-09-25: 規則の文書への変更は形 (追記か書き換えか) でなく語で見る — 追記の特権を外し、 書き換えだけを止める門も外す](#rule-doc-change-by-vocabulary-not-form)
 - [2026-09-25: SSO の入り直しは server の受け入れで決め、 入り直しの処理を部品 1 つに置く](#sso-recovery-server-acceptance)
@@ -1568,3 +1571,15 @@ jq '.hooks.PostToolUse[] | select(.hooks[]?.command | contains("pdf-read-fallbac
 **採らなかった案**: guard が transcript を直読して「名指し」 を判定する (意味判断を機械に置く = 既存の設計と矛盾) / 本人が打つ書式を hook が承認として記録する (裁定を自由文でなくする) / `autoMode.allow` の prose rule (classifier の中の例外で soft_deny にしか効かない) / ask rule (dialog 1 回ずつ = 本人不在の worker が止まる。 代案として残す)。
 
 **線**: allow は classifier の二重判定を外すだけ。 CLI 自身の照合 (本人の最新の発言だけを引く・候補の hash に束縛・Stop で返事に書かせる) は不変。 agent が宣言 file を commit する操作は classifier が止める (実測) = 宣言の commit と auto-apply の 1 command は本人の terminal。 直接の証拠: 止められていた session で、 宣言の後に同じ command (絶対 path) がそのまま通った (実測)。 相対 path や複合 command は rule に当たらず classifier に回る = deny 文は絶対 path の command を出す。
+
+## <a id="additive-echo-bookkeeping"></a>2026-09-29: 規則の文書の変更の報告 — 差し戻しの後も照合し、 他の session の分は file ごとに畳み、 書かれていた記録は証拠から照合し直す
+
+**判断**: 承認なしで入った規則の文書への変更を返事に書かせる仕組み (manuscript-claim-guard) を直した ([`agent-rule-ownership.md#additive-and-free-zones`](conventions/agent-rule-ownership.md#additive-and-free-zones))。 (1) 差し戻しの直後の Stop でも照合して処理済みに書く (差し戻しはしない) (2) 差し戻しは足りない行の追記だけを求める ([`hook-authoring.md#stop-hook-addendum-not-reemission`](conventions/hook-authoring.md#stop-hook-addendum-not-reemission)) (3) 他の session から回ってきた分は file ごとに 1 行、 表示がまったく同じ記録は 1 行 (×N) (4) 通った変更ごとに、 返事に書く行そのものを tool の結果と一緒に渡す (5) 持ち主の session がもう返事に書いていた記録は、 session の開始と `additive-log --reconcile` で処理済みにする。 処理状態の書き込みは lock の中で読み直して合わせる ([`hook-authoring.md#shared-state-file-merge`](conventions/hook-authoring.md#shared-state-file-merge))。
+
+**根拠** (実測): 差し戻しの直後の Stop が照合せずに通していたので、 書き直した返事の行が処理済みにならず、 次の turn で要求の窓から外れ、 その session の終わりに別の session の開始へ回っていた。 処理済みが記録されるのは、 たまたま別の通知で Stop がもう一度走った時だけだった (transcript の「差し戻し → 書き直し → 素通りの Stop → 通知の Stop」 の並びと、 処理状態の記録時刻の一致で特定)。 回ってきた分は、 無関係な session の最初の返事に数十行を求め、 本人が読める量を超えていた。 同じ返事が 2 通並ぶのは、 差し戻しの文面が全文の出し直しを求めていたため。
+
+**採らなかった案**: 他の session の分に件数の上限を付け、 残りを file 名だけにする (上限の外が処理済みにならない) / 他の session の分を dashboard に回す (本人の既読の操作が戻る = 廃止した形) / 残った記録を state の手書きで処理済みにする (照合の証拠が残らない = [`convention-design-principles.md#reconcile-from-evidence`](docs/convention-design-principles.md#reconcile-from-evidence))。
+
+**線**: file ごとの 1 行は個々の before → after を返事に出さない (additive-log で読む)。 規則でない区画に緩和の語を書いた記録は畳まない。 照合は repo の名前 (最後の dir 名) と file で見る = 同じ名前の別の repo は区別しない。 照合の順序 = 印字そのものを持つ行を先にその記録へ、 残りを引用の冒頭で (冒頭が同じ別の記録に行を取られない)、 前の返事を出し直した再送の行は 1 本に数える。
+
+**test**: engine の selftest に差し戻し後の照合・文面・並行の書き込み・畳み・file ごとの行・返事の前の通知・照合の境目・書かれていた記録の照合を足し、 hook の試験の期待 2 件を新しい挙動に変えた。 新しい試験は直す前の実装 (と検品に出した途中の版) で失敗する。 別の context の検品 2 回。
