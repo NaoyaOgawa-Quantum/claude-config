@@ -248,6 +248,46 @@ class Generation:
         return Generation(maps, forb, ignore)
 
 
+def lookup(repo, shas, upstream=None, cli_globs=()):
+    """旧 sha → 今の sha を、 upstream の manifest (と外から渡す表) で引く。 記録 (掲示板・受信の記録・TODO) に残る
+    書き換え前の sha を後から読むための道具 (CLI = git-rewrite-follow.py map)。 7 文字以上の短縮を受ける。
+    返り値 = [(入力, 状態, 今の sha, 説明)]。 状態 = mapped (表で辿れた) / current (表に無く今の履歴に在る =
+    書き換えで変わっていない sha) / ambiguous (短縮が表の複数に当たる) / dropped (書き換えで消えた commit) /
+    unknown (表にも今の履歴にも無い = 別 repo の sha か、 表を置いていない書き換え)。"""
+    upstream = upstream or upstream_of(repo)
+    gen = Generation.load(repo, upstream, cli_globs)
+    keys = set()
+    for m in gen.maps:
+        keys.update(m)
+    rows = []
+    for raw in shas:
+        s = raw.strip().lower()
+        hits = sorted(k for k in keys if k.startswith(s)) if re.fullmatch(r"[0-9a-f]{7,40}", s) else []
+        if len(hits) > 1:
+            rows.append((raw, "ambiguous", "", f"表の {len(hits)} 件に当たる = もっと長く渡す"))
+            continue
+        if hits and gen.chase(hits[0]) != hits[0]:
+            new = gen.chase(hits[0])
+            if new == ZERO:
+                rows.append((raw, "dropped", "", "書き換えで消えた commit (中身が空になった等)"))
+                continue
+            subj = git(repo, "log", "-1", "--format=%s", new, check=False) if git_ok(repo, "cat-file", "-e", new + "^{commit}") else ""
+            where = ("今の " + upstream + " に在る") if upstream and is_ancestor(repo, new, upstream) else \
+                ("手元に在るが " + (upstream or "upstream") + " の外 (PR の ref・別 branch の commit など)" if subj else
+                 "手元に無い (main 以外の ref の commit = fetch していない)")
+            rows.append((raw, "mapped", new, f"{where}" + (f" / {subj[:80]}" if subj else "")))
+            continue
+        full = rev(repo, s) if re.fullmatch(r"[0-9a-f]{4,40}", s) else ""
+        if full and upstream and is_ancestor(repo, full, upstream):
+            rows.append((raw, "current", full, "書き換えで変わっていない (今の履歴の sha) / "
+                         + git(repo, "log", "-1", "--format=%s", full, check=False)[:80]))
+        elif hits:
+            rows.append((raw, "current", hits[0], "表では自分 → 自分 (書き換えで変わっていない)"))
+        else:
+            rows.append((raw, "unknown", "", "表にも今の履歴にも無い (別 repo の sha / 表を置いていない書き換え / 短縮が短すぎる)"))
+    return rows
+
+
 # ---------------------------------------------------------------- tree signatures
 
 def _under_ignore(path, ignore):
@@ -672,6 +712,12 @@ def _selftest():
     r = follow_repo(a_cont)
     check("content rewrite, HEAD tree equal: followed via map", r.state == "followed" and r.how == "map", f"{r.state} {r.how} {r.line}")
     check("content rewrite: HEAD = new tip (map commit included)", rev(a_cont, "HEAD") == mf)
+    # lookup (CLI の map): 旧 sha → 今の sha を upstream の表で引く
+    got = {r[0]: r for r in lookup(a_cont, [o2, o2[:8], m1, "0123456789abcdef"])}
+    check("lookup: an old sha maps to the new sha on upstream", got[o2][1] == "mapped" and got[o2][2] == m2 and "に在る" in got[o2][3], got[o2])
+    check("lookup: a 7+ char prefix of an old sha maps the same way", got[o2[:8]][1] == "mapped" and got[o2[:8]][2] == m2, got[o2[:8]])
+    check("lookup: a sha of the current history is reported as unchanged", got[m1][1] == "current" and got[m1][2] == m1, got[m1])
+    check("lookup: an unknown sha is reported as unknown", got["0123456789abcdef"][1] == "unknown", got["0123456789abcdef"])
     r = follow_repo(a_unp)
     check("unpushed local commit: stopped, ref untouched", r.state == "stopped" and r.exit_code == 1
           and git(a_unp, "log", "-1", "--format=%s") == "unpushed local", r.line)
