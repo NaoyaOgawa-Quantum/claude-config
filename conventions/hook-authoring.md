@@ -1015,6 +1015,23 @@ push 先が非公開か・送り先が正しいか のような事実を、 hook
 
 ---
 
+## <a id="stop-hook-addendum-not-reemission"></a>§17. Stop hook は返事の「全文の出し直し」 を要求しない — 不足の追記だけ、 または返事の前に要求を出す (2026-09)
+
+Stop hook が「この行が無い → 返事の全文を出し直す」 と止めると、 assistant は 1 行足した全文を再送し、 本人の画面には**同じ返事が
+2 通** (2 回止まれば 3 通) 並ぶ。 要求される行が返事を書く前に分からない種類 (他 session が残した記録、 処理済み判定が外れて再要求
+される行) だと、 1 回目で正しく書いて避けることができず、 **毎 turn 構造的に重複する** (実測: 1 turn に 2〜3 回)。
+
+形の規則:
+- **不足の行だけを短い追記として要求する** (本文の再送を求めない)。 受理の照合の条件は「repo/file と引用が同じ行にある」 に置き、
+  注釈が付いても・折り畳んだ区画の中でも当てる。
+- **返事の前に知らせられる要求は前に出す** (UserPromptSubmit / PreToolUse で「この turn の返事に入れる行」 を注入 = SessionStart の
+  一覧と同じ内容を毎 turn 先出し)。 Stop は最後の網であって、 最初の通知面ではない。
+- **Stop で受理した行は同じ turn で処理済みに書く**。 次の turn・次の session で同じ行を再要求したら、 それは処理済み判定の欠陥で、
+  本人に何度も同じ行を読ませる。 selftest に「1 度受理した行は再要求されない」 を入れる。
+- 本人に読ませる量に上限を置く (件数 or file 単位の集約)。 chat の返事は本人が読む面で、 台帳ではない = 一覧が長いなら file に
+  書いて pointer を出す。
+- §12 (発話を見る Stop hook) と同じ校正を要る = 過去の返事で「同じ行を書いたのに再要求された」 turn を数えてから配線する。
+
 ## <a id="related-docs"></a>関連
 
 - `claude-config/setup.sh §Step 2 install_hooks()` — 配信機構の正本 (= delivery 軸 (a) symlink + (b) settings.json を atomic 化する reference implementation。 (c) logic は hook script 側、 (d) invoke 経路は claude-code harness 側で別 layer)
