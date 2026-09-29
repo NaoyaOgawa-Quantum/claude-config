@@ -155,6 +155,7 @@ git-crypt は file を丸ごと暗号化するので、 **版ごとに全文の�
 - **code が読む file の中身を置き換えると code が壊れる** (label・key): 規則が変えた `.py` / `.sh` / `.json` / `.yaml` を構文検査し、 JSON / YAML の key の集合が変わったら、 その file を読む code を確かめる
 - **文字だけの 1 語の旧 token (姓と同じ dir 名など) は、 中身と message では自動で置き換えない**: 同じ語の別人を巻き込む。 要るものだけ対を明示する
 - **識別子と氏名の一覧は repo に入れない**: machine-local に置く (道具は git の work tree の中に在る一覧を拒む)。 規則の設定も旧 path の literal を含みうるので repo の外に置く
+- **他の repo に書いた旧 sha は黙って効かなくなる**: 検査の ack・台帳の commit 欄など、 機械が sha で引く設定は、 書き換えの後も旧 sha のまま残る (commit 付き ack が効かなくなることは [`scripts/check-doc-truncation.py`](../scripts/check-doc-truncation.py) が `ACK_COMMIT_NOT_IN_HISTORY` で知らせる)。 対応表で新 sha に引き直す。 対応表は手元の控えだけに置かず、 push の後に repo の `.rewrite-follow/commit-map*` に通常 commit で置く = 他の machine と後の読み手が引ける。 同じ repo を 2 回書き換えたら表を 2 つ置く (追従の道具は表を最後まで辿る)。 記録 (掲示板の投稿・受信の記録) の中の旧 sha は書き換えない
 - **lease は予行演習の後の push を拒む**: 並列の session が書く repo なら、 予行演習の前に一声かけて止めてもらう。 拒まれても安全 (何も書き換わらない) で、 やり直しは 1 行
 
 ---
