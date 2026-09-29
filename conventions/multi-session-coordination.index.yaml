@@ -109,3 +109,7 @@ sections:
   - id: chat-board-bridge
     level: 3
     title: "chat bridge — 人間の入口を chat に置く (2026-09-08)"
+  - id: parallel-full-text-candidates
+    legacy: "14"
+    level: 2
+    title: "14. 並行した worker が同じ file の全文の候補を作ったら、 共通の土台からの差分を合わせてから当てる"
