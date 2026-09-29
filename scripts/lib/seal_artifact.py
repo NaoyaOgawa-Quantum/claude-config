@@ -129,6 +129,38 @@ def ink_pixels(doc, dpi: int = 36) -> int:
     return best
 
 
+def colored_pixels(doc, dpi: int = 36, chroma: int = 24) -> int:
+    """頁ごとに色のある画素 (RGB の最大と最小の差が chroma を超える) を数え、最大の頁の値を返す。 白黒の写し = 0。"""
+    best = 0
+    for page in doc:
+        pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB, alpha=False)
+        s = pix.samples
+        n = 0
+        for i in range(0, len(s), 3):
+            r, g, b = s[i], s[i + 1], s[i + 2]
+            if max(r, g, b) - min(r, g, b) > chroma:
+                n += 1
+        best = max(best, n)
+    return best
+
+
+def is_monochrome_copy(path) -> bool:
+    """印影が白黒だけの PDF (= 紙のコピーに相当する写し) か。 PDF でない・読めない・色のある画素がある → False。
+
+    原本に押す印影は色で出る。 白黒に落とした写しは、紙の原本を複写機で写したものと同じ見え方になる
+    = 出口の例外 (check-seal-attachments.py の --allow-monochrome-copy) の判定に使う。"""
+    _need_fitz()
+    if not str(path).lower().endswith(".pdf"):
+        return False
+    try:
+        with fitz.open(path) as d:
+            if d.needs_pass or d.is_encrypted or len(d) == 0:
+                return False
+            return colored_pixels(d) == 0
+    except (RuntimeError, ValueError):
+        return False
+
+
 def _pdf_seal_image(doc, pool) -> str | None:
     for page in doc:
         for im in page.get_images(full=True):

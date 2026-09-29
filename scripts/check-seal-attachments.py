@@ -12,11 +12,14 @@
       2. 宛先が 1 件以上あり、どれも窓口 (--office-address / --office-address-file / --office-regex) ではない
       3. 本文が --proxy-pattern の正規表現を全部含む (= 「印刷して紙で出してほしい」 と頼んでいる)
     --no-proxy-reason を渡すと例外を使わない (例: 窓口の一覧を読めなかった)。
+  - もう 1 つの例外 = **白黒の写し** (--allow-monochrome-copy を渡した時だけ): 強い兆候のある file でも、
+    色のある画素が 1 つも無い PDF (= 紙の原本を複写機で写したものに相当する) なら宛先に依らず通す。
+    原本に押す色の印影は従来どおり止まる。 窓口が「コピーを出して」 と求める書類の写しを file で出すための口。
 
   check-seal-attachments.py FILE... --pool DIR_OR_PNG [--pool ...] [--name-token RE]
       [--to A,B] [--cc ...] [--bcc ...] [--body-file F | --body TEXT]
       [--office-address ADDR ...] [--office-address-file F] [--office-regex RE ...]
-      [--proxy-pattern RE ...] [--no-proxy-reason TEXT] [--json]
+      [--proxy-pattern RE ...] [--no-proxy-reason TEXT] [--allow-monochrome-copy] [--json]
   check-seal-attachments.py --selftest
 
 exit: 0 = 出してよい / 2 = 止める / 3 = 検査できない (依存なし・引数の誤り)
@@ -31,7 +34,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 try:
-    from seal_artifact import load_pool, scan, strength  # noqa: E402
+    from seal_artifact import is_monochrome_copy, load_pool, scan, strength  # noqa: E402
 except Exception as e:  # pragma: no cover
     print(f"check-seal-attachments: lib を読めない ({e})", file=sys.stderr)
     sys.exit(3)
@@ -50,8 +53,9 @@ def addresses(*fields) -> list:
 
 
 def decide(files, pool, name_token, recipients, body, office_addrs, office_res, proxy_patterns,
-           no_proxy_reason=None) -> dict:
-    """判定の本体 (I/O なし)。 戻り値 = {"decision": "ok"|"proxy"|"block", "files": [...], "reasons": [...]}。"""
+           no_proxy_reason=None, allow_monochrome_copy=False) -> dict:
+    """判定の本体 (I/O は file の読み出しだけ)。
+    戻り値 = {"decision": "ok"|"copy"|"proxy"|"block", "files": [...], "reasons": [...]}。"""
     results = []
     for f in files:
         if not os.path.exists(f):
@@ -62,6 +66,14 @@ def decide(files, pool, name_token, recipients, body, office_addrs, office_res, 
     strong = [r for r in results if r["strength"] == "strong"]
     out = {"decision": "ok", "files": results, "reasons": [],
            "proxy_available": bool(proxy_patterns) and not no_proxy_reason}
+    if allow_monochrome_copy:
+        for r in strong:
+            r["monochrome_copy"] = is_monochrome_copy(r["file"])
+        strong = [r for r in strong if not r["monochrome_copy"]]
+        if not strong and any(r.get("monochrome_copy") for r in results):
+            out["decision"] = "copy"
+            out["reasons"] = ["白黒の写しとして通す: 印影入りの file はどれも色のある画素が無い (= 紙のコピーに相当)"]
+            return out
     if not strong:
         return out
     offices = [a for a in recipients
@@ -89,8 +101,11 @@ def decide(files, pool, name_token, recipients, body, office_addrs, office_res, 
 
 def render(res) -> str:
     lines = []
-    strong = [r for r in res["files"] if r["strength"] == "strong"]
+    strong = [r for r in res["files"] if r["strength"] == "strong" and not r.get("monochrome_copy")]
+    copies = [r for r in res["files"] if r.get("monochrome_copy")]
     weak = [r for r in res["files"] if r["strength"] == "weak"]
+    if res["decision"] == "copy":
+        lines.append("[check-seal-attachments] 通した (白黒の写し): 印影が白黒だけの file = 紙のコピーに相当")
     if res["decision"] == "block":
         lines.append("[check-seal-attachments] 止めた: 印影画像の入った file を file のまま渡そうとしている")
         lines.append("  印影画像を埋めてよいのは紙で出すものだけ (file で渡すと画像を貼ったことが相手に分かる)。")
@@ -100,6 +115,8 @@ def render(res) -> str:
         lines.append(f"  🔴 {r['file']}")
         for s in r["signals"]:
             lines.append(f"       {s['signal']}: {s['detail']}")
+    for r in copies:
+        lines.append(f"  ⚪ {r['file']} (白黒の写し = 通す)")
     for r in weak:
         lines.append(f"  🟡 {r['file']} (弱い兆候、止めない)")
         for s in r["signals"]:
@@ -156,6 +173,23 @@ def _selftest() -> int:
     check("宛先なし (upload) → block", r["decision"] == "block")
     r = decide([sealed], set(), None, ["staff@example.org"], body_ok, office, office_re, [])
     check("代理印刷の条件なし → block", r["decision"] == "block")
+    gray = os.path.join(d, "copy_bw.pdf")
+    doc = fitz.open(); pg = doc.new_page()
+    pg.draw_circle((300, 300), 14, color=(0.3, 0.3, 0.3), fill=(0.5, 0.5, 0.5)); mark_doc(doc); doc.save(gray)
+    red = os.path.join(d, "form_red.pdf")
+    doc = fitz.open(); pg = doc.new_page()
+    pg.draw_circle((300, 300), 14, color=(0.8, 0.1, 0.1), fill=(0.85, 0.15, 0.1)); mark_doc(doc); doc.save(red)
+    r = decide([gray], set(), None, ["office@example.org"], body_ng, office, office_re, proxy)
+    check("白黒の写し + 例外なし → block", r["decision"] == "block")
+    r = decide([gray], set(), None, ["office@example.org"], body_ng, office, office_re, proxy,
+               allow_monochrome_copy=True)
+    check("白黒の写し + 例外あり + 窓口宛 → copy", r["decision"] == "copy")
+    r = decide([red], set(), None, ["office@example.org"], body_ng, office, office_re, proxy,
+               allow_monochrome_copy=True)
+    check("色の印影 + 例外あり → block", r["decision"] == "block")
+    r = decide([gray, red], set(), None, ["office@example.org"], body_ng, office, office_re, proxy,
+               allow_monochrome_copy=True)
+    check("白黒の写し + 色の印影 の混在 → block", r["decision"] == "block")
     r = decide([os.path.join(d, "none.pdf")], set(), None, ["a@example.com"], "", office, office_re, proxy)
     check("無い file は弱い兆候 (止めない)", r["decision"] == "ok" and r["files"][0]["strength"] == "weak")
     check("addresses: 表示名つき・重複を正規化",
@@ -179,6 +213,8 @@ def main(argv=None) -> int:
     ap.add_argument("--office-regex", action="append", default=[])
     ap.add_argument("--proxy-pattern", action="append", default=[])
     ap.add_argument("--no-proxy-reason", default="")
+    ap.add_argument("--allow-monochrome-copy", action="store_true",
+                    help="色のある画素が無い PDF (白黒の写し) は印影の兆候があっても通す")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
@@ -194,7 +230,8 @@ def main(argv=None) -> int:
                 office |= {ln.strip().lower() for ln in fh if ln.strip() and not ln.startswith("#")}
         pool = load_pool(a.pool)
         res = decide(a.files, pool, a.name_token, addresses(a.to, a.cc, a.bcc), body, office,
-                     a.office_regex, a.proxy_pattern, a.no_proxy_reason or None)
+                     a.office_regex, a.proxy_pattern, a.no_proxy_reason or None,
+                     allow_monochrome_copy=a.allow_monochrome_copy)
     except Exception as e:  # noqa: BLE001
         print(f"check-seal-attachments: 検査できない ({type(e).__name__}: {e})", file=sys.stderr)
         return 3
