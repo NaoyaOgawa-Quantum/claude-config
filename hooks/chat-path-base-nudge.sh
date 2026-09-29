@@ -4,7 +4,7 @@
 # 何を防ぐか (正本 = conventions/claude-code-permissions.md#chat-link-resolution-base):
 #   Bash で cd すると harness は「Primary working directory: <repo> (was <root>)」 と通知し、 system prompt も
 #   「href は working directory からの相対」 と言う。 desktop app の右パネルの基準は session を始めたフォルダのまま
-#   なので、 通知どおりに書いた path は開けない。 Stop hook chat-file-ref-enforce.sh は書いた後に全文を出し直させる
+#   なので、 通知どおりに書いた path は開けない。 Stop hook chat-file-ref-enforce.sh は書いた後に正しい参照の追記を書かせる (= 返事が 2 通になる)
 #   (事後・高い)。 本 hook は、 間違った前提が入った瞬間に反対の事実を 1 行入れる (事前・安い)。
 #
 # 述語:

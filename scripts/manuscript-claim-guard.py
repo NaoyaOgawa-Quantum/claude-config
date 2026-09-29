@@ -1040,6 +1040,8 @@ INSERTION_REGIONS = ("authority:file", "authority:rule-ref")
 PROSE_DETAIL = "承認なしで通らない理由: "
 # この呼び出しで見つけた「承認なしで通る追記」。 変更が実際に通る時だけ additive-log に書く (write_exemptions)
 PENDING_EXEMPTIONS: list[dict] = []
+# 直前の write_exemptions が新しく書いた記録 (その tool の結果と一緒に「返事に書く行」 を渡す = echo_notice)
+LAST_WRITTEN: list[dict] = []
 ADDITIVE_LOG = "additive-log.jsonl"
 ADDITIVE_ACK = "additive-ack.json"
 ADDITIVE_HANDLED = "additive-handled.json"  # 返事で本人に伝えた記録と、 session 開始で割り当てた先
@@ -1523,8 +1525,9 @@ def undisclosed_approvals(agent: str, sid: str, msgs: list[tuple[str, str]], rep
 
 def undisclosed_additive(me: str, since: str, replies: list[str], state: dict) -> list[dict]:
     """この session が著者の最新の発言の後に入れた変更と、 session 開始でこの session に割り当てた変更のうち、 返事に
-    書いていないもの。 古い記録から照合し、 返事の 1 行は最多 1 記録に使う。 同じ窓で既に報告済みの記録にも
-    行を割り当て直し、 次の Stop が過去の同じ行をもう一度使わない (本人の既読の操作は無い)。"""
+    書いていないもの。 古い記録から照合し、 返事の 1 行は最多 1 記録に使う (表示がまったく同じ行になる記録は、 その
+    1 行で全部に使う)。 他の session から割り当てた分は file ごとの 1 行で、 その file の分を全部処理済みにする。 同じ窓で
+    既に報告済みの記録にも行を割り当て直し、 次の Stop が過去の同じ行をもう一度使わない (本人の既読の操作は無い)。"""
     start = _utc(since)
     start = start.replace(microsecond=0) if start else None
     demand, reserve = [], []
@@ -1541,18 +1544,65 @@ def undisclosed_additive(me: str, since: str, replies: list[str], state: dict) -
         if state["assigned"].get(key) == me or (
                 e.get("session") == me and start is not None and at is not None and at >= start):
             demand.append(e)
-    lines = [line for reply in replies for line in reply.splitlines()]
+    # 前の返事と同じ行 (差し戻しの後に前の返事を出し直した再送) は 1 本に数える = 再送の行で別の記録を処理済みにしない。
+    # 同じ返事の中に同じ行を 2 本書くのは、 2 記録への報告として数える (1 行を最多 1 記録に使う)
+    lines: list[str] = []
+    seen_lines: set[str] = set()
+    for reply in replies:
+        own = reply.splitlines()
+        lines += [line for line in own if collapse_ws(line) not in seen_lines]
+        seen_lines.update(collapse_ws(line) for line in own)
+    norm = [collapse_ws(line) for line in lines]
     used: set[int] = set()
-    told = []
+    told: list[dict] = []
+    told_keys: set[str] = set()
+
+    def tell(e: dict) -> None:
+        k = additive_key(e)
+        if k not in told_keys and k not in state["handled"]:
+            told_keys.add(k)
+            told.append(e)
+
+    # 他の session の分は file ごとの 1 行で、 その file の分を全部処理済みにする (other_file_line)
+    for where, rows in group_other_sessions(demand, me).items():
+        if any(other_file_disclosed(where, line) for line in lines):
+            for e in rows:
+                tell(e)
+    printed = {additive_key(e): printed_body(e) for e in demand + reserve}
+    same_line: dict[str, list[dict]] = {}
+    for d in demand:
+        same_line.setdefault(printed[additive_key(d)], []).append(d)
     oldest = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
     # Equal timestamps are common (the log uses seconds); preserve previously consumed lines first on ties.
-    for e in sorted(demand + reserve, key=lambda row: (
-            _utc(str(row.get("at", ""))) or oldest, additive_key(row) not in state["handled"])):
-        for i, line in enumerate(lines):
-            if i not in used and additive_disclosed(e, line):
+    order = sorted(demand + reserve, key=lambda row: (
+        _utc(str(row.get("at", ""))) or oldest, additive_key(row) not in state["handled"]))
+    matched: set[str] = set()
+    # 1 回目 = 印字した行そのもの (注釈つきも) を持つ行をその記録に先に割り当てる (冒頭 20 字が同じ別の記録に取られない)。
+    # 2 回目 = 残りを引用の冒頭 (20 字) の一致で割り当てる
+    for exact in (True, False):
+        for e in order:
+            k = additive_key(e)
+            if k in told_keys or k in matched:
+                continue
+            for i, line in enumerate(lines):
+                if i in used or OTHER_MARK in norm[i]:
+                    continue
+                if not (printed[k] in norm[i] if exact else additive_disclosed(e, line)):
+                    continue
                 used.add(i)
-                if additive_key(e) not in state["handled"]:
-                    told.append(e)
+                matched.add(k)
+                if k not in state["handled"]:
+                    tell(e)
+                    # 表示がまったく同じ行になる記録 (commit 前に同じ file を何度も直した累積の差分など) は、 その 1 行で全部に
+                    # 使う。 同じ行の写しがあれば畳んだ記録に 1 本ずつ当て、 余った写しを別の記録に使わない
+                    for d in same_line.get(printed[k], []):
+                        if additive_key(d) in told_keys:
+                            continue
+                        tell(d)
+                        matched.add(additive_key(d))
+                        j = next((j for j in range(len(lines)) if j not in used and norm[j] == norm[i]), None)
+                        if j is not None:
+                            used.add(j)
                 break
     if told:
         now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
@@ -1560,26 +1610,29 @@ def undisclosed_additive(me: str, since: str, replies: list[str], state: dict) -
             state["handled"][additive_key(e)] = {"how": "reply", "session": me, "at": now}
             state["assigned"].pop(additive_key(e), None)
         save_handled(state)
-    return [e for e in demand if e not in told]
+    return [e for e in demand if additive_key(e) not in told_keys]
 
 
 def stop_check(agent: str, event: dict) -> str | None:
-    """Stop の判定。 差し戻すなら出力する JSON、 通すなら None。 読めない・壊れているときは通す (返事を終えられなくしない)。"""
+    """Stop の判定。 差し戻すなら出力する JSON、 通すなら None。 読めない・壊れているときは通す (返事を終えられなくしない)。
+    差し戻しの後の Stop (stop_hook_active) は差し戻さないが照合はする = 追記した行をその場で処理済みに書く (実測: ここで
+    照合せずに通していた間、 追記で書いた行が処理済みにならず、 次の turn や別の session の開始で同じ行が再要求された)。"""
     try:
-        if not isinstance(event, dict) or event.get("stop_hook_active") is True:
+        if not isinstance(event, dict):
             return None
+        rerun = event.get("stop_hook_active") is True
         sid = str(event.get("session_id") or "")
         if not SAFE_ID.match(sid):
             return None
         me = f"{agent}:{sid}"
         has_appr = approvals_path(agent, sid).exists()
         # 人のいない session (claude -p 等) の返事に書いても本人は読まない = 追記は求めず、 人のいる session の開始に回す
-        headless = agent == "claude" and os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk-")
+        headless_now = agent == "claude" and headless()
         state = load_handled()
-        mine_add = [] if headless else [e for e in pending_additive(state)
+        mine_add = [] if headless_now else [e for e in pending_additive(state)
                                         if e.get("session") == me or state["assigned"].get(additive_key(e)) == me]
-        if not has_appr and not mine_add:
-            return None
+        if not mine_add and (rerun or not has_appr):
+            return None  # 差し戻しの後は承認の照合に記録する状態が無い = 追記の記録が無ければ読まない
         tr = find_transcript(agent, sid, event.get("transcript_path"))
         if tr is None:
             return None
@@ -1595,7 +1648,7 @@ def stop_check(agent: str, event: dict) -> str | None:
         left_add = undisclosed_additive(me, msgs[-1][0], replies, state) if mine_add else []
     except Exception:
         return None
-    if not left and not left_add:
+    if rerun or (not left and not left_add):
         return None
 
     def short(q: str) -> str:
@@ -1612,14 +1665,15 @@ def stop_check(agent: str, event: dict) -> str | None:
             files = sorted({Path(str(a.get("file"))).name for a in items})
             lines.append(f"- 「{short(q)}」 を {', '.join(files)} の承認として記録した")
         parts.append("このターンで著者の発言を承認として記録したが、 最後の返事にそれを書いていない"
-                     " (著者が見ないまま記録だけが残る)。 次の行をそのまま返事に入れる (発言 1 つにつき 1 行。 file 名だけで足り、"
+                     " (著者が見ないまま記録だけが残る)。 次の行をそのまま書き足す (発言 1 つにつき 1 行。 file 名だけで足り、"
                      " 変更の説明は要らない):\n" + "\n".join(lines) +
                      "\n引いた発言の先頭と file 名が同じ行にあれば足りる。 違う意味で引いていたら、 そう書いて著者の判断を仰ぐ。")
     if left_add:
         parts.append("承認なしで規則の文書を変えたが、 最後の返事にそれを書いていない (本人の目に入らないまま入る)。"
-                     " 次の行を返事に入れる:\n" + "\n".join(additive_line(e) for e in left_add) +
-                     "\n上の行をそのまま入れる (repo/file と「」の引用が同じ行にあれば足りる)。")
-    reason = ("manuscript-claim-guard: " + "\n\n".join(parts) + "\n返事の全文を出し直す。"
+                     " 次の行を書き足す:\n" + "\n".join(pending_lines(left_add, me)) +
+                     "\n上の行をそのまま書く (repo/file と「」の引用が同じ行にあれば足りる)。")
+    reason = ("manuscript-claim-guard: " + "\n\n".join(parts) +
+              "\n足りない行だけを短い追記として書く (返事の本文は出し直さない = 前の返事と合わせて照合する)。"
               " 正本 = conventions/agent-rule-ownership.md#approval と #additive-and-free-zones")
     # Presence only, never message or transcript contents: distinguish runtime delivery from fixture behavior.
     present = {key: key in event for key in ("hook_event_name", "session_id", "cwd", "transcript_path",
@@ -1762,6 +1816,17 @@ def insertion_notice(rows: list[dict]) -> str:
             f" {engine_cmd()} apply --file <path> --candidate <全文 file> --change '<1 行>' --latest)。"
             " この turn の最後の返事に「規則の文書に承認なしで追記した / 変えた: <file> — …」 の行を書く (Stop が確かめる)。"
             " 正本 = conventions/agent-rule-ownership.md#additive-and-free-zones")
+
+
+def echo_notice(rows: list[dict]) -> str:
+    """通った変更ごとに、 この turn の最後の返事に書く行そのもの (Stop が照合する行) を、 その tool の結果と一緒に渡す。
+    Stop で初めて知らせると、 足りない行を差し戻して書かせることになり、 本人の画面に返事が 2 回出る
+    (実測: 記録の 37% が差し戻しを経ていた。 hook-authoring.md#stop-hook-addendum-not-reemission)。 無ければ ""。"""
+    lines = list(dict.fromkeys(additive_line(e) for e in rows))
+    if not lines:
+        return ""
+    return ("🧾 manuscript-claim-guard: この turn の最後の返事に次の行をそのまま書く (Stop が照合する。 書けば処理済み):\n"
+            + "\n".join(lines))
 
 
 def context_json(text: str) -> str:
@@ -1917,8 +1982,8 @@ def claude_edits(event: dict) -> list[tuple[Path, str, str]]:
         if a == "":
             new = b + new if not new else new
             continue
-        if a not in new:
-            return []  # tool 自身が失敗する
+        if a not in new or (not e.get("replace_all") and new.count(a) > 1):
+            return []  # tool 自身が失敗する (見つからない / 一意でない)
         if b == "" and not a.endswith("\n") and (a + "\n") in new:
             a += "\n"  # Claude Code の Edit は削除 (new_string が空) のとき直後の改行も消す (実測) = 実物と同じ結果で判定する
         new = new.replace(a, b) if e.get("replace_all") else new.replace(a, b, 1)
@@ -2461,6 +2526,8 @@ def _hook(agent: str, event: dict) -> int:
             print(deny_json(deny_reason(left_all, session)))
         elif not write_exemptions(session):
             print(deny_json(LOG_UNWRITABLE))
+        elif agent == "claude" and LAST_WRITTEN and not headless():
+            print(context_json(echo_notice(LAST_WRITTEN)))
         return 0
     else:
         return 0
@@ -2511,7 +2578,7 @@ def _hook(agent: str, event: dict) -> int:
     elif agent == "claude":
         # 既存の節に入った追記は、 その tool の結果と一緒に隣の文を見せて「既存の文はそのまま正しく残るか」 を問う (Codex の
         # hook が allow の stdout をどう読むかは未測定 = Claude だけ)
-        note = insertion_notice(rows)
+        note = "\n\n".join(x for x in (insertion_notice(rows), "" if headless() else echo_notice(LAST_WRITTEN)) if x)
         if note:
             print(context_json(note))
     return 0
@@ -2760,6 +2827,7 @@ def guard_state_path(p: Path) -> bool:
 
 def write_exemptions(session: tuple[str, str] | None) -> bool:
     """通った追記を additive-log に足す (同じ file × 内容 × 種類は 1 行)。 書けなければ False = 呼び元が止める。"""
+    LAST_WRITTEN.clear()
     if not PENDING_EXEMPTIONS:
         return True
     path = state_dir() / ADDITIVE_LOG
@@ -2782,6 +2850,7 @@ def write_exemptions(session: tuple[str, str] | None) -> bool:
                 row = {**e, "session": f"{session[0]}:{session[1]}" if session else "",
                        "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")}
                 fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                LAST_WRITTEN.append(row)
     except OSError:
         return False
     PENDING_EXEMPTIONS.clear()
@@ -2823,10 +2892,11 @@ def load_handled() -> dict:
     try:
         d = json.loads((state_dir() / ADDITIVE_HANDLED).read_text(encoding="utf-8"))
         if isinstance(d, dict):
-            return {"handled": dict(d.get("handled") or {}), "assigned": dict(d.get("assigned") or {})}
+            assigned = dict(d.get("assigned") or {})
+            return {"handled": dict(d.get("handled") or {}), "assigned": assigned, "base_assigned": dict(assigned)}
     except (OSError, ValueError, TypeError):
         pass
-    d: dict = {"handled": {}, "assigned": {}}
+    d: dict = {"handled": {}, "assigned": {}, "base_assigned": {}}
     try:
         through = _utc(json.loads((state_dir() / ADDITIVE_ACK).read_text(encoding="utf-8")).get("through", ""))
     except (OSError, ValueError, AttributeError):
@@ -2840,17 +2910,54 @@ def load_handled() -> dict:
 
 
 def save_handled(d: dict) -> bool:
-    keys = {additive_key(e) for e in load_additive_log()}
-    d = {"handled": {k: v for k, v in d["handled"].items() if k in keys},
-         "assigned": {k: v for k, v in d["assigned"].items() if k in keys}}
+    """処理状態を書く。 並行する session の Stop・開始が同じ file を読んでから書くので、 lock の中で読み直して合わせる
+    = 読んだ後に別の session が書いたものを、 古い読みで上書きして消さない。 処理済みは和 (先に書かれた方を残す)。
+    割り当ては 3 方向で合わせる = この書き手が読んだ後に変えた key だけを上に重ね、 外した key だけを外す
+    (load_handled が読んだ時点の割り当てを base_assigned に持つ。 持たない dict は書き手の分を全部重ねる)。
+    壊れた file (dict でない欄) は読まずに上書きして直す。"""
     path = state_dir() / ADDITIVE_HANDLED
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(d, ensure_ascii=False) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
+        with open(path.with_suffix(".lock"), "a", encoding="utf-8") as lock:
+            try:
+                import fcntl
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                pass
+            keys = {additive_key(e) for e in load_additive_log()}
+            try:
+                cur = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cur = {}
+            cur_h = cur.get("handled") if isinstance(cur, dict) else None
+            cur_a = cur.get("assigned") if isinstance(cur, dict) else None
+            cur_h = cur_h if isinstance(cur_h, dict) else {}
+            cur_a = cur_a if isinstance(cur_a, dict) else {}
+            handled = {**d["handled"], **cur_h}
+            base = d.get("base_assigned")
+            if isinstance(base, dict):
+                assigned = dict(cur_a)
+                for k, v in d["assigned"].items():
+                    if base.get(k) != v:
+                        assigned[k] = v
+                for k in base:
+                    if k not in d["assigned"]:
+                        assigned.pop(k, None)
+            else:
+                assigned = {**cur_a, **d["assigned"]}
+            out = {"handled": {k: v for k, v in handled.items() if k in keys},
+                   "assigned": {k: v for k, v in assigned.items() if k in keys and k not in handled}}
+            tmp.write_text(json.dumps(out, ensure_ascii=False) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
     except OSError:
         return False
+    finally:
+        try:
+            tmp.unlink()  # os.replace の後は無い = 途中で落ちた書きかけだけを消す
+        except OSError:
+            pass
+    d["handled"], d["assigned"], d["base_assigned"] = out["handled"], out["assigned"], dict(out["assigned"])
     return True
 
 
@@ -2909,6 +3016,56 @@ def additive_line(e: dict) -> str:
                   else f" 消した「{text}」" if rm else f" 「{text}」")
         return f"- 規則の文書を承認なしで変えた: {where} — {pre}{' / '.join(parts)}:{sample}{tail}"
     return f"- 規則の文書を承認なしで変えた: {where} — {pre}追記: 「{text}」{tail}"
+
+
+OTHER_MARK = "他の session が規則の文書を承認なしで変えた"
+
+
+def additive_where(e: dict) -> str:
+    return f"{Path(e.get('repo') or '~').name}/{e.get('file')}"
+
+
+def group_other_sessions(rows: list[dict], me: str) -> dict[str, list[dict]]:
+    """この session 以外が入れた記録を file ごとに (割り当てで回ってきた分。 自分の分と、 規則でない区画に緩和の語を
+    書いた記録 〔区画と語を名指す〕 は 1 記録 1 行のまま)。"""
+    out: dict[str, list[dict]] = {}
+    for e in rows:
+        if e.get("session") != me and e.get("kind") != "free":
+            out.setdefault(additive_where(e), []).append(e)
+    return out
+
+
+def other_file_line(where: str, rows: list[dict]) -> str:
+    """他の session の分を file ごとに 1 行 (件数と最新の 1 例)。 個々の変更は additive-log で読める
+    (実測: 無関係な session の最初の返事に 61 行・20 KB を求めた = 本人が読める量を超え、 目に入れる目的に反する)。"""
+    latest = max(rows, key=lambda r: str(r.get("at", "")))
+    detail = collapse_ws(additive_line(latest).split(" — ", 1)[-1])
+    detail = detail if len(detail) <= 90 else detail[:90] + "…"
+    return f"- {OTHER_MARK}: {where} — {len(rows)} 件 (最新: {detail})"
+
+
+def printed_body(e: dict) -> str:
+    """照合用の印字 (行頭の「- 」 を除き空白を畳む)。"""
+    body = collapse_ws(additive_line(e))
+    return body[2:] if body.startswith("- ") else body
+
+
+def headless() -> bool:
+    """人のいない session (claude -p 等)。 返事に書いても本人は読まない = 追記は求めない。"""
+    return os.environ.get("CLAUDE_CODE_ENTRYPOINT", "").startswith("sdk-")
+
+
+def other_file_disclosed(where: str, line: str) -> bool:
+    path_re = re.compile(r"(?<![\w./~-])" + re.escape(where) + r"(?![\w./~-])")
+    return OTHER_MARK in collapse_ws(line) and bool(path_re.search(line))
+
+
+def pending_lines(rows: list[dict], me: str) -> list[str]:
+    """返事に書かせる行: 自分の記録は 1 記録 1 行 (表示が同じ行は ×N で 1 行)、 他の session の分は file ごとに 1 行。"""
+    counts = Counter(additive_line(e) for e in rows if e.get("session") == me or e.get("kind") == "free")
+    out = [line if n == 1 else f"{line} (同じ行 ×{n})" for line, n in counts.items()]
+    out += [other_file_line(where, group) for where, group in group_other_sessions(rows, me).items()]
+    return out
 
 
 def live_claude_sessions() -> set[str]:
@@ -2974,9 +3131,10 @@ def additive_log_mode(args: argparse.Namespace) -> int:
         more = f" ほか {len(files) - 6} file" if len(files) > 6 else ""
         print(f"📜 承認なしで入った規則の文書への変更のうち、 その場の返事で本人に伝わっていないもの {len(pend)} 件: {shown}{more}。"
               " この session の最初の返事に次の行をそのまま書く (Stop が確かめる。 書けば処理済み = 本人の操作は要らない。"
+              " 他の session の分は file ごとに 1 行 = 個々の変更は " + engine_cmd() + " additive-log --days 7。"
               " 正本 = claude-config/conventions/agent-rule-ownership.md#additive-and-free-zones):")
-        for e in pend:
-            print("  " + additive_line(e))
+        for line in pending_lines(pend, me):
+            print("  " + line)
         return 0
     since = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=args.days) if args.days else None
     for e in load_additive_log():
@@ -4383,6 +4541,208 @@ def selftest() -> int:
         check("repo/file と引用の冒頭が同じ行にあれば通し、 処理済みにする",
               stop_check("claude", dict(ad_ev, last_assistant_message=additive_line(pending_additive()[0])))
               is None and not pending_additive())
+        print("[差し戻しの後 = 追記だけを求め、 追記した行はその場で処理済み]")
+        PENDING_EXEMPTIONS.clear()
+        protected_changes("conventions/mail.md", rules, rules + "署名も読む。\n", rr, {})
+        write_exemptions(("claude", "sess-ad"))
+        blocked = stop_check("claude", dict(ad_ev, last_assistant_message="足しました"))
+        reason = json.loads(blocked)["reason"] if blocked else ""
+        check("差し戻しの案内は足りない行の追記だけを求め、 返事の全文の出し直しを求めない",
+              "追記" in reason and "全文を出し直" not in reason and "本文は出し直さない" in reason)
+        addendum = additive_line(pending_additive()[0]) + " (隣の段落に 1 行足しただけ)"
+        check("差し戻しの後の Stop (stop_hook_active) は差し戻さず、 追記した行 (注釈つき) を処理済みに書く",
+              stop_check("claude", dict(ad_ev, stop_hook_active=True, last_assistant_message=addendum)) is None
+              and not pending_additive())
+        check("差し戻しの後に処理済みにした行は、 次の session の開始に出ない", surface("claude:sess-vv") == "")
+        PENDING_EXEMPTIONS.clear()
+        protected_changes("conventions/mail.md", rules, rules + "日付も読む。\n", rr, {})
+        write_exemptions(("claude", "sess-ad"))
+        check("差し戻しの後の Stop は行が無くても差し戻さない (差し戻しは 1 回)、 処理済みにもしない",
+              stop_check("claude", dict(ad_ev, stop_hook_active=True, last_assistant_message="すみません")) is None
+              and len(pending_additive()) == 1)
+        folded = "<details><summary>変えた規則の文書</summary>\n\n" + additive_line(pending_additive()[0]) + "\n\n</details>"
+        check("折り畳み (details) の中の行でも処理済みになる",
+              stop_check("claude", dict(ad_ev, last_assistant_message=folded)) is None and not pending_additive())
+        print("[処理状態は並行する session の書き込みを消さない]")
+        PENDING_EXEMPTIONS.clear()
+        protected_changes("conventions/mail.md", rules, rules + "本文も読む。\n", rr, {})
+        protected_changes("conventions/mail.md", rules, rules + "添付も読む。\n", rr, {})
+        write_exemptions(("claude", "sess-ra"))
+        r1, r2 = pending_additive()[:2]
+        stale = load_handled()  # この session が読んだ後に、 別の session が 1 件を処理済みに書く
+        other = load_handled()
+        other["handled"][additive_key(r1)] = {"how": "reply", "session": "claude:sess-rb", "at": at(0)}
+        save_handled(other)
+        stale["handled"][additive_key(r2)] = {"how": "reply", "session": "claude:sess-ra", "at": at(0)}
+        check("古い読みで書いても、 その間に別の session が書いた処理済みを消さない",
+              save_handled(stale) and not pending_additive())
+        stale = load_handled()  # 割り当て: 読んだ後に別の session の開始が付け替えた先を、 触っていない書き手が戻さない
+        other = load_handled()
+        PENDING_EXEMPTIONS.clear()
+        protected_changes("conventions/mail.md", rules, rules + "件名の番号も読む。\n", rr, {})
+        write_exemptions(("claude", "sess-gone2"))
+        k3 = additive_key(pending_additive()[0])
+        other["assigned"][k3] = "claude:sess-b"
+        save_handled(other)
+        check("割り当ては、 読んだ後に変えた key だけを書く (別の session の付け替えを古い読みで戻さない)",
+              save_handled(stale) and load_handled()["assigned"].get(k3) == "claude:sess-b")
+        (state_dir() / ADDITIVE_HANDLED).write_text('{"handled": "x", "assigned": 5}\n', encoding="utf-8")
+        fixed = {"handled": {k3: {"how": "reply", "session": "claude:sess-b", "at": at(0)}}, "assigned": {}}
+        check("壊れた処理状態の file は、 次に書く時に直す (例外で止まらない)",
+              save_handled(fixed) and k3 in load_handled()["handled"]
+              and isinstance(load_handled()["assigned"], dict) and not list(state_dir().glob("*.tmp")))
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        twin = {"kind": "insert", "repo": "/r/demo", "file": "conventions/twin.md", "session": "claude:sess-ad", "at": at(0)}
+        one = {**twin, "sha": "t1", "text": "二十字を超えて同じ前置きの文です、 そのあと一つ目"}
+        two = {**twin, "sha": "t2", "text": "二十字を超えて同じ前置きの文です、 そのあと二つ目"}
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            for row in (one, two):
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        first = "直しました。\n" + additive_line(one)
+        check("前置きが同じ 2 記録に 1 行だけなら差し戻す",
+              stop_check("claude", dict(ad_ev, last_assistant_message=first)) is not None)
+        tr_twin = one_msg("sess-ad", "知見を足して", -2)
+        with open(tr_twin, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": at(0.1),
+                                 "message": {"content": [{"type": "text", "text": first}]}}, ensure_ascii=False) + "\n")
+            fh.write(json.dumps({"type": "user", "isMeta": True, "timestamp": at(0.2),
+                                 "message": {"content": "Stop hook feedback: manuscript-claim-guard"}}) + "\n")
+        check("差し戻しの後に前の返事をそのまま出し直した再送の行は、 もう 1 つの記録に使わない",
+              stop_check("claude", {"session_id": "sess-ad", "transcript_path": str(tr_twin), "stop_hook_active": True,
+                                    "last_assistant_message": first}) is None
+              and [e["sha"] for e in pending_additive()] == ["t2"])
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        print("[同じ表示の行は 1 行で全部 / 他の session の分は file ごとに 1 行 / 返事に書く行を先に渡す]")
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        same_row = {"kind": "change", "repo": "/r/demo", "file": "CLAUDE.md", "n": {"edited": 1}, "text": "t",
+                    "edited": [["同じ行の前の文です", "同じ行の後の文です"]], "session": "claude:sess-ad"}
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            for i in range(3):
+                fh.write(json.dumps({**same_row, "sha": f"same{i}", "at": at(0)}, ensure_ascii=False) + "\n")
+        blocked = stop_check("claude", dict(ad_ev, last_assistant_message="直しました"))
+        reason = json.loads(blocked)["reason"] if blocked else ""
+        check("同じ表示の行になる 3 記録は、 差し戻しの案内で 1 行 (×3) にまとめる",
+              reason.count("demo/CLAUDE.md") == 1 and "(同じ行 ×3)" in reason)
+        check("同じ表示の行になる 3 記録は、 返事の 1 行で全部処理済みになる",
+              stop_check("claude", dict(ad_ev, last_assistant_message=additive_line(pending_additive()[0]))) is None
+              and not pending_additive())
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            for i, f in enumerate(("a.md", "a.md", "a.md", "b.md")):
+                fh.write(json.dumps({"kind": "insert", "file": f"conventions/{f}", "repo": "/r/demo", "sha": f"o{i}",
+                                     "text": f"他の session が足した文 {i}", "session": "claude:sess-gone",
+                                     "at": at(-5 + i)}, ensure_ascii=False) + "\n")
+        out = surface("claude:sess-new")
+        check("他の session の分は file ごとに 1 行 (件数と最新の 1 例) で出す",
+              out.count(OTHER_MARK) == 2 and "demo/conventions/a.md — 3 件" in out
+              and "他の session が足した文 2" in out and "他の session が足した文 0" not in out and "additive-log" in out)
+        new_ev = {"session_id": "sess-new", "transcript_path": str(one_msg("sess-new", "おはよう", -1))}
+        blocked = stop_check("claude", dict(new_ev, last_assistant_message="おはよう"))
+        check("書かなければ file ごとの行で差し戻す",
+              blocked is not None and json.loads(blocked)["reason"].count(OTHER_MARK) == 2)
+        a_line = next(x.strip() for x in out.splitlines() if "demo/conventions/a.md —" in x)
+        stop_check("claude", dict(new_ev, last_assistant_message="おはよう\n" + a_line + " (読んだ)"))
+        check("file ごとの 1 行 (注釈つき) でその file の分を全部処理済みにし、 他の file の分は残す",
+              [e["file"] for e in pending_additive()] == ["conventions/b.md"])
+        check("他の session の file の行は、 別の file の分を消さない",
+              not other_file_disclosed("demo/conventions/b.md", a_line))
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        (rr / "conventions" / "mail.md").write_text(rules + "宛名も確かめる。\n", encoding="utf-8")
+        subprocess.run(["git", "add", "conventions/mail.md"], cwd=rr, env=genv, capture_output=True, check=False)
+        reset_caches()
+        PENDING_EXEMPTIONS.clear()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            _hook("claude", {"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "sess-bc", "cwd": str(rr),
+                             "tool_input": {"command": f"git -C {rr} commit -m x -- conventions/mail.md"}})
+        got = out.getvalue()
+        line = additive_line(pending_additive()[0]) if pending_additive() else "?"
+        check("Bash の commit で通った変更も、 返事に書く行そのものを tool の結果と一緒に渡す (止めない)",
+              "🧾" in got and "permissionDecision" not in got and "rules/conventions/mail.md" in got
+              and collapse_ws(line) in collapse_ws(json.loads(got)["hookSpecificOutput"]["additionalContext"]))
+        print("[照合の境目: 印字そのものを先に / 畳みは新しい記録だけ / 写しの余りを使わない / 区画の行は file にまとめない]")
+
+        def fresh(rows: list[dict]) -> None:
+            (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+            (state_dir() / ADDITIVE_LOG).write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+                                                    encoding="utf-8")
+
+        def keys_left() -> list[str]:
+            return sorted(e["sha"] for e in pending_additive())
+
+        mk = {"kind": "insert", "repo": "/r/demo", "file": "conventions/edge.md", "session": "claude:sess-ad"}
+        a_row = {**mk, "sha": "a", "at": at(0), "text": "冒頭の二十字が同じ記録の文です、 そして前の方"}
+        b_row = {**mk, "sha": "b", "at": at(0.01), "text": "冒頭の二十字が同じ記録の文です、 そして後の方"}
+        fresh([a_row, b_row])
+        stop_check("claude", dict(ad_ev, last_assistant_message=additive_line(b_row)))
+        check("印字そのものの行はその記録に先に当て、 冒頭が同じ古い記録に取らせない", keys_left() == ["a"])
+        check("差し戻しが求めた行を追記すれば処理済みになる (前の返事と同じでない行)",
+              stop_check("claude", dict(ad_ev, stop_hook_active=True, last_assistant_message=additive_line(a_row))) is None
+              and keys_left() == [])
+        same1 = {**mk, "sha": "s1", "at": at(0), "text": "二十字を超えて同じ前置きを持つ記録の文、 その先は甲"}
+        same2 = {**same1, "sha": "s2", "at": at(0.01)}
+        other3 = {**mk, "sha": "s3", "at": at(0.02), "text": "二十字を超えて同じ前置きを持つ記録の文、 その先は乙"}
+        fresh([same1, same2, other3])
+        stop_check("claude", dict(ad_ev, last_assistant_message=additive_line(same1) + "\n" + additive_line(same1)))
+        check("同じ行の写しは畳んだ記録に当て、 余った写しで冒頭が同じ別の記録を処理済みにしない", keys_left() == ["s3"])
+        fresh([same1])
+        tr_fold = one_msg("sess-ad", "知見を足して", -2)
+        with open(tr_fold, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": at(0.1), "message": {"content": [
+                {"type": "text", "text": additive_line(same1)}]}}, ensure_ascii=False) + "\n")
+            fh.write(json.dumps({"type": "user", "isMeta": True, "timestamp": at(0.2),
+                                 "message": {"content": "<task-notification>done</task-notification>"}}) + "\n")
+        fold_ev = {"session_id": "sess-ad", "transcript_path": str(tr_fold)}
+        stop_check("claude", dict(fold_ev, last_assistant_message=additive_line(same1)))
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(same2, ensure_ascii=False) + "\n")
+        check("既に報告済みの記録の行では、 後から入った同じ表示の記録を畳まない (新しい返事に書かせる)",
+              stop_check("claude", dict(fold_ev, last_assistant_message="別の話です")) is not None and keys_left() == ["s2"])
+        own = {**mk, "sha": "own", "at": at(0), "text": "他の session の文と冒頭が同じ自分の文です、 自分"}
+        gone = {**own, "sha": "gone", "session": "claude:sess-gone", "text": "他の session の文と冒頭が同じ自分の文です、 他人"}
+        fresh([own, gone])
+        state = load_handled()
+        state["assigned"][additive_key(gone)] = "claude:sess-ad"
+        save_handled(state)
+        wide = other_file_line("demo/conventions/edge.md", [gone]).replace("他の session", "他の\u3000 session")
+        stop_check("claude", dict(ad_ev, last_assistant_message=wide))
+        check("空白の違う他の session の file の行も、 自分の記録の 1 行には使わない", keys_left() == ["own"])
+        zone = {"kind": "free", "repo": "/r/demo", "file": "CLAUDE.md", "zone": "projects", "term": "当面は", "sha": "z",
+                "text": "当面はこうする", "session": "claude:sess-gone", "at": at(0)}
+        plain = {"kind": "insert", "repo": "/r/demo", "file": "CLAUDE.md", "sha": "p", "text": "普通の追記の文",
+                 "session": "claude:sess-gone", "at": at(0.01)}
+        fresh([zone, plain])
+        out = surface("claude:sess-zz")
+        check("他の session が区画に緩和の語を書いた記録は、 file にまとめず区画と語を名指す 1 行で出す",
+              "規則でない区画 projects に緩和の語「当面は」" in out and "demo/CLAUDE.md — 1 件" in out)
+        (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        dup = tdp / "dup.md"
+        dup.write_text("x\nx\n", encoding="utf-8")
+        check("一意でない old_string の Edit (replace_all なし) は tool 自身が失敗する = 検査も記録もしない",
+              claude_edits({"tool_name": "Edit", "tool_input": {"file_path": str(dup), "old_string": "x", "new_string": "y"}}) == []
+              and len(claude_edits({"tool_name": "Edit", "tool_input": {"file_path": str(dup), "old_string": "x",
+                                                                       "new_string": "y", "replace_all": True}})) == 1)
+        (rr / "conventions" / "mail.md").write_text(rules + "差出人も確かめる。\n", encoding="utf-8")
+        subprocess.run(["git", "add", "conventions/mail.md"], cwd=rr, env=genv, capture_output=True, check=False)
+        reset_caches()
+        PENDING_EXEMPTIONS.clear()
+        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "sdk-cli"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            _hook("claude", {"hook_event_name": "PreToolUse", "tool_name": "Bash", "session_id": "sess-hl", "cwd": str(rr),
+                             "tool_input": {"command": f"git -C {rr} commit -m x -- conventions/mail.md"}})
+        os.environ["CLAUDE_CODE_ENTRYPOINT"] = "cli"
+        check("人のいない session には返事に書く行を渡さない (Stop も求めない)、 記録はする",
+              "🧾" not in out.getvalue() and len(pending_additive()) == 1)
+        subprocess.run(["git", "reset", "-q"], cwd=rr, env=genv, capture_output=True, check=False)
+        (rr / "conventions" / "mail.md").write_text(rules, encoding="utf-8")
+        (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
+        reset_caches()
+        PENDING_EXEMPTIONS.clear()
         with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
             fh.write(json.dumps({"kind": "insert", "file": "old.md", "repo": "", "sha": "1", "text": "t",
                                  "at": "2000-01-01T00:00:00+00:00"}) + "\n")
@@ -4471,7 +4831,10 @@ def selftest() -> int:
         with contextlib.redirect_stdout(out):
             _hook("claude", dict(ev, tool_input={"file_path": str(dep_path), "old_string": "手順は runbook。",
                                                  "new_string": "手順は runbook。\n\n## Print\n\n刷る前に確かめる。"}))
-        check("hook: 新しい節の追記には案内を出さない", "additionalContext" not in out.getvalue() and "permissionDecision" not in out.getvalue())
+        got = out.getvalue()
+        check("hook: 新しい節の追記には隣の文の案内を出さず、 返事に書く行だけを渡す (止めない)",
+              "足した文の隣" not in got and "permissionDecision" not in got and "🧾" in got
+              and "規則の文書を承認なしで変えた: " in got and "deploy.md" in got)
         out = io.StringIO()
         n_before = len(load_additive_log())
         with contextlib.redirect_stdout(out):

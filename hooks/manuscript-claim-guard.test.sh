@@ -182,12 +182,13 @@ _check "見出しで下の行を過去のものにするのは止まる" "$(_edi
 _check "説明の文の言い直し・削除は止まらない" "$(_edit ' 手順は runbook。' '' conventions/deploy.md)" none
 _check "止めた変更が denied-log に残る (2 件以上、 理由つき)" \
   "$([ "$(python3 "$ENGINE" denied-log 2>/dev/null | grep -c 'conventions/deploy.md ::')" -ge 2 ] && echo yes || echo no)" yes
-_check "新しい節の追記には案内を出さない" \
-  "$(_edit_raw '手順は runbook。' '手順は runbook。
+NEWSEC="$(_edit_raw '手順は runbook。' '手順は runbook。
 
 ## Print
 
-刷る前に確かめる。' conventions/deploy.md | grep -c 'additionalContext' || true)" 0
+刷る前に確かめる。' conventions/deploy.md)"
+_check "新しい節の追記には隣の文の案内を出さない" "$(printf '%s' "$NEWSEC" | grep -c '足した文の隣' || true)" 0
+_check "新しい節の追記にも返事に書く行を渡す (止めない)" "$(printf '%s' "$NEWSEC" | grep -c '🧾.*deploy.md' || true)" 1
 git -C "$REPO" checkout -q -- conventions/deploy.md
 
 echo "=== Stop: 変更内容の報告 ==="
@@ -221,12 +222,17 @@ print('Claude Stop: missing, vague and complete disclosure controls passed')
 second = dict(entry, sha='second-report-fixture')
 (state / m.ADDITIVE_LOG).write_text(json.dumps(entry,ensure_ascii=False)+'\n'+json.dumps(second,ensure_ascii=False)+'\n')
 line = m.additive_line(entry)
+assert stop(line) == {}  # 表示がまったく同じ行になる 2 記録は、 その 1 行で両方
+assert len(json.loads((state / m.ADDITIVE_HANDLED).read_text())['handled']) == 2
+(state / m.ADDITIVE_HANDLED).unlink()
+third = dict(entry, sha='third-report-fixture', edited=[], removed=['先頭から違う別の文を消した記録'], n={'removed': 1})
+(state / m.ADDITIVE_LOG).write_text(json.dumps(entry,ensure_ascii=False)+'\n'+json.dumps(third,ensure_ascii=False)+'\n')
 assert stop(line).get('decision') == 'block'
 assert len(json.loads((state / m.ADDITIVE_HANDLED).read_text())['handled']) == 1
 assert stop(line).get('decision') == 'block'
-assert stop(line + '\n' + line) == {}
+assert stop(line + '\n' + m.additive_line(third)) == {}
 assert len(json.loads((state / m.ADDITIVE_HANDLED).read_text())['handled']) == 2
-print('Claude Stop: one line per record and repeated Stop controls passed')
+print('Claude Stop: identical lines fold, distinct records need their own line, repeated Stop controls passed')
 PY
 then
   _check "Stop: 内容の無い報告は拒否し、 印字した行だけを処理済みにする" yes yes
