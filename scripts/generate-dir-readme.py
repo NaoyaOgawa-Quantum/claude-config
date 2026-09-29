@@ -17,6 +17,10 @@
   注釈を持てない file (機械が書く .json 等) は --describe NAME=説明 で渡す。
   subdir は、 その中の README.md の最初の見出し以外の行か --describe で説明する。
 
+⚠️ 源は git に登録された file だけ (手元だけの一時 file を拾わないため)。 新しい file は git add してから
+--write する。 登録の前に回すとその file は索引から黙って落ち、 README も生成物も同じく欠けるので --check も
+一致と言う。 そのため --write / --check は、 登録も ignore もされていない file を stderr に 1 行で出す (終了値は変えない)。
+
 stdlib only / 公開層 (個人の値を持たない。 dir・見出し・前置き・説明の上書きは呼び出し側が渡す)。
 """
 from __future__ import annotations
@@ -60,6 +64,20 @@ def _tracked_names(d: Path):
     if r.returncode != 0:
         return None
     return {x.split("/", 1)[0] for x in r.stdout.split("\0") if x}
+
+
+def _unregistered_names(d: Path) -> list[str]:
+    """d 直下で git に登録されていない (ignore もされていない) 名前 = 索引に入らない新しい file の候補。"""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", str(d), "ls-files", "-z", "--others", "--exclude-standard", "--", "."],
+                           capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if r.returncode != 0:
+        return []
+    names = {x.split("/", 1)[0] for x in r.stdout.split("\0") if x}
+    return sorted(n for n in names if not (n.startswith(".") or n == "__pycache__" or n.endswith(".pyc") or n == "README.md"))
 
 
 def render(d: Path, title: str, note: str, describe: dict, cmd: str, extract=None, tracked="auto"):
@@ -130,6 +148,17 @@ def selftest() -> int:
         check(out2.startswith(MARK), "生成物の印")
         out3, _ = render(d, "T", "", {"state.json": "x"}, "gen", tracked={"b.py", "sub"})
         check("a.sh" not in out3 and "b.py" in out3, "git が追跡していない file は源にしない")
+    with tempfile.TemporaryDirectory() as t:
+        import subprocess
+        d = Path(t)
+        subprocess.run(["git", "init", "-q", str(d)], check=True)
+        (d / ".gitignore").write_text("gen.json\n", encoding="utf-8")
+        for n in ("old.py", "new.py", "gen.json"):
+            (d / n).write_text('"""x — y"""\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(d), "add", ".gitignore", "old.py"], check=True)
+        check(_unregistered_names(d) == ["new.py"], "登録していない新しい file を出す (ignore された file と dotfile は出さない)")
+        subprocess.run(["git", "-C", str(d), "add", "new.py"], check=True)
+        check(_unregistered_names(d) == [], "git add した後は出ない")
     return 0 if ok else 1
 
 
@@ -155,6 +184,10 @@ def main() -> int:
         k, _, v = kv.partition("=")
         describe[k.strip()] = v.strip()
     out, missing = render(d, a.title, a.note, describe, a.cmd)
+    unregistered = _unregistered_names(d)
+    if unregistered:
+        print("⚠️ git に登録されていない file は索引に入らない: " + ", ".join(unregistered)
+              + " (新しい file なら git add してから --write)", file=sys.stderr)
     if missing:
         print("説明 1 行目が無い file (冒頭に docstring / 注釈を書くか --describe で渡す): " + ", ".join(missing), file=sys.stderr)
         return 2
@@ -165,7 +198,7 @@ def main() -> int:
         return 0
     cur = target.read_text(encoding="utf-8") if target.exists() else ""
     if cur != out:
-        print(f"{target} が生成物と一致しない (手編集か、 file 冒頭の説明の変更後に --write していない)", file=sys.stderr)
+        print(f"{target} が生成物と一致しない (手編集か、 file 冒頭の説明の変更後に --write していない。 新しい file は git add してから --write)", file=sys.stderr)
         return 1
     print(f"{target} is in sync")
     return 0

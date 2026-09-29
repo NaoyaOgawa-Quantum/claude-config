@@ -39,7 +39,8 @@ pre-commit = .claude/pre-commit-extra.sh) が drift を検出する。
 stage 前の成功は「新規 file を含めて同期済み」の証拠にならない。
 ⚠️ 源は **git-tracked (cached/staged) file のみ** (git 不在時は disk fallback): untracked file
 (= 並列 session の未 commit 作業・一時 file) を tree に載せると、 committed checkout で --check を
-回す CI と結果が割れるため。 新 file が tree に出ないときはまず `git add`。
+回す CI と結果が割れるため。 新 file が tree に出ないときはまず `git add`。 --write / --check は、 源の dir に
+登録も ignore もされていない file があれば 1 行で出す (= git add を忘れた新しい file。 終了値は変えない)。
 
 Usage:
   generate-tree.py --write      # 5 生成物を再生成 (in place)
@@ -177,6 +178,25 @@ def tracked_files(root: Path):
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         return None
     return {(root / p).resolve() for p in out.decode("utf-8", "replace").split("\0") if p}
+
+
+def unregistered_sources(root: Path) -> list:
+    """源の dir (conventions / hooks / scripts) で git に登録されていない (ignore もされていない) file。
+    git add の前に --write すると、 その file は生成物から黙って落ちる。"""
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(root), "ls-files", "-z", "--others", "--exclude-standard", "--",
+             "conventions", "hooks", "scripts"], stderr=subprocess.DEVNULL)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return []
+    rows = []
+    for rel in out.decode("utf-8", "replace").split("\0"):
+        name = rel.rsplit("/", 1)[-1]
+        if not rel or name == "README.md" or name.startswith(".") or name.endswith(".pyc") or "__pycache__" in rel:
+            continue
+        rows.append(rel)
+    return sorted(rows)
 
 
 def _listed(path: Path, tracked) -> bool:
@@ -448,6 +468,10 @@ def build_outputs(root: Path):
 
 def run(root: Path, check: bool) -> int:
     outputs, errors = build_outputs(root)
+    unregistered = unregistered_sources(root)
+    if unregistered:
+        print("⚠️ git に登録されていない file は生成物に入らない: " + ", ".join(unregistered)
+              + " (新しい file なら git add してから --write)")
     if errors:
         print("❌ generate-tree.py: 源の validation error:")
         for e in errors:
@@ -462,7 +486,7 @@ def run(root: Path, check: bool) -> int:
             continue
         if check:
             drift += 1
-            print(f"❌ {rel}: OUT OF SYNC (→ python3 scripts/generate-tree.py --write)")
+            print(f"❌ {rel}: OUT OF SYNC (→ python3 scripts/generate-tree.py --write。 新しい file は先に git add)")
             diff = list(difflib.unified_diff(old_text.splitlines(), new_text.splitlines(),
                                              str(rel), str(rel) + " (generated)", lineterm="", n=0))
             for l in diff[2:12]:
@@ -599,7 +623,10 @@ def selftest() -> int:
             (tmp / "scripts" / "untracked.sh").write_text("#!/bin/bash\necho no header\n", encoding="utf-8")
             (tmp / "scripts" / "junk-dir").mkdir()
             check(run(tmp, check=True) == 0, "untracked file / dir は源に入らない (--check clean のまま)")
+            check(unregistered_sources(tmp) == ["scripts/untracked.sh"],
+                  "登録していない file を 1 行で出す (git add を忘れた新しい file)")
             subprocess.run(["git", "add", "scripts/untracked.sh"], cwd=tmp, check=True, env=env, capture_output=True)
+            check(unregistered_sources(tmp) == [], "git add した後は出ない")
             check(run(tmp, check=True) == 2, "git add した瞬間に源へ入る (header 説明無し → exit 2)")
         else:
             print("  (skip: git が使えない環境のため tracked-source check を省略)")
