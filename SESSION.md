@@ -6,7 +6,7 @@
 
 ## 現在地
 
-- **履歴から個人の識別子を消す書き換えと再発防止** — 進行中 = 改名・置き換えの書き換えの道具 (`git-drop-path-history.py` の兄弟) / commit 時の識別子の検査 / 書き換えられた remote への汎用の追従。 規約 = [confidential-repo-boundary.md#role-words-in-names](conventions/confidential-repo-boundary.md#role-words-in-names)
+- **履歴から個人の識別子を消す書き換えと再発防止** — 道具 (`git-scrub-history.py`)・commit 時の識別子の検査・検査を切る操作の hook・書き換えられた remote への追従は入った。 規約 = [confidential-repo-boundary.md#role-words-in-names](conventions/confidential-repo-boundary.md#role-words-in-names) / [agent-rule-ownership.md#guard-escape-hatch](conventions/agent-rule-ownership.md#guard-escape-hatch)、 手順 = [docs/sensitive-repo-patterns.ja.md#pattern-2-5](docs/sensitive-repo-patterns.ja.md#pattern-2-5)
 - **SESSION / README の形の gate** — engine・書き込み hook・全 repo の pre-commit・規約・一括移行の道具 (`migrate-session-shape.py`) まで済、 既存 file は寄せた。 残り = 他の machine での hook と pre-commit の実走の観測 (bootstrap と pull で入る) → [DESIGN.md#session-shape-gate](DESIGN.md#session-shape-gate)
 - **規則保護 gate の echo flood + Stop の全文再送** — 修正を適用済み、 別 session の検収で確認済み (差し戻し後も照合 / 追記だけ求める / 他の session の分は file ごとに 1 行 / 同じ表示の行を畳む / 返事に書く行を先に渡す / 処理状態を lock で合わせる / 照合し直しは Stop と同じ消費の照合)。 残り = iMac-3 での観測 (次の session 開始の 📜 と、 `additive-log --audit` の ★ の件数)。 設計判断 = [DESIGN.md#additive-echo-bookkeeping](DESIGN.md#additive-echo-bookkeeping)、 実測の記録 = odakin-prefs/plans/2026-09-29-rule-change-echo-flood-results.md、 規則 = [agent-rule-ownership.md#additive-and-free-zones](conventions/agent-rule-ownership.md#additive-and-free-zones) / [hook-authoring.md#stop-hook-addendum-not-reemission](conventions/hook-authoring.md#stop-hook-addendum-not-reemission)
 - **規則保護の gate (agent-rule-guard)** — 運用中。 auto mode の classifier が承認 CLI を止める場合の経路 (本人が狭い allow を宣言 / mode 切替、 deny 文が案内、 `--liveness` が宣言の無い機械に 🟡) と、 data 形式の file の配線 lock を場所に限定した判定 = [tool-call-robustness.md#classifier-blocks-guard-approval-cli](conventions/tool-call-robustness.md#classifier-blocks-guard-approval-cli) / [agent-rule-ownership.md#wiring-scope](conventions/agent-rule-ownership.md#wiring-scope) / [DESIGN#wiring-lock-data-files-by-location](DESIGN.md#wiring-lock-data-files-by-location)。 残りは下の Open items (SSO 実走 / cwd 解決 / Codex hook の timeout / transcript の user 役の穴 / liveness の観察) → [agent-rule-ownership.md](conventions/agent-rule-ownership.md) / [DESIGN.md#rule-doc-change-by-vocabulary-not-form](DESIGN.md#rule-doc-change-by-vocabulary-not-form)
@@ -17,6 +17,7 @@
 
 ## Open items（forward-looking）
 
+- [ ] **新しい hook 2 つ (書き換えられた履歴への追従 / 検査を切る操作) と commit 時の識別子の検査の、 他の machine での初回の実走** — 配線は各 machine の次の session 開始で入る。 最初の session で、 追従が沈黙するか・解除の command が止まるか・commit が 0.3 秒程度で通るかを見る。
 - [ ] **SSO の入り直しの、 IdP が切れた状態からの実走** (exit 75 → `--wait-login`、 [DESIGN#sso-recovery-server-acceptance](DESIGN.md#sso-recovery-server-acceptance)) — 次に学内ログインが切れた状態で client を使う時、 `--trace` を付けて 1 回見る (selftest の偽の tab と時計でだけ通している)
 - [ ] **規則保護 gate の cwd 解決が `cd $VAR` を展開せず親へ上がって cwd の repo に当たる** (2026-09-22 実測: 一時 dir での `cd $T && git commit` が cwd の repo の未 commit 変更で deny、 fail-closed の誤停止)。 直すなら変数を含む cd は検査不能 (WorkingDirectoryUnavailable) に倒す。 記録 = [検証記録](docs/agent-rule-guard-verification.md) 残る境界。
 - [ ] **Codex の hook の timeout 挙動は未測定** (Claude は素通り = 実測、 [manuscript-claim-ownership.md#limits](conventions/manuscript-claim-ownership.md#limits))。 層1 hook-authoring.md への一般形の追記候補 = owner 個人層の plans (保護 file なので承認待ち)。
