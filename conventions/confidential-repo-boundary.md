@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 機密を持つ repo と remote を持つ repo の境界を機械で守るとき — 暗号化を入れる前 (#2) / file 名に識別子が出ていると気づいたとき (#1) / 別 process への通知に要約を書こうとしたとき (#3) / 流出検査を設計するとき (#4) / fail-open な gate を足したとき (#5) / 公開 repo に未公開文書の文が入らない gate を設計・調整するとき (#unpublished-text-public-gate) / 公開 repo の tree 棚卸しの finding を決着させるとき (#tree-finding-resolution) / 公開 repo の gate の検出語や判定を変えたとき (#gate-change-replays-unattended-writers) / 触れない dir の中身を機械で処理する必要が出たとき (#work-on-a-copy-not-by-lowering-the-gate)
+when: 機密を持つ repo と remote を持つ repo の境界を機械で守るとき — 暗号化を入れる前 (#2) / file 名に識別子が出ていると気づいたとき (#1) / 人 (学生・応募者など) を指す path・台帳の id・commit message を付けるとき (#role-words-in-names) / 履歴から個人情報を消すとき (#history-scrub-identity-from-all-versions) / 別 process への通知に要約を書こうとしたとき (#3) / 流出検査を設計するとき (#4) / fail-open な gate を足したとき (#5) / 公開 repo に未公開文書の文が入らない gate を設計・調整するとき (#unpublished-text-public-gate) / 公開 repo の tree 棚卸しの finding を決着させるとき (#tree-finding-resolution) / 公開 repo の gate の検出語や判定を変えたとき (#gate-change-replays-unattended-writers) / 触れない dir の中身を機械で処理する必要が出たとき (#work-on-a-copy-not-by-lowering-the-gate)
 category: infra
 summary: 暗号化は中身しか守らない (file 名・commit message・path は平文) ので識別子入り dir は暗号化 tar に畳む (連番+対応表は対応表が単一障害点で不可)、 保存しない > 暗号化する (入室の暗証番号は暗号化 repo にも入れず所在だけ記録 #physical-access-codes、 通知に payload を載せず schema で縛る、 死んだ複製は削除)、 逐語の指紋照合は写しを捕まえるが言い換えは原理的に不可なので経路ごとに制御を変える (閾値は全件集計で決める = 誤検知 6800→24→0 の実測)、 fail-open な gate は必ずカナリアで実効性を毎回確かめ ARMED/NOT ARMED/対象外 の 3 状態を出す (沈黙を作らない)、 是正は go-forward にしか効かず履歴は別問題として人間の判断に委ねる、 公開 repo には未公開文書の逐語 gate を別に置く (漏れる例示は引用符に入った短い断片なので quoted span が主、 全履歴 replay で誤検出 0 を確かめて採用)、 gate が target の pre-commit で実際に走っているかは target ごとに確かめる、 触れない dir の中身を機械で処理する必要が出ても deny を外して戻す形にしない (外れている間は dir 全体が無関係な call にも開く) = user が 1 file だけ許可 scope に複製 → 作業 → 複製と中間生成物を消す、 複製は元の SoT から分岐し記録には file 名も中身も書かない
 -->
@@ -46,7 +46,26 @@ dir ごと 1 個の `tar` にして、 その tar を暗号化対象に載せる
 
 検出 = [`scripts/check-pii-filenames.py`](../scripts/check-pii-filenames.py)。
 識別子の形は `~/.claude/pii-filename-patterns.txt` が宣言する (= 形自体が組織固有で、 かつ
-それ自体漏らしたくない情報になりうるので script に書かない)。
+それ自体漏らしたくない情報になりうるので script に書かない)。 形は大文字・小文字の両方に当てる
+(`(?i)`。 メールの local part から来た小文字の識別子を大文字だけの形は素通りする、 実測)。
+
+### <a id="role-words-in-names"></a>人を指す path・台帳の id・commit message には役割の語を使う
+
+保護が要る立場の人 (学生・受講者・応募者・被推薦者・患者・審査の申請者) を **path・台帳の id・commit message** で
+指すときは、 氏名・姓・識別番号を書かず、 **役割の語 + 区別の記号** にする (`gakusei-a` / `jukousei-b` /
+`applicant-a`)。 誰のことかは暗号化された中身に書く。 同僚・共著者として名前を出すのは別 (公開の立場)。
+迷ったら役割の語。
+
+**最初の 1 件が雛形になる**。 間違った命名が 1 つあると、 agent も人も既存の id を真似て同じ形を増やす
+(実測: 片付けている最中にも、 既存の id の形を真似た新しい id が別の session から入った)。 規則を書くだけでは止まらない
+ので、 3 段で塞ぐ:
+
+1. **作る瞬間に読む場所に規則を置く** (台帳の書式・命名規則の節)。 各 repo には、 その repo の語彙
+   (`ta-{年度}-{学期}-{科目}` など) と本節への案内だけを書く
+2. **既存の間違った例を改名して、 正しい形を例にする** (今の版は通常の commit で。 履歴 = 下の
+   [#history-scrub-identity-from-all-versions](#history-scrub-identity-from-all-versions))
+3. **commit 時の検査で止める** (本命 = 例に依らない): 新しい path・平文の追加行・commit message に、
+   識別子の形か、 machine-local の名簿から作った氏名があれば止める。 名簿の値は repo に入れない
 
 ---
 
