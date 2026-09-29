@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: Claude Code hook を作成・配信・debug するとき + bash script / `.test.sh` を書くとき + app や tool の挙動を当てる hook を書くとき (#imitate-target-predicate) + 事後の block の手前に事前の知らせを置くとき (#counter-notice-at-injection) + hook を消す・event から外すとき (#additive-wiring-needs-retirement) + git commit が「hook ... died of signal 9」 で止まったとき (#killed-hook-stub) + 返事に書くべき行を Stop で確かめる hook を書くとき (#stop-hook-addendum-not-reemission) + 並列の session の hook が同じ state file を読み書きするとき (#shared-state-file-merge)
+when: Claude Code hook を作成・配信・debug するとき + bash script / `.test.sh` を書くとき + app や tool の挙動を当てる hook を書くとき (#imitate-target-predicate) + 事後の block の手前に事前の知らせを置くとき (#counter-notice-at-injection) + hook を消す・event から外すとき (#additive-wiring-needs-retirement) + git commit が「hook ... died of signal 9」 で止まったとき (#killed-hook-stub) + 返事に書くべき行を Stop で確かめる hook を書くとき (#stop-hook-addendum-not-reemission) + 並列の session の hook が同じ state file を読み書きするとき (#shared-state-file-merge) + command の option を当てる hook を書くとき (#command-flag-normalization) + git の履歴の fixture を作る test を書くとき (#git-fixture-pinned-dates)
 category: harness-core
 summary: Claude Code hooks 作成 + 配信規律 (= bash 3.2 の $(...) + heredoc body quote escape parser bug と runtime backtick 展開を区別 + hook 配信正常性 3 軸 audit 〔symlink + settings.json + try-fire〕 + PreToolUse warn mode 出力 spec uncertainty + partial install state + §9 hook 挙動の build 依存 〔新規 hook の同 session 発火も build 依存 = 2026-06 は session / app 起動時 snapshot、 desktop 2.1.266 は Stop hook を hot-reload → 足した直後に discriminator で測る / permissionDecisionReason silent-skip / updatedInput〕 + **§0 補足 4 gate hook は読めない入力で死んではいけない (#gate-hook-unreadable-input = 1 file の異常が repo 全体の commit を止める、 encoding 明示 + READ_SKIP で 1 行報告して続行)** + **§0 補足 5 set -e の test は落ちた行を自己申告 (#set-e-test-failure-report = scripts/lib/test-err-trap.sh、 ERR trap の bash 3.2 / 5 実測表、 BSD/GNU の手元再現 = scripts/with-gnu-userland.sh)** + **§2 補足 2 #disableallhooks-kill-switch = root 限定の disableAllHooks が「frontend 差」 に化ける 〔自 session では検出不能 = 外側から scripts/hook-liveness-audit.py、 audit-hooks.sh の (d) 自動部分〕** + **test-root-not-parent-dir = test は自分の repo を checkout の親 dir 経由で指さない 〔worktree で落ち・live を検査・python shim は CI でも空振り = 一時 root に symlink 1 本 + 兄弟 repo は正規 layout + 不在は SKIP + mutation で確かめる〕** + **§12 #text-pattern-stop-hook = 最終発話の句で当てる Stop hook は過去の最終発話で校正してから入れる 〔scripts/calibrate-final-message-pattern.py + 共通部品 scripts/lib/transcript_turns.py〕・引用の例示を除く・block は 1 回・fail-open** + **§14 #opt-in-side-effect-hook = 人に向けた副作用だけの hook (音・通知) は層1 に既定 off で置き marker で opt-in、 surface の許可 list は実測値だけ、 実行の証拠を state file に残す** + **#command-guard-calibration = command を見る PreToolUse guard も過去の Bash command で校正 (scripts/calibrate-bash-command-pattern.py) し、 わざと該当する無害な command で live 確認** + **§15 #injection-digest-and-relay = SessionStart の注入は期限の近い item の 1 ブロックに畳み (副作用は止めない・行数で切らない・自分で決めた期日と条件発火は畳まない)、 短い窓の item は伝えたかを Stop で問う 〔scripts/lib/relay_check.py〕**)
 -->
@@ -1059,6 +1059,16 @@ hook の state (処理済みの記録・割り当て・既読) を「読む → 
 - 型の壊れた欄は読まずに上書きして直す (読むところで落ちると、 その hook は以後ずっと書けない)。
 - tmp の file 名は process ごとに分け (`<name>.<pid>.tmp`)、 書きかけは `finally` で消す。
 - selftest に「古い読みで書いても、 間に別の session が書いた分が残る」 と「付け替えを戻さない」 を入れる (並列の fork で数える)。
+
+## <a id="command-flag-normalization"></a>§19. command の option を当てる hook は、 略形と同じ効果の別経路まで正規化してから当てる
+
+- **git の long option は一意な前置の略形を受け付ける** (hook を飛ばす option も、 途中まで打った略形で同じく効き、 hook が走らない = 実測)。 綴りどおりの照合はこれをすり抜ける。 当てる前に、 その subcommand の option 表から一意な前置を正規の形へ展開する
+- **同じ効果の別経路も当てる**: `-c core.hooksPath=…`、 `git config core.hooksPath`、 `GIT_CONFIG_PARAMETERS` / `GIT_CONFIG_KEY_n`、 検査が読む環境変数の上書き
+- **当て切れない経路は docstring に列挙する** (変数に入れた command、 script file の中、 git alias、 `.git/hooks` の直接の編集)。 書いていない穴は「守られているつもり」 になる
+
+## <a id="git-fixture-pinned-dates"></a>§20. test の git fixture は日付を固定する — 同じ秒に作った 2 つの履歴は同じ sha になる
+
+履歴の書き換え・追従・分岐を test する fixture で、 「旧い履歴」 と「新しい履歴」 を同じ秒の中で作ると、 中身と日付が同じ commit は同じ sha になり、 分岐していないように見える (速い CI の runner でだけ再現し、 手元では通る = 実測)。 `GIT_AUTHOR_DATE` / `GIT_COMMITTER_DATE` を commit ごとに別の固定値にする。
 
 ## <a id="related-docs"></a>関連
 
