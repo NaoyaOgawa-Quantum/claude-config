@@ -24,6 +24,7 @@
     "scripts/check-confidential-leak.py",
     "scripts/check-unpublished-quote.py",
     "scripts/check-pii-filenames.py",
+    "scripts/check-student-identifiers.py",
     "scripts/check-preamble-aliases.py",
     "scripts/check-seal-attachments.py",
     "scripts/check-script-layering.py",
