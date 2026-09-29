@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """check-student-identifiers.py — 学生の識別子 (学籍番号の形・氏名・path の中の姓) を平文で新しく commit させない: commit gate (--staged = stage した path と平文 file の足した行、 --commit-msg = commit message、 違反で exit 1) + fleet の棚卸し (--tree、 報告だけ)。
 
-由来 (実測): 学生の識別子を履歴から消す書き換えの最中に、 別の session が学生の姓と学籍番号を id に含む TODO を
-新しく 2 件作った。 agent は手元の既存の例 (姓入りの TODO id・学籍番号入りの file 名・「姓 + 点数」 を並べた
-commit message) を真似るので、 「気をつける」 では止まらない = 例が何であれ commit の時点で機械が止める。
+由来 (実測): agent は手元の既存の例 (姓入りの TODO id・学籍番号入りの file 名・氏名と点数を並べた commit message) を
+真似る。 既存の例を消している最中にも、 別の session から同じ形の新しい例が入った = 「気をつける」 では止まらない。
+例が何であれ commit の時点で機械が止める。
 
 ## 何を見るか
 
