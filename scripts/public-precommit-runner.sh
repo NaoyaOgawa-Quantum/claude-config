@@ -126,6 +126,23 @@ if [ -f "$DGT_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
   fi
 fi
 
+# shell script で波括弧の無い変数の直後に全角文字が続く形 ("$name、") の gate (UTF-8 の locale では bash 3.2 が全角文字の
+# 先頭 byte を変数名に取り込む)。 述語・escape hatch (CLAUDE_UNBRACED_MB_VAR_GUARD=0) の SoT = check-unbraced-multibyte-var.py
+# docstring、 規約 = conventions/shell-multibyte-truncation.md#unbraced-var-before-multibyte。
+# 止めるのは「exit 1 かつ engine の BLOCK 見出し」 のときだけ。 見出しの無い非 0 (engine の異常終了) は 1 行出して通す。
+UMV_ENGINE="$(dirname "$0")/check-unbraced-multibyte-var.py"
+if [ -f "$UMV_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
+  umv_rc=0
+  umv_out="$(python3 "$UMV_ENGINE" --staged 2>&1)" || umv_rc=$?
+  [ -n "$umv_out" ] && printf '%s\n' "$umv_out" >&2
+  if [ "$umv_rc" -eq 1 ] && printf '%s' "$umv_out" | grep -q 'check-unbraced-multibyte-var: BLOCK'; then
+    exit 1
+  fi
+  if [ "$umv_rc" -ne 0 ] && ! printf '%s' "$umv_out" | grep -q 'check-unbraced-multibyte-var:'; then
+    echo "⚠️ pre-commit: 変数の直後の全角文字の検査が異常終了した (rc=${umv_rc}) — この commit では走っていない (commit は止めない)。 確認: python3 ${UMV_ENGINE} --selftest" >&2
+  fi
+fi
+
 # SESSION.md の形の gate (= 案件ごとの現在地 + 正本への link。 日付を見出しにした節・commit hash・messageId・経緯を詰めた
 # 1 行・200 行を超えて育つ commit を止める。 README の自称正本 = 公開 repo では warn / CLAUDE.md の「SESSION・README に書け」 = warn)。
 # 述語・閾値・escape hatch (CLAUDE_SESSION_SHAPE_GUARD=0) の SoT = check-session-shape.py docstring、 規約 = CONVENTIONS.md#session-no-durable-record。

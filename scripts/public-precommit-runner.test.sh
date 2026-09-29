@@ -296,6 +296,18 @@ expect_named "pass-session-shape-pointer-line" 0 "SESSION.md" \
 CLAUDE_SESSION_SHAPE_GUARD=0 expect_named "pass-session-shape-escape-hatch-proves-which-gate" 0 "SESSION.md" \
   "$(printf '# SESSION\n\n## 2026-09-28 — what was done\n')"
 
+# --------------------------------------------------------------------
+# 変数の直後の全角文字の gate (check-unbraced-multibyte-var.py): shell script に「$name + 読点」 を足す commit を止める。
+# 述語の SoT = check-unbraced-multibyte-var.py docstring。 ここは配線の固定 = 止まる / ${name} + 読点 は通る /
+# escape hatch で通る (= 止めたのがこの gate だという証拠)。 対象は shell script だけなので .sh の名前で stage する。
+# fixture の全角文字は printf の 8 進で書く (この file 自体が gate に当たらないように)。
+# --------------------------------------------------------------------
+UMV_BAD="$(printf 'echo "$name\343\200\201"\n')"
+UMV_OK="$(printf 'echo "${name}\343\200\201"\n')"
+expect_named "block-unbraced-multibyte-var" 1 "run.sh" "$UMV_BAD"
+expect_named "pass-unbraced-multibyte-var-braced" 0 "run.sh" "$UMV_OK"
+CLAUDE_UNBRACED_MB_VAR_GUARD=0 expect_named "pass-unbraced-multibyte-var-escape-hatch-proves-which-gate" 0 "run.sh" "$UMV_BAD"
+
 # 編集時の hook (hooks/public-leak-guard.sh) と本 runner は同じ email allowlist を持つ。
 # 2026-09-12: runner だけ 2026-08-28 に例示 domain を足し、 hook は古いまま test fixture の
 # Write ごとに確認 dialog を出していた → 片側だけの修正が再発しないよう一致を固定する。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit-bib.test.sh — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate が commit を止める / 通す / escape hatch で通る (hermetic)
+# pre-commit-bib.test.sh — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate と変数の直後の全角文字の gate が commit を止める / 通す / escape hatch で通る (hermetic)
 #
 # 正本: claude-config/scripts/pre-commit-bib.test.sh
 # 実行: bash scripts/pre-commit-bib.test.sh (run-all-checks.sh が自動発見)
@@ -85,6 +85,43 @@ else
   case "$(cat "$TMP/err")" in *"check-session-shape:"*"sot-claim"*) ok "「README が正本」 の行を足す commit を止める (engine の見出しつき)";; *) ng "止まったが engine の見出しが無い: $(head -3 "$TMP/err")";; esac
 fi
 (cd "$REPO" && git reset -q --hard HEAD && git clean -qfd) >/dev/null 2>&1
+
+# 変数の直後の全角文字の gate (check-unbraced-multibyte-var.py): shell script に「$name + 読点」 を足す commit を止める
+# (engine の BLOCK 見出しつき) / ${name} + 読点 は通る / CLAUDE_UNBRACED_MB_VAR_GUARD=0 で通る (= 止めたのがこの gate) /
+# engine が見出しなしで異常終了しても commit は止めず 1 行出す (= 故障を違反と読まない)。 述語の SoT = engine の docstring。
+# fixture の全角文字は printf の 8 進で書く (この file 自体が gate に当たらないように)。
+UMV_BASE="$(git -C "$REPO" rev-parse HEAD)"
+try_sh() { # <file content> [env...] → stderr を $OUT に、 rc を返す (通った commit も戻す)
+  local content="$1"; shift
+  printf '%s' "$content" > "$REPO/run.sh"
+  (cd "$REPO" && git add run.sh && env HOME="$FAKE_HOME" "$@" git commit -q -m t 2>"$TMP/err" >/dev/null)
+  local rc=$?
+  OUT="$(cat "$TMP/err")"
+  (cd "$REPO" && git reset -q --hard "$UMV_BASE" && git clean -qfd) >/dev/null 2>&1
+  return $rc
+}
+UMV_BAD="$(printf '#!/usr/bin/env bash\necho "$name\343\200\201"\n')"
+UMV_OK="$(printf '#!/usr/bin/env bash\necho "${name}\343\200\201"\n')"
+if try_sh "$UMV_BAD"; then
+  ng "「\$name + 読点」 を足す commit が通ってしまった"
+else
+  case "$OUT" in *"check-unbraced-multibyte-var: BLOCK"*) ok "「\$name + 読点」 を足す commit を pre-commit-bib が止める (engine の BLOCK 見出しつき)";; *) ng "止まったが engine の見出しが無い (別の gate?): $(printf '%s' "$OUT" | head -3)";; esac
+fi
+if try_sh "$UMV_OK"; then ok "「\${name} + 読点」 の commit は通る"; else ng "「\${name} + 読点」 の commit が止まった: $(printf '%s' "$OUT" | head -3)"; fi
+if try_sh "$UMV_BAD" CLAUDE_UNBRACED_MB_VAR_GUARD=0; then ok "escape hatch (CLAUDE_UNBRACED_MB_VAR_GUARD=0) で通る = 止めたのはこの gate"; else ng "escape hatch でも止まる: $(printf '%s' "$OUT" | head -3)"; fi
+# 偽の scripts dir = hook は写し (readlink の解決先をここにする)、 他は本物への symlink、 この engine だけ見出しなしの rc 1 で落ちる stub
+FAKE_SCRIPTS="$TMP/fake-scripts"; mkdir -p "$FAKE_SCRIPTS"
+for f in "$HERE"/*; do ln -s "$f" "$FAKE_SCRIPTS/$(basename "$f")"; done
+rm -f "$FAKE_SCRIPTS/pre-commit-bib" "$FAKE_SCRIPTS/check-unbraced-multibyte-var.py"
+cp "$HOOK" "$FAKE_SCRIPTS/pre-commit-bib"
+printf 'import sys\nsys.exit(1)\n' > "$FAKE_SCRIPTS/check-unbraced-multibyte-var.py"
+ln -sf "$FAKE_SCRIPTS/pre-commit-bib" "$REPO/.git/hooks/pre-commit"
+if try_sh "$UMV_BAD"; then
+  case "$OUT" in *"異常終了"*) ok "engine が見出しなしで落ちても commit は通り、 1 行出る";; *) ng "engine の故障で commit は通ったが 1 行が出ない";; esac
+else
+  ng "engine の故障で commit が止まった: $(printf '%s' "$OUT" | head -3)"
+fi
+ln -sf "$HOOK" "$REPO/.git/hooks/pre-commit"
 
 echo "pre-commit-bib.test: pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]

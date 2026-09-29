@@ -35,8 +35,8 @@ bash 3.2 (macOS 同梱) の実測 (LC_ALL=en_US.UTF-8 と ja_JP.UTF-8 で同じ�
                           解析したうえで、 この commit で足した行 (`git diff --cached -U0` の hunk) の当たりだけを出す。
                           呼び元との契約 = 「exit 1 かつ見出し `check-unbraced-multibyte-var: BLOCK`」 のときだけ止め、
                           見出しの無い非 0 は 1 行出して通す。 呼び元 = scripts/pre-commit-bib と
-                          scripts/public-precommit-runner.sh (配線は権限規約の保護下 = 本人の裁定を経て入る。
-                          入るまでは commit で止まらず、 --paths / --tree だけが効く)
+                          scripts/public-precommit-runner.sh (2026-09-29 に本人の裁定で配線 = 足した行の
+                          違反は全 repo の commit で止まる)
   --paths FILE...         与えた file の全文を解析して当たりを全部出す (shell かどうかは問わない = 呼び手が選ぶ)
   --tree DIR [--strict]   fleet の棚卸し。 DIR が git repo ならその repo、 そうでなければ直下の各 git repo の、
                           track 済みの shell script を worktree で読む。 報告だけ (exit 0)、 --strict なら当たりで exit 1
