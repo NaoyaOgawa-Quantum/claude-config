@@ -87,6 +87,7 @@
 - **[check-session-shape.py](check-session-shape.py)** — SESSION.md の形 (案件ごとの現在地 + 正本への link) を commit と書き込みの瞬間に守る gate + fleet 走査
 - **[check-session-sot.py](check-session-sot.py)** — Detect durable-data accretion and bloat in SESSION.md files.
 - **[check-sot-drift.py](check-sot-drift.py)** — 「規則の正本は 1 か所、 他所は参照だけ」 を目印の文字列で機械検査する (registry 駆動)
+- **[check-student-identifiers.py](check-student-identifiers.py)** — 学生の識別子 (学籍番号の形・氏名・path の中の姓) を平文で新しく commit させない: commit gate (--staged = stage した path と平文 file の足した行、 --commit-msg = commit message、 違反で exit 1) + fleet の棚卸し (--tree、 報告だけ)。
 - **[check-text-section-refs.py](check-text-section-refs.py)** — 文中の「<file> §「<節名>」」 型の参照が、 実在する file の実在しない節を指していないかを検査する。
 - **[check-unbraced-multibyte-var.mutants.json](check-unbraced-multibyte-var.mutants.json)** — check-unbraced-multibyte-var.py の selftest の foil に歯があることを、 述語・読み方・終了値の一部を外した mutant 8 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[check-unbraced-multibyte-var.py](check-unbraced-multibyte-var.py)** — shell script で波括弧の無い変数の直後に全角文字が続く形 (`"$name、"`) を見つける: commit gate の段 (--staged、 違反で exit 1) + fleet の棚卸し (--tree) (UTF-8 の locale では macOS の bash が全角文字の先頭 byte を変数名に取り込み、 set -u なら落ち、 無ければ値が黙って消える)。
