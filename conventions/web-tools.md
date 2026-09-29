@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check)
 category: web
-summary: #javascript-tool-gotchas (async IIFE → `{}` / 出力 filter / 内部 endpoint 直叩き) + Claude in Chrome の permission 障害は再インストール前に `list_connected_browsers` (再ログイン後の stale 接続) + WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + CSR SPA は fetch に空シェル (200≠実在、 実ブラウザ描画で検証) + booking.com の宿への連絡は確認メールに返信しても届かない = web のメッセージ画面を pane で開きログインは本人 (#booking-property-messaging) + **claude.ai share ページは in-app Browser pane が素通し / page 内 same-origin fetch は snapshot API も 200 (= headless / curl は全滅、 #claude-share-page-access)** + **browser cookie replay は OAuth-token SPA を認証しない (= Box `/f/` 等 member 限定クラウドフォルダは無人 upload 不可、 session API 401 / shared-item 404 で spike 1 回で確定)** + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block) + **内蔵 Browser pane で frameset / popup / 連動 select の古い web app を JS で読み書き (#browser-pane-frameset-popups、 拡張が prompt 無しで拒否する domain の逃げ道)**
+summary: #javascript-tool-gotchas (async IIFE → `{}` / 出力 filter = 文字 whitelist / 戻り値は約 3KB で切れる / 内部 endpoint 直叩き) + Claude in Chrome の permission 障害は再インストール前に `list_connected_browsers` (再ログイン後の stale 接続) + WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + CSR SPA は fetch に空シェル (200≠実在、 実ブラウザ描画で検証) + booking.com の宿への連絡は確認メールに返信しても届かない = web のメッセージ画面を pane で開きログインは本人 (#booking-property-messaging) + **claude.ai share ページは in-app Browser pane が素通し / page 内 same-origin fetch は snapshot API も 200 (= headless / curl は全滅、 #claude-share-page-access)** + **browser cookie replay は OAuth-token SPA を認証しない (= Box `/f/` 等 member 限定クラウドフォルダは無人 upload 不可、 session API 401 / shared-item 404 で spike 1 回で確定)** + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block) + **内蔵 Browser pane で frameset / popup / 連動 select の古い web app を JS で読み書き (#browser-pane-frameset-popups、 拡張が prompt 無しで拒否する domain の逃げ道)**
 -->
 # Web ツール (WebSearch / WebFetch) の信頼性 caveat
 
@@ -302,10 +302,11 @@ Claude in Chrome MCP は **自分専用の tab group** で動く。 user が手�
 
 これは tab group ごとに permission state が独立する設計の帰結。 user が手動でタブを操作している間に MCP が裏で別ドメインに勝手に navigate するのを防ぐ。
 
-### <a id="javascript-tool-gotchas"></a>`javascript_tool` の 3 つの gotcha (2026-09-05 実測)
+### <a id="javascript-tool-gotchas"></a>`javascript_tool` の gotcha (実測)
 
 - **async IIFE の戻りは `{}` に潰れる**: `(async () => {...})()` を最後の式に置くと Promise が serialize されて `{}` が返る。 top-level `await` が使えるので `await (async () => {...})()` で結果の文字列/JSON を最後の式にする。
-- **出力 filter**: tool 結果に cookie / query string に見える文字列 (`=` `&` `;` を含む urlencoded 風の並び、 HTML の `href` 群など) が含まれると結果全体が `[BLOCKED: Cookie/query string data]` に置換される。 DOM を調べる時は `outerHTML` を返さず、 属性名・テキスト・長さだけを組み立てて返す (記号は `->` `|` `:` 等に置換)。 body を捕捉した時も同じ。
+- **出力 filter**: tool 結果に cookie / query string に見える文字列 (`=` `&` `;` を含む urlencoded 風の並び、 HTML の `href` 群など) が含まれると結果全体が `[BLOCKED: Cookie/query string data]` に置換される。 DOM を調べる時は `outerHTML` を返さず、 属性名・テキスト・長さだけを組み立てて返す (記号は `->` `|` `:` 等に置換)。 body を捕捉した時も同じ。 画面の文字 (店名・件名) を返すときは記号の置換では足りず、 返す文字を **whitelist で絞る** (かな・漢字・英数字と少数の記号だけ残して他は `_`)。 同じ処理でも、 行の中身次第で一部の回だけ伏せられる (実測)。
+- **戻り値は約 3KB で切れる** (末尾に `[TRUNCATED]`): 長い結果は件数を減らして分けて呼ぶか、 localhost の受信 server に POST して file で受ける。 一覧を月ごと・ページごとに回す処理は、 1 回の返り値に収まる範囲で区切る ([`machine-route-first.md #page-widget-walk`](machine-route-first.md#page-widget-walk))。
 - **「公開 API が無い web app」 の機械経路**: ログイン済みページの page context から、 UI が叩いている内部 endpoint を同じ method / encoding / header で `fetch` する (= XHR を一時 hook して実 UI 操作 1 回分を捕捉すれば method・field 名が全部分かる。 method 違い〔POST vs PUT〕・encoding 違い〔multipart vs urlencoded〕で 404 になるので推測で組まない)。 GUI click の自動化より速く・行数に依らず・座標に依らない。 recipe 全文 = [`machine-route-first.md #internal-endpoint-replay`](machine-route-first.md#internal-endpoint-replay)。
 
 ### 公式ドキュメント

@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery) + ログインの内側の配布物 (規則・通知・マニュアル) を読んで記録や文面に写すとき (#keep-fetched-originals)
+when: 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery) + ログインの内側の配布物 (規則・通知・マニュアル) を読んで記録や文面に写すとき (#keep-fetched-originals) + 月送り・ページ送りが画面の widget だけの一覧を script で読むとき (#page-widget-walk)
 category: harness-core
-summary: 経路 ladder (dedicated MCP → API 直 → CLI → 経路を実装 → user 依頼 → 画面 drive) — 画面 drive は最終手段で、経路が無いときは「実装するのが先」 (#build-the-route-first = 実装した経路を auto-load 面に記録するまでが 1 単位)。 画面 drive の 3 重コスト (unreliable click / user のマシン拘束 / 対象取り違え) と許容例外。 **他人 owner の共有 document (sheet / form / doc) への書込は画面 drive 禁止級** (#shared-document-write = blast radius が自分の外、 xlsx は API in-place update、 native Sheets は Sheets API、 経路が無ければ user 依頼が先)。 公開 API の無い web app は #internal-endpoint-replay (= XHR hook で UI 操作 1 回を捕捉 → 同 endpoint を page context から叩く → rules/dry-run/apply → reload で確認)
+summary: 経路 ladder (dedicated MCP → API 直 → CLI → 経路を実装 → user 依頼 → 画面 drive) — 画面 drive は最終手段で、経路が無いときは「実装するのが先」 (#build-the-route-first = 実装した経路を auto-load 面に記録するまでが 1 単位)。 画面 drive の 3 重コスト (unreliable click / user のマシン拘束 / 対象取り違え) と許容例外。 **他人 owner の共有 document (sheet / form / doc) への書込は画面 drive 禁止級** (#shared-document-write = blast radius が自分の外、 xlsx は API in-place update、 native Sheets は Sheets API、 経路が無ければ user 依頼が先)。 公開 API の無い web app は #internal-endpoint-replay (= XHR hook で UI 操作 1 回を捕捉 → 同 endpoint を page context から叩く → rules/dry-run/apply → reload で確認)。 URL で切り替えられない一覧は widget のボタンを page context で押して読む (#page-widget-walk)
 -->
 # 機械経路 first (画面 drive は最終手段)
 
@@ -94,6 +94,8 @@ recipe (家計簿カテゴリ一括修正で確立):
 - **header**: そのまま `fetch` すると「client が要る」「言語が要る」 で 400 になることがある。 値は app の bundle の中にある (axios なら `defaults.headers.common.<名前> = "…"` を grep)。 これは全訪問者の browser に配られる公開の識別子で、 本人の認証情報ではない
 - **条件の切替**: query の 1 つ (宅配 / 持ち帰り、 店の code) を変えて取り直すと、 画面で選び直さずに別の条件の値が並ぶ。 店の code を変えても値が同じなら「全店共通」 と言ってよいが、 **その code がどの店かは別に確かめる** (id の見た目で店を推測しない)
 - **線引き**: 誰でも画面で見られる値を、 画面と同じ頻度で読むだけにする。 認証の要る data・大量取得・定期巡回には使わない
+
+<a id="page-widget-walk"></a>**URL で切り替えられない一覧を読む** (実測): 月送り・ページ送りが画面の widget (JS のボタン) だけで、 推測した URL が 404 のとき、 読むだけなら endpoint 探しを続けず widget そのものを使う。 page context から widget 自身のボタン要素を `click()` し、 見出し (表示中の期間の文字) が変わるのを待ってから行を読む、 を繰り返す。 座標でなく要素を押すので layout に依らない。 1 call の timeout に収まる回数で区切り (実測: 16 ページで収まった)、 次の call は開始位置を指定して続ける。 返す文字は whitelist で絞る ([`web-tools.md` javascript_tool gotcha](web-tools.md#javascript-tool-gotchas))。 線引きは [#internal-endpoint-replay](#internal-endpoint-replay) と同じ (user 本人の session で、 user が画面で読める範囲だけ)。
 
 ## <a id="session-cookie-reuse"></a>credential を発行できない web app: browser session cookie の再利用 (= ladder 4 のもう 1 形態)
 
