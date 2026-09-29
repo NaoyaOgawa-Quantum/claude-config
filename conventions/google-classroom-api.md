@@ -18,6 +18,7 @@ summary: Classroom API の実測済み挙動 = 先生はクラスを ACTIVE で�
 | `classroom.profile.emails` | 一覧に mail address が付く | 無いと一覧は userId と氏名だけ。 address で突き合わせるには 1 人ずつ逆に引く = [#roster-match-by-address](#roster-match-by-address) (実測) |
 | `classroom.announcements` | お知らせの読み書き | — |
 | `classroom.coursework.students` | 課題の作成・提出の読み書き | — |
+| `classroom.courseworkmaterials` (`.readonly`) | 授業の「資料」 欄の読み書き (読むだけなら `.readonly`) | 課題・お知らせの scope では資料欄は読めない = `courseWorkMaterials.list` が 403 insufficient scopes (実測)。 共同の先生が資料欄に置いた物を「無い」 と言わない |
 
 scope を足したら token を取り直す (consent を 1 回)。 同じ OAuth client を使う他の道具 (提出の取り込み等) は scope が広がっても壊れない。
 
@@ -61,10 +62,11 @@ scope を足したら token を取り直す (consent を 1 回)。 同じ OAuth 
 
 - `courses.announcements.create` の `materials` に `{driveFile: {driveFile: {id}, shareMode: "VIEW"}}` を入れる (実測)。 file は先生本人の Drive に上げておくだけでよく、 **共有設定は要らない** (Classroom が受講者に閲覧権限を付ける)
 - Drive への upload に使う token (例: `drive.file` scope の別 token) と Classroom の token が別でも、 同じアカウントなら添付できる (実測)
+- <a id="attach-adds-teachers-group"></a>Drive の file を添付すると (下書きでも)、 Classroom がクラスの先生のグループ (`teachers_…@<domain>` の group) を file の編集者に加える (実測) = 共同の先生もそのまま編集できる。 受講者の権限は下書きの段階では付かない。 添付した後に `permissions.list` で確かめられる
 - 添付の代わりに Dropbox 等の共有リンクを本文に貼る運用もある。 添付は Classroom の中で開けて、 受講者以外には見えない
 - お知らせも投稿した瞬間にクラス全員に見える: 文面と添付を人に見せてから投稿し、 投稿後は `announcements.get` で読み戻して本文と添付を照合する (貼り付けで文が落ちる事故の検出 = [`paste-destined-plain-text.md`](paste-destined-plain-text.md))
-- <a id="draft-announcement"></a>**お知らせは下書き (`state: "DRAFT"`) で作れる** (実測): 受講者には見えず、 授業中に先生が画面の下書きから「投稿」 を押せば公開される = 授業で見せる資料を前夜に入れておく用途に向く (公開の判断を当日に残せる)。 ⚠️ 下書きには `alternateLink` が返らない (作成結果から URL を取る処理はそこで落ちる。 作成は成功しているので**再実行しない** = 二重に作る)。 ⚠️ `announcements.list` は状態を指定しないと公開済みしか返さず、 下書きが見えない (実測) = 読み戻しは `announcementStates: ["DRAFT", "PUBLISHED"]` を付けて一覧し、 `announcements.get` で本文を照合する。 ⚠️ 共同で教える先生から下書きが見えるかは未実測 = 相手に「入れておいた」 と伝えるときは、 相手が画面で見られる前提にしない
-- <a id="replace-attachment-in-place"></a>**添付の中身だけ差し替える = Drive の同じ file を上書きする** (実測): `files.update(fileId, media_body=…)` で中身を入れ替えると、 お知らせは添付の同じ file を指したまま = 投稿し直さない (受講者に通知が飛ばない)。 添付の表示名は Drive の file 名のまま、 前の版は Drive の版履歴に残る。 `drive.file` scope の token でも、 同じ OAuth client で上げた file なら書ける。 上書きの前に Drive 側の `md5Checksum` が「差し替える前の手元の file」 と一致するかを見て、 違う file を上書きしないようにする。 上書き後は `md5Checksum` が新しい file と一致することを見る
+- <a id="draft-announcement"></a>**お知らせは下書き (`state: "DRAFT"`) で作れる** (実測): 受講者には見えず、 授業中に先生が画面の下書きから「投稿」 を押せば公開される = 授業で見せる資料を前夜に入れておく用途に向く (公開の判断を当日に残せる)。 ⚠️ 下書きには `alternateLink` が返らない (作成結果から URL を取る処理はそこで落ちる。 作成は成功しているので**再実行しない** = 二重に作る)。 ⚠️ `announcements.list` は状態を指定しないと公開済みしか返さず、 下書きが見えない (実測) = 読み戻しは `announcementStates: ["DRAFT", "PUBLISHED"]` を付けて一覧し、 `announcements.get` で本文を照合する。 共同で教える先生 (クラスの owner を含む) にも下書きは見え、 その先生が投稿できる (実測 = 共同の先生が下書きを見つけて投稿した) = 公開の判断を自分で持ちたいなら、 下書きを入れたことと誰が投稿するかを相手に伝える
+- <a id="replace-attachment-in-place"></a>**添付の中身だけ差し替える = Drive の同じ file を上書きする** (実測): `files.update(fileId, media_body=…)` で中身を入れ替えると、 お知らせは添付の同じ file を指したまま = 投稿し直さない (受講者に通知が飛ばない)。 添付の表示名は Drive の file 名のまま、 前の版は Drive の版履歴に残る。 `drive.file` scope の token でも、 同じ OAuth client で上げた file なら書ける。 上書きの前に Drive 側の `md5Checksum` が「差し替える前の手元の file」 と一致するかを見て、 違う file を上書きしないようにする。 上書き後は `md5Checksum` が新しい file と一致することを見る。 ⚠️ Google ドキュメント (Drive 上の native の文書) には `md5Checksum` が無い = 上書きの前に `modifiedTime` と `lastModifyingUser` が自分の最後の書き込みのままかを見る (共同の先生が編集していたら上書きしない = その人の編集が消える)。 docx を native の文書として上げ直すなら `files.update` に docx の mimeType で渡す (実測)。 末尾に書き足すだけなら Docs API (`documents.batchUpdate`) のほうが上書きより安全だが、 project で Docs API が有効でないと使えない (実測)
 
 ## <a id="read-submissions"></a>提出の読み取り
 
