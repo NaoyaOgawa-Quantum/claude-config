@@ -39,7 +39,7 @@ shader の実出力を f64 と照合するには、 検証用の uniform で**�
 - 読み戻しは `preserveDrawingBuffer: true` + `readPixels(RGBA, UNSIGNED_BYTE)`。 dithering を切る (`gl.disable(gl.DITHER)`)。
 - 画素の方向は返さず、 **camera 基底・画角・canvas 寸法を返して、 f64 側で画素中心の方向を shader と同じ式で組み直す** (戻り値を小さく保つ)。 f64 側で観測者の boost 等も独立に再計算し、 参照実装の写像と比べる。
 - 検証用の描画は**時間を進めない** (1 回描く hook は dynamics の積分を呼ばない) = 照合中に状態がずれない。 描画 loop が止まっていても (pane が隠れている等) 同期的に描いて読める。
-- 大きな戻り値を file に落とすときは書き写さない → [`preview.md#browser-pane-visibility`](preview.md#browser-pane-visibility) の transcript からの取り出し。
+- 大きな戻り値を file に落とすときは書き写さない → [`preview.md#tool-result-to-file`](preview.md#tool-result-to-file) (transcript から取り出す)。
 
 ## <a id="seam-pixel-diff"></a>継ぎ目の連続性を実画面で測る
 
