@@ -114,7 +114,9 @@ def report(findings: list[tuple[str, str]]) -> None:
                 f"`{LAYER3_DECLARATION} <reason>` near the top"
             )
         else:
-            print(f"  {kind}: {relative} — keep one upper engine and a lower config/shim")
+            print(f"  {kind}: {relative} — keep one upper engine and a lower config/shim"
+                  + (" (a shim hands off with os.execv or exec(compile(...)) and names the claude-config engine;"
+                     " subprocess.call is not recognised as a hand-off)" if kind == "DUPLICATE_ENGINE" else ""))
 
 
 def run_selftest() -> int:
