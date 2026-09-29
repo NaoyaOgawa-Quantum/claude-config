@@ -323,6 +323,9 @@ sections:
   - id: typed-confirmation-prevention
     level: 3
     title: "防止策"
+  - id: stop-hook-addendum-not-reemission
+    level: 2
+    title: "§17. Stop hook は返事の「全文の出し直し」 を要求しない — 不足の追記だけ、 または返事の前に要求を出す (2026-09)"
   - id: related-docs
     level: 2
     title: "関連"
