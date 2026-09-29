@@ -3141,69 +3141,87 @@ def pending_lines(rows: list[dict], me: str) -> list[str]:
     return out
 
 
-def reconcile_written(state: dict) -> list[dict]:
-    """持ち主の session の返事に、 記録の後でその行がもう書かれている未処理の記録を処理済みにする。 照合は Stop と同じ消費の
-    規則 = 返事の 1 行は最多 1 記録に使い、 印字そのものを持つ行を先にその記録へ、 残りを引用の冒頭 20 字で当てる。 持ち主の
-    処理済みの記録も同じ規則で先に行を取る (その行を未処理の双子に使わない)。 前の返事と同じ行 (再送) は 1 本に数え、 表示が
-    まったく同じ未処理の記録は 1 行で全部。 読めない transcript は飛ばす (処理済みにしない)。 実測: 直す前の engine は差し戻しの後の
-    Stop で照合しなかったので、 書かれた行が未処理のまま残り、 別の session の開始で再要求された。 返り値 = 処理済みにした記録。"""
+def owner_turns(sid: str) -> list[tuple[str, str, bool]] | None:
+    """持ち主の session の各 turn の (返事の時刻, 最終発話, 差し戻しの後の出し直しか)。 返事の時刻 = turn の最後の行の時刻
+    (turn の先頭 = 本人の発言は記録より前のことがある)。 transcript が無い・読めないなら None。"""
     import transcript_turns as tt
+    try:
+        path = find_transcript("claude", sid)
+        if not path:
+            return None
+        out = []
+        for t in tt.turns(tt.load_entries(path)):
+            head = t[0]
+            c = (head.get("message") or {}).get("content")
+            head_text = c if isinstance(c, str) else "".join(
+                b.get("text", "") for b in c if isinstance(b, dict)) if isinstance(c, list) else ""
+            resend = bool(head.get("isMeta")) and "Stop hook feedback" in head_text
+            out.append((max(str(x.get("timestamp", "")) for x in t), tt.summarize(t)[0], resend))
+        return out
+    except Exception:
+        return None
+
+
+def assign_owner_lines(rows: list[dict], turns: list[tuple[str, str, bool]], handled: dict) -> dict[str, bool]:
+    """持ち主の返事の行を記録へ割り当てる (Stop と同じ消費の規則)。 返事の 1 行は最多 1 記録に使い、 印字そのものを持つ行を
+    先にその記録へ、 残りを引用の冒頭 20 字で当てる。 記録より前の返事の行は使わない。 前の返事と同じ行 (再送) は 1 本に数え、
+    表示がまったく同じ記録は、 その行を書いた時点で在ったものを 1 行で全部 (写しがあれば 1 本ずつ当てる)。 同じ時刻では処理済みの
+    記録が先に行を取る。 返り値 = {記録の key: その行が差し戻しの後の出し直しで書かれたか}。 照合し直しと --audit が共有する。"""
+    lines: list[tuple[str, str, str, bool]] = []  # (時刻, 行, 畳んだ行, 出し直しか)
+    seen_lines: set[str] = set()
+    for ts, text, resend in turns:
+        own = [line for line in (text or "").splitlines() if line.strip()]
+        lines += [(ts, line, collapse_ws(line), resend) for line in own if collapse_ws(line) not in seen_lines]
+        seen_lines.update(collapse_ws(line) for line in own)
+    printed = {additive_key(e): printed_body(e) for e in rows}
+    oldest = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
+    order = sorted(rows, key=lambda row: (_utc(str(row.get("at", ""))) or oldest, additive_key(row) not in handled))
+    used: set[int] = set()
+    got: dict[str, bool] = {}
+    for exact in (True, False):
+        for e in order:
+            k = additive_key(e)
+            if k in got:
+                continue
+            at = str(e.get("at", ""))[:19]
+            for i, (ts, line, norm, resend) in enumerate(lines):
+                if i in used or ts[:19] < at or OTHER_MARK in norm:
+                    continue
+                if not (printed[k] in norm if exact else additive_disclosed(e, line)):
+                    continue
+                used.add(i)
+                got[k] = resend
+                for d in rows:
+                    dk = additive_key(d)
+                    if dk in got or printed[dk] != printed[k] or str(d.get("at", ""))[:19] > ts[:19]:
+                        continue
+                    got[dk] = resend
+                    j = next((j for j in range(len(lines)) if j not in used and lines[j][2] == norm), None)
+                    if j is not None:
+                        used.add(j)
+                break
+    return got
+
+
+def reconcile_written(state: dict) -> list[dict]:
+    """持ち主の session の返事に、 記録の後でその行がもう書かれている未処理の記録を処理済みにする (行の割り当ては
+    assign_owner_lines = Stop と同じ消費の規則)。 読めない transcript は飛ばす (処理済みにしない)。 実測: 直す前の engine は
+    差し戻しの後の Stop で照合しなかったので、 書かれた行が未処理のまま残り、 別の session の開始で再要求された。
+    返り値 = 処理済みにした記録。"""
     by_owner: dict[str, list[dict]] = {}
     for e in load_additive_log():
         agent, _, sid = str(e.get("session") or "").partition(":")
         if agent == "claude" and SAFE_ID.match(sid):
             by_owner.setdefault(sid, []).append(e)
-    oldest = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
     done: list[dict] = []
     for sid, rows in by_owner.items():
         if all(additive_key(e) in state["handled"] for e in rows):
             continue
-        try:
-            path = find_transcript("claude", sid)
-            if not path:
-                continue
-            # 返事の時刻 = turn の最後の行の時刻 (turn の先頭 = 本人の発言は記録より前のことがある)
-            finals = [(max(str(x.get("timestamp", "")) for x in t), tt.summarize(t)[0]) for t in tt.turns(tt.load_entries(path))]
-        except Exception:
+        turns = owner_turns(sid)
+        if turns is None:
             continue
-        lines: list[tuple[str, str, str]] = []  # (時刻, 行, 畳んだ行)
-        seen_lines: set[str] = set()
-        for ts, text in finals:
-            own = [line for line in (text or "").splitlines() if line.strip()]
-            lines += [(ts, line, collapse_ws(line)) for line in own if collapse_ws(line) not in seen_lines]
-            seen_lines.update(collapse_ws(line) for line in own)
-        pending = [e for e in rows if additive_key(e) not in state["handled"]]
-        printed = {additive_key(e): printed_body(e) for e in rows}
-        order = sorted(rows, key=lambda row: (_utc(str(row.get("at", ""))) or oldest, additive_key(row) not in state["handled"]))
-        used: set[int] = set()
-        matched: set[str] = set()
-        told: set[str] = set()
-        for exact in (True, False):
-            for e in order:
-                k = additive_key(e)
-                if k in matched:
-                    continue
-                at = str(e.get("at", ""))[:19]
-                for i, (ts, line, norm) in enumerate(lines):
-                    if i in used or ts[:19] < at or OTHER_MARK in norm:
-                        continue
-                    if not (printed[k] in norm if exact else additive_disclosed(e, line)):
-                        continue
-                    used.add(i)
-                    matched.add(k)
-                    if k not in state["handled"]:
-                        told.add(k)
-                        for d in pending:
-                            dk = additive_key(d)
-                            if dk in told or printed[dk] != printed[k] or str(d.get("at", ""))[:19] > ts[:19]:
-                                continue
-                            told.add(dk)
-                            matched.add(dk)
-                            j = next((j for j in range(len(lines)) if j not in used and lines[j][2] == norm), None)
-                            if j is not None:
-                                used.add(j)
-                    break
-        done += [e for e in pending if additive_key(e) in told]
+        got = assign_owner_lines(rows, turns, state["handled"])
+        done += [e for e in rows if additive_key(e) not in state["handled"] and additive_key(e) in got]
     if done:
         now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
         for e in done:
@@ -3215,51 +3233,38 @@ def reconcile_written(state: dict) -> list[dict]:
 
 def audit_additive(days: float | None = 30) -> list[tuple[str, dict]]:
     """記録ごとに「返事に書いた session」 と「処理済みにした session」 で分類する (読むだけ = state を書かない)。
-    返事 = 持ち主の transcript の各 turn の最終発話 (時刻 = turn の最後の行)、 照合は Stop と同じ。 ★ = 持ち主が書いたのに
-    別の session に再要求された (処理済みを書き損ねた型)。 別の機械の記録は読めない = その機械で回す。"""
-    import transcript_turns as tt
+    持ち主が書いたかは assign_owner_lines (照合し直しと同じ = Stop と同じ消費の規則、 冒頭が同じ双子の片方の行で両方を
+    「書いた」 と数えない)。 ★ = 持ち主が書いたのに別の session に再要求された (処理済みを書き損ねた型)。 別の機械の記録は
+    読めない = その機械で回す。"""
     state = load_handled()
     cut = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days) if days else None
     rows = [e for e in load_additive_log() if cut is None or (_utc(str(e.get("at", ""))) or cut) >= cut]
-    turns_of: dict[str, list[tuple[str, str, bool]] | None] = {}
-
-    def turns(sid: str):
-        if sid not in turns_of:
-            try:
-                path = find_transcript("claude", sid)
-                out = []
-                for t in tt.turns(tt.load_entries(path)) if path else []:
-                    text = tt.summarize(t)[0]
-                    head = t[0]
-                    c = (head.get("message") or {}).get("content")
-                    head_text = c if isinstance(c, str) else "".join(
-                        b.get("text", "") for b in c if isinstance(b, dict)) if isinstance(c, list) else ""
-                    resend = bool(head.get("isMeta")) and "Stop hook feedback" in head_text
-                    out.append((max(str(x.get("timestamp", "")) for x in t), text, resend))
-                turns_of[sid] = out if path else None
-            except Exception:
-                turns_of[sid] = None
-        return turns_of[sid]
-
+    by_owner: dict[str, list[dict]] = {}
+    for e in rows:
+        agent, _, sid = str(e.get("session") or "").partition(":")
+        by_owner.setdefault(sid if agent == "claude" and SAFE_ID.match(sid) else "", []).append(e)
+    wrote: dict[str, bool] = {}
+    readable: set[str] = set()
+    for sid, group in by_owner.items():
+        turns = owner_turns(sid) if sid else None
+        if turns is None:
+            continue
+        readable.add(sid)
+        wrote.update(assign_owner_lines(group, turns, state["handled"]))
     result = []
     for e in rows:
         owner = str(e.get("session") or "")
-        agent, _, sid = owner.partition(":")
-        seen = turns(sid) if agent == "claude" and SAFE_ID.match(sid) else None
-        at = str(e.get("at", ""))[:19]
-        body = printed_body(e)
-        echoes = [resend for ts, text, resend in (seen or []) if text and ts[:19] >= at
-                  and (any(body in collapse_ws(line) for line in text.splitlines()) or additive_disclosed(e, text))]
-        h = state["handled"].get(additive_key(e))
+        k = additive_key(e)
+        h = state["handled"].get(k)
         if not isinstance(h, dict):
-            label = ("未処理 (持ち主の transcript が読めない)" if seen is None
-                     else "未処理 (持ち主が書いた)" if echoes else "未処理 (誰も書いていない)")
+            label = ("未処理 (持ち主の transcript が読めない)" if owner.partition(":")[2] not in readable
+                     else "未処理 (持ち主が書いた)" if k in wrote else "未処理 (誰も書いていない)")
         elif h.get("how") != "reply":
             label = f"処理済み ({h.get('how')})"
         elif h.get("session") == owner:
-            label = "持ち主が処理 (差し戻しの後の返事で書いた)" if echoes and all(echoes) else "持ち主が処理"
+            label = "持ち主が処理 (差し戻しの後の返事で書いた)" if wrote.get(k) else "持ち主が処理"
         else:
-            label = "★ 持ち主が書いたのに別の session に再要求された" if echoes else "別の session が処理 (持ち主は書いていない)"
+            label = "★ 持ち主が書いたのに別の session に再要求された" if k in wrote else "別の session が処理 (持ち主は書いていない)"
         result.append((label, e))
     return result
 
@@ -5089,6 +5094,8 @@ def selftest() -> int:
         check("照合し直しも 1 行は 1 記録: 冒頭が同じ双子の片方の行だけなら、 その記録だけを処理済みにする",
               [e["sha"] for e in done] == ["tb"] and "ta" in keys_left())
         labels = {e["sha"]: label for label, e in audit_additive(None)}
+        check("--audit も 1 行は 1 記録: 冒頭が同じ双子の書かれていない方を「持ち主が書いた」 と数えない",
+              labels.get("ta") == "未処理 (誰も書いていない)" and labels.get("tb") == "処理済み (reply-found)")
         check("--audit: 持ち主が書いて照合し直した記録 / 書いていない記録 / transcript の無い持ち主を分けて出す (state は書かない)",
               labels.get("w") == "処理済み (reply-found)" and labels.get("n") == "未処理 (誰も書いていない)"
               and labels.get("x") == "未処理 (持ち主の transcript が読めない)" and keys_left() == ["b", "n", "ta", "x"])
