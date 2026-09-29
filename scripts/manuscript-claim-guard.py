@@ -1821,7 +1821,7 @@ def insertion_notice(rows: list[dict]) -> str:
 def echo_notice(rows: list[dict]) -> str:
     """通った変更ごとに、 この turn の最後の返事に書く行そのもの (Stop が照合する行) を、 その tool の結果と一緒に渡す。
     Stop で初めて知らせると、 足りない行を差し戻して書かせることになり、 本人の画面に返事が 2 回出る
-    (実測: 記録の 37% が差し戻しを経ていた。 hook-authoring.md#stop-hook-addendum-not-reemission)。 無ければ ""。"""
+    (実測: 差し戻しを経た記録が多かった。 hook-authoring.md#stop-hook-addendum-not-reemission)。 無ければ ""。"""
     lines = list(dict.fromkeys(additive_line(e) for e in rows))
     if not lines:
         return ""
@@ -2793,6 +2793,8 @@ def apply_mode(args: argparse.Namespace) -> int:
     diff = list(difflib.unified_diff(old.splitlines(), new.splitlines(), f"a/{rel}", f"b/{rel}", lineterm="", n=1))
     print("\n".join(diff[:60]) + (f"\n… ほか {len(diff) - 60} 行" if len(diff) > 60 else ""))
     print(f"apply: {rel} に候補を写した ({'承認を記録して' if left else '追記として記録して'}、 照合 一致)。")
+    if not left and LAST_WRITTEN and (session is None or session[0] == "claude") and not headless():
+        print(echo_notice(LAST_WRITTEN))  # 裁定なしで通った分も、 返事に書く行を先に渡す (Stop の差し戻しを経させない)
     return 0
 
 
@@ -3037,7 +3039,7 @@ def group_other_sessions(rows: list[dict], me: str) -> dict[str, list[dict]]:
 
 def other_file_line(where: str, rows: list[dict]) -> str:
     """他の session の分を file ごとに 1 行 (件数と最新の 1 例)。 個々の変更は additive-log で読める
-    (実測: 無関係な session の最初の返事に 61 行・20 KB を求めた = 本人が読める量を超え、 目に入れる目的に反する)。"""
+    (実測: 無関係な session の最初の返事に数十行を求めた = 本人が読める量を超え、 目に入れる目的に反する)。"""
     latest = max(rows, key=lambda r: str(r.get("at", "")))
     detail = collapse_ws(additive_line(latest).split(" — ", 1)[-1])
     detail = detail if len(detail) <= 90 else detail[:90] + "…"
@@ -3069,31 +3071,68 @@ def pending_lines(rows: list[dict], me: str) -> list[str]:
 
 
 def reconcile_written(state: dict) -> list[dict]:
-    """持ち主の session の返事に、 記録の後でその行がもう書かれている未処理の記録を処理済みにする。 返事 = 持ち主の transcript の
-    各 turn の最終発話、 照合は Stop と同じ (印字そのもの、 無ければ引用の冒頭 20 字)。 読めない transcript は飛ばす (処理済みに
-    しない)。 実測: 直す前の engine は差し戻しの後の Stop で照合しなかったので、 書かれた行が未処理のまま残り、 別の session の
-    開始で再要求された。 返り値 = 処理済みにした記録。"""
+    """持ち主の session の返事に、 記録の後でその行がもう書かれている未処理の記録を処理済みにする。 照合は Stop と同じ消費の
+    規則 = 返事の 1 行は最多 1 記録に使い、 印字そのものを持つ行を先にその記録へ、 残りを引用の冒頭 20 字で当てる。 持ち主の
+    処理済みの記録も同じ規則で先に行を取る (その行を未処理の双子に使わない)。 前の返事と同じ行 (再送) は 1 本に数え、 表示が
+    まったく同じ未処理の記録は 1 行で全部。 読めない transcript は飛ばす (処理済みにしない)。 実測: 直す前の engine は差し戻しの後の
+    Stop で照合しなかったので、 書かれた行が未処理のまま残り、 別の session の開始で再要求された。 返り値 = 処理済みにした記録。"""
     import transcript_turns as tt
     by_owner: dict[str, list[dict]] = {}
-    for e in pending_additive(state):
+    for e in load_additive_log():
         agent, _, sid = str(e.get("session") or "").partition(":")
         if agent == "claude" and SAFE_ID.match(sid):
             by_owner.setdefault(sid, []).append(e)
+    oldest = _dt.datetime.min.replace(tzinfo=_dt.timezone.utc)
     done: list[dict] = []
     for sid, rows in by_owner.items():
+        if all(additive_key(e) in state["handled"] for e in rows):
+            continue
         try:
             path = find_transcript("claude", sid)
+            if not path:
+                continue
             # 返事の時刻 = turn の最後の行の時刻 (turn の先頭 = 本人の発言は記録より前のことがある)
-            finals = [(max(str(x.get("timestamp", "")) for x in t), tt.summarize(t)[0])
-                      for t in tt.turns(tt.load_entries(path))] if path else []
+            finals = [(max(str(x.get("timestamp", "")) for x in t), tt.summarize(t)[0]) for t in tt.turns(tt.load_entries(path))]
         except Exception:
             continue
-        for e in rows:
-            at = str(e.get("at", ""))[:19]
-            body = printed_body(e)
-            if any(text and ts[:19] >= at and (any(body in collapse_ws(line) for line in text.splitlines())
-                                              or additive_disclosed(e, text)) for ts, text in finals):
-                done.append(e)
+        lines: list[tuple[str, str, str]] = []  # (時刻, 行, 畳んだ行)
+        seen_lines: set[str] = set()
+        for ts, text in finals:
+            own = [line for line in (text or "").splitlines() if line.strip()]
+            lines += [(ts, line, collapse_ws(line)) for line in own if collapse_ws(line) not in seen_lines]
+            seen_lines.update(collapse_ws(line) for line in own)
+        pending = [e for e in rows if additive_key(e) not in state["handled"]]
+        printed = {additive_key(e): printed_body(e) for e in rows}
+        order = sorted(rows, key=lambda row: (_utc(str(row.get("at", ""))) or oldest, additive_key(row) not in state["handled"]))
+        used: set[int] = set()
+        matched: set[str] = set()
+        told: set[str] = set()
+        for exact in (True, False):
+            for e in order:
+                k = additive_key(e)
+                if k in matched:
+                    continue
+                at = str(e.get("at", ""))[:19]
+                for i, (ts, line, norm) in enumerate(lines):
+                    if i in used or ts[:19] < at or OTHER_MARK in norm:
+                        continue
+                    if not (printed[k] in norm if exact else additive_disclosed(e, line)):
+                        continue
+                    used.add(i)
+                    matched.add(k)
+                    if k not in state["handled"]:
+                        told.add(k)
+                        for d in pending:
+                            dk = additive_key(d)
+                            if dk in told or printed[dk] != printed[k] or str(d.get("at", ""))[:19] > ts[:19]:
+                                continue
+                            told.add(dk)
+                            matched.add(dk)
+                            j = next((j for j in range(len(lines)) if j not in used and lines[j][2] == norm), None)
+                            if j is not None:
+                                used.add(j)
+                    break
+        done += [e for e in pending if additive_key(e) in told]
     if done:
         now = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
         for e in done:
@@ -3101,6 +3140,57 @@ def reconcile_written(state: dict) -> list[dict]:
             state["assigned"].pop(additive_key(e), None)
         save_handled(state)
     return done
+
+
+def audit_additive(days: float | None = 30) -> list[tuple[str, dict]]:
+    """記録ごとに「返事に書いた session」 と「処理済みにした session」 で分類する (読むだけ = state を書かない)。
+    返事 = 持ち主の transcript の各 turn の最終発話 (時刻 = turn の最後の行)、 照合は Stop と同じ。 ★ = 持ち主が書いたのに
+    別の session に再要求された (処理済みを書き損ねた型)。 別の機械の記録は読めない = その機械で回す。"""
+    import transcript_turns as tt
+    state = load_handled()
+    cut = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=days) if days else None
+    rows = [e for e in load_additive_log() if cut is None or (_utc(str(e.get("at", ""))) or cut) >= cut]
+    turns_of: dict[str, list[tuple[str, str, bool]] | None] = {}
+
+    def turns(sid: str):
+        if sid not in turns_of:
+            try:
+                path = find_transcript("claude", sid)
+                out = []
+                for t in tt.turns(tt.load_entries(path)) if path else []:
+                    text = tt.summarize(t)[0]
+                    head = t[0]
+                    c = (head.get("message") or {}).get("content")
+                    head_text = c if isinstance(c, str) else "".join(
+                        b.get("text", "") for b in c if isinstance(b, dict)) if isinstance(c, list) else ""
+                    resend = bool(head.get("isMeta")) and "Stop hook feedback" in head_text
+                    out.append((max(str(x.get("timestamp", "")) for x in t), text, resend))
+                turns_of[sid] = out if path else None
+            except Exception:
+                turns_of[sid] = None
+        return turns_of[sid]
+
+    result = []
+    for e in rows:
+        owner = str(e.get("session") or "")
+        agent, _, sid = owner.partition(":")
+        seen = turns(sid) if agent == "claude" and SAFE_ID.match(sid) else None
+        at = str(e.get("at", ""))[:19]
+        body = printed_body(e)
+        echoes = [resend for ts, text, resend in (seen or []) if text and ts[:19] >= at
+                  and (any(body in collapse_ws(line) for line in text.splitlines()) or additive_disclosed(e, text))]
+        h = state["handled"].get(additive_key(e))
+        if not isinstance(h, dict):
+            label = ("未処理 (持ち主の transcript が読めない)" if seen is None
+                     else "未処理 (持ち主が書いた)" if echoes else "未処理 (誰も書いていない)")
+        elif h.get("how") != "reply":
+            label = f"処理済み ({h.get('how')})"
+        elif h.get("session") == owner:
+            label = "持ち主が処理 (差し戻しの後の返事で書いた)" if echoes and all(echoes) else "持ち主が処理"
+        else:
+            label = "★ 持ち主が書いたのに別の session に再要求された" if echoes else "別の session が処理 (持ち主は書いていない)"
+        result.append((label, e))
+    return result
 
 
 def live_claude_sessions() -> set[str]:
@@ -3137,6 +3227,16 @@ def additive_log_mode(args: argparse.Namespace) -> int:
               " 正本 = conventions/agent-rule-ownership.md#additive-and-free-zones")
         return 0
     state = load_handled()
+    if getattr(args, "audit", False):
+        rows = audit_additive(args.days if args.days else 30)
+        counts = Counter(label for label, _ in rows)
+        print(f"記録 {len(rows)} 件 (直近 {args.days or 30:g} 日、 この機械の記録だけ)")
+        for label, n in counts.most_common():
+            print(f"{n:5d}  {label}")
+        for label, e in rows:
+            if label.startswith("★") or label.startswith("未処理"):
+                print(f"  {label}: {str(e.get('at', ''))[:16]} {e.get('session', '')} {additive_where(e)}")
+        return 0
     if getattr(args, "reconcile", False):
         done = reconcile_written(state)
         print(f"持ち主の返事にもう書かれていた記録を処理済みにした: {len(done)} 件")
@@ -4812,6 +4912,21 @@ def selftest() -> int:
         with contextlib.redirect_stdout(buf):
             additive_log_mode(argparse.Namespace(ack=False, surface=False, days=None, quote=None, session=None, reconcile=True))
         check("--reconcile は処理済みにした件数を出す (書かれていなければ 0)", "0 件" in buf.getvalue())
+        twin_a = {**rf, "sha": "ta", "at": at(4), "text": "二十字を超えて同じ前置きの照合し直しの文、 そのあと甲"}
+        twin_b = {**rf, "sha": "tb", "at": at(4.01), "text": "二十字を超えて同じ前置きの照合し直しの文、 そのあと乙"}
+        with open(state_dir() / ADDITIVE_LOG, "a", encoding="utf-8") as fh:
+            for row in (twin_a, twin_b):
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        with open(tr_rf, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant", "timestamp": at(4.5), "message": {"content": [
+                {"type": "text", "text": additive_line(twin_b)}]}}, ensure_ascii=False) + "\n")
+        done = reconcile_written(load_handled())
+        check("照合し直しも 1 行は 1 記録: 冒頭が同じ双子の片方の行だけなら、 その記録だけを処理済みにする",
+              [e["sha"] for e in done] == ["tb"] and "ta" in keys_left())
+        labels = {e["sha"]: label for label, e in audit_additive(None)}
+        check("--audit: 持ち主が書いて照合し直した記録 / 書いていない記録 / transcript の無い持ち主を分けて出す (state は書かない)",
+              labels.get("w") == "処理済み (reply-found)" and labels.get("n") == "未処理 (誰も書いていない)"
+              and labels.get("x") == "未処理 (持ち主の transcript が読めない)" and keys_left() == ["b", "n", "ta", "x"])
         (state_dir() / ADDITIVE_HANDLED).unlink(missing_ok=True)
         (state_dir() / ADDITIVE_LOG).unlink(missing_ok=True)
         subprocess.run(["git", "reset", "-q"], cwd=rr, env=genv, capture_output=True, check=False)
@@ -4962,6 +5077,14 @@ def selftest() -> int:
         check("apply: 裁定なしで通る変更なら承認を記録せず、 記録に残して写す",
               rc3 == 0 and mail.read_text(encoding="utf-8") == cand3.read_text(encoding="utf-8")
               and any(e.get("file") == "conventions/mail.md" and "宛名も読む" in str(e.get("text")) for e in load_additive_log()))
+        cand4 = tdp / "cand-mail4.md"
+        cand4.write_text(rules + "差出人の署名も読む。\n", encoding="utf-8")
+        PENDING_EXEMPTIONS.clear()
+        out4 = io.StringIO()
+        with contextlib.redirect_stdout(out4):
+            rc4 = apply_mode(argparse.Namespace(**{**vars(ap_ns), "candidate": str(cand4), "latest": False}))
+        check("apply: 裁定なしで通った分も、 返事に書く行 (🧾) を出す",
+              rc4 == 0 and "🧾" in out4.getvalue() and "差出人の署名も読む" in out4.getvalue())
         subprocess.run(["git", "checkout", "-q", "--", "conventions/mail.md"], cwd=rr, env=genv, capture_output=True, check=False)
         reset_caches()
         if saved_ep is None:
@@ -5024,6 +5147,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument("--ack", action="store_true", help="廃止 (返事に書いた時点で処理済みになる)")
     g.add_argument("--quote", help="廃止")
     g.add_argument("--source", help="SessionStart の source (startup / resume / clear / compact)。 compact では割り当てない")
+    g.add_argument("--audit", action="store_true",
+                   help="記録ごとに、 返事に書いた session と処理済みにした session で分類して出す (読むだけ、 --days で窓)")
     g.add_argument("--reconcile", action="store_true",
                    help="持ち主の返事にもう書かれていた未処理の記録を処理済みにする (session の開始でも回る)")
     dn = sub.add_parser("denied-log", help="止めた変更の記録 (検出だけ) を出す")
