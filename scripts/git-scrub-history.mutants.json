@@ -46,6 +46,14 @@
       "expect_pass": ["判定していない姓の path"]
     },
     {
+      "name": "印の無い同名の mirror でも rehearse が消して作り直す (別の道具の予行演習と対応表を消しうる)",
+      "pairs": [
+        ["    if os.path.exists(w.mirror) and not rev(w.mirror, ANCHOR):\n", "    if False:\n"]
+      ],
+      "expect_fail": ["印の無い mirror が在れば消さずに止まる"],
+      "expect_pass": ["identity_file が git の work tree の中なら止まる"]
+    },
+    {
       "name": "今の tree の path が番号に落ちても止めない (履歴と今の tree で番号がずれうる)",
       "pairs": [
         ["            if p in numbered:\n", "            if False:\n"]

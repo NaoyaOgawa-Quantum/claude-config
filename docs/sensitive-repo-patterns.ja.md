@@ -145,7 +145,7 @@ git-crypt は file を丸ごと暗号化するので、 **版ごとに全文の�
 3. **検証** (`verify`、 予行演習が呼ぶ): commit 数が同じ / 全 commit の tree = 旧 tree を規則で写したもの / 旧先頭と新先頭の差が規則どおり / blob の集合 (暗号化 blob は減らない) / 識別子・氏名・旧 path が全 path・全 message・全平文 blob に残らない / fsck / 暗号化し直した版が元の平文に戻る / 姓を含む path が改名済みか判定済み / 規則が変えた code の file の構文
 4. **push は本人が terminal で** (`push-command` が印字): remote が予行演習のときのままか・検証が PASS か・設定と識別子の一覧が検証の後に変わっていないかを確かめてから、 控えの bundle と、 URL と `refs/heads/<branch>:refs/heads/<branch>` を明示した `--force-with-lease=refs/heads/<branch>:<旧先頭>` を出す。 lease が拒んだら (予行演習の後に誰かが push した) 予行演習からやり直す
 5. **push の後** (`after-push`): remote の branch が新しい先頭かを確かめ、 旧履歴を抱えたままの ref を `git ls-remote` で列挙する。 main 以外の branch (dependabot など) は消すか、 新しい main の上に作り直す (merge すると旧履歴が戻る)。 pull request の ref (`refs/pull/*/head`) は利用者から消せない = host の support に削除と gc を頼む。 旧 object は host の gc まで sha で取れる
-6. **追従**: 他の machine は [`scripts/git-rewrite-follow.py`](../scripts/git-rewrite-follow.py) が揃える (道具が書く対応表 = `<name>.commit-map`。 filter-repo は同じ repo の 2 回目の実行で前回の表と合成する = 2 段目の表は元 → 最終。 旧世代にしか無い blob = `<name>.commit-map.forbidden-blobs`、 追従の pre-push が読む)。 共同作業者の clone も旧履歴を持つ = pull せず取り直してもらう (pull や merge で旧 commit が remote に戻る)
+6. **追従**: 他の machine は [`scripts/git-rewrite-follow.py`](../scripts/git-rewrite-follow.py) が揃える (道具が書く対応表 = `<name>.final.commit-map`。 filter-repo は同じ repo の 2 回目の実行で前回の表と合成する = 2 段目の表は元 → 最終。 旧世代にしか無い blob = `<name>.final.commit-map.forbidden-blobs`、 追従の pre-push が読む。 file 名は [パターン 2-4](#pattern-2-4) の道具の `<name>.commit-map` と分けてあり、 同じ work・同じ name に印の無い mirror があれば予行演習は消さずに止まる)。 共同作業者の clone も旧履歴を持つ = pull せず取り直してもらう (pull や merge で旧 commit が remote に戻る)
 
 教訓 (実測。 道具の selftest と検証が機械で見る):
 

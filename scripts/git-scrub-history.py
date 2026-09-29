@@ -6,10 +6,11 @@
 - file の全版を履歴から **落とす** = [`git-drop-path-history.py`](git-drop-path-history.py) (rehearse / apply / follow / shrink)。
 - file は残して、 **path 名・平文の中身・commit message の中の識別子を置き換える** = 本 script。
 - 他の machine の clone を新しい履歴に揃える = [`git-rewrite-follow.py`](git-rewrite-follow.py)。 本 script は追従を持たない。
-  filter-repo の commit-map (`old new` の見出し + sha の対だけ) を `<work>/<name>.commit-map` に書く。 filter-repo は同じ repo
-  での 2 回目の実行で前回の表と合成する = pass 2 の表は **元 → 最終** (合成されていなければ本 script が合成して書く)。
-  旧世代にしか無い blob (置き換えた平文の版・暗号化し直した平文の版) = `<work>/<name>.commit-map.forbidden-blobs`
-  (追従の pre-push guard が対応表の隣から読む)。
+  filter-repo の commit-map (`old new` の見出し + sha の対だけ) を `<work>/<name>.final.commit-map` に書く。 filter-repo は同じ
+  repo での 2 回目の実行で前回の表と合成する = pass 2 の表は **元 → 最終** (合成されていなければ本 script が合成して書く)。
+  旧世代にしか無い blob (置き換えた平文の版・暗号化し直した平文の版) = `<work>/<name>.final.commit-map.forbidden-blobs`
+  (追従の pre-push guard が対応表の隣から読む)。 file 名は git-drop-path-history.py の `<name>.commit-map` と分けてある。
+  同じ work に同じ name の mirror が在り、 本 script の印 (`refs/scrub-history/original`) が無ければ rehearse は消さずに止まる。
 - 手順と理由の正本 = [`docs/sensitive-repo-patterns.ja.md#pattern-2-5`](../docs/sensitive-repo-patterns.ja.md#pattern-2-5)。
   消す一覧の作り方と、 検証を一覧から独立させる理由 =
   [`conventions/confidential-repo-boundary.md#history-scrub-identity-from-all-versions`](../conventions/confidential-repo-boundary.md#history-scrub-identity-from-all-versions)。
@@ -679,8 +680,8 @@ def check_syntax(path, old: bytes, new: bytes):
         if ext == ".json":
             return json.loads(data.decode("utf-8"))
         if ext in (".yaml", ".yml"):
-            import yaml  # noqa: PLC0415
-            return list(yaml.safe_load_all(data.decode("utf-8")))
+            import yaml  # noqa: PLC0415  (C 版 = run-all-checks の fast YAML loader の規則)
+            return list(yaml.load_all(data.decode("utf-8"), Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)))
         with tempfile.NamedTemporaryFile(suffix=".sh") as f:
             f.write(data)
             f.flush()
@@ -715,7 +716,7 @@ class Work:
         self.remote = os.path.join(self.dir, f"{n}.remote")
         self.map1 = os.path.join(self.dir, f"{n}.pass1.commit-map")
         self.map2 = os.path.join(self.dir, f"{n}.pass2.commit-map")
-        self.map = os.path.join(self.dir, f"{n}.commit-map")
+        self.map = os.path.join(self.dir, f"{n}.final.commit-map")  # git-drop-path-history の <name>.commit-map と別の名前
         self.forbidden = self.map + ".forbidden-blobs"
         self.vjson = os.path.join(self.dir, f"{n}.verify.json")
         self.vtxt = os.path.join(self.dir, f"{n}.verify.txt")
@@ -804,14 +805,17 @@ def _cb_body(fn, args):
 # ---------------------------------------------------------------- rehearse
 
 def cmd_rehearse(cfg, message_diff=None, out=print):
-    fr = filter_repo_bin()
-    if not fr:
-        raise Stop("git-filter-repo が無い (pip install --user git-filter-repo)")
     if not cfg["remote"]:
         raise Stop("設定に remote が無い")
     w = Work(cfg, require=False)
     if inside_worktree(cfg["work"]):
         raise Stop(f"work が git の work tree の中: {cfg['work']} (mirror と対応表は repo の外に置く)")
+    if os.path.exists(w.mirror) and not rev(w.mirror, ANCHOR):
+        raise Stop(f"work に同じ名前の mirror が在り、 本 script が作ったものでない ({ANCHOR} が無い): {w.mirror}\n"
+                   "  name を変えるか、 中身を確かめてから手で退ける (別の道具の予行演習と対応表を消さない)")
+    fr = filter_repo_bin()
+    if not fr:
+        raise Stop("git-filter-repo が無い (pip install --user git-filter-repo)")
     rules = Rules(cfg)
     if rules.reenc:
         if not cfg["local"] or not os.path.isdir(cfg["local"]):
@@ -1695,6 +1699,17 @@ def selftest():
             check("identity_file が git の work tree の中なら止まる", True)
         finally:
             os.remove(os.path.join(src, "ident-in-repo.json"))
+        fm = os.path.join(cfg["work"], "foreign.git")
+        os.makedirs(cfg["work"], exist_ok=True)
+        run(["git", "init", "-q", "--bare", fm])
+        open(os.path.join(cfg["work"], "foreign.commit-map"), "w").write("old new\n")
+        try:
+            cmd_rehearse(dict(cfg, name="foreign"), out=quiet)
+            check("rehearse: 印の無い mirror が在れば消さずに止まる", False, "止まらなかった")
+        except Stop as e:
+            check("rehearse: 同じ work・同じ name に印の無い mirror が在れば消さずに止まる (別の道具の結果を守る)",
+                  ANCHOR in str(e) and os.path.isdir(fm) and os.path.isfile(os.path.join(cfg["work"], "foreign.commit-map")),
+                  str(e)[:120])
 
         # --- plan-current (今の tree を先に)
         out = []
