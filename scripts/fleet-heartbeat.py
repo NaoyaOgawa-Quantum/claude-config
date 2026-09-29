@@ -689,14 +689,17 @@ def _selftest_rewrite(td: Path):
     n = 0
     try:
         def g1(p, *a):
-            return git(p, *a)[1].strip()
+            # fixture の git は失敗を黙らせない (engine の git() は fail-open で rc を返すだけ = fixture の壊れ方が見えない)
+            r = subprocess.run(["git", "-C", str(p), *a], capture_output=True, text=True, errors="replace")
+            assert r.returncode == 0, f"fixture git {' '.join(a)} in {Path(p).name}: rc={r.returncode} {r.stderr.strip()[:300]}"
+            return r.stdout.strip()
 
         def wc(p, files, msg):
             for f, body in files.items():
                 (p / f).parent.mkdir(parents=True, exist_ok=True)
                 (p / f).write_text(body)
-                git(p, "add", f)
-            git(p, "commit", "-q", "--allow-empty", "-m", msg)
+                g1(p, "add", f)
+            g1(p, "commit", "-q", "--allow-empty", "-m", msg)
             return g1(p, "rev-parse", "HEAD")
 
         rem = td / "rem.git"
@@ -730,12 +733,16 @@ def _selftest_rewrite(td: Path):
         old_blob = g1(work, "rev-parse", f"{o2}:a.txt")
         cmap = "old new\n" + "\n".join(f"{o} {x}" for o, x in ((o1, n1), (o2, n2), (o3, n3), (b1, n4))) + "\n"
         n5 = wc(new, {".rewrite-follow/commit-map": cmap, ".rewrite-follow/forbidden-blobs": old_blob + "\n"}, "publish map")
-        git(new, "push", "-q", "--force", str(rem), "main:main")
+        g1(new, "push", "-q", "--force", str(rem), "main:main")
+        assert g1(rem, "rev-parse", "main") == n5, "fixture: remote main is the rewritten tip"
         # (A)
         r = beat(mac, "fleet", 4, RC_LABEL_PREFIX_DEFAULT, None)
-        assert r == "committed+pushed", r
         rem_shas = set(g1(rem, "rev-list", "main").split())
-        assert not ({o1, o2, o3, b1} & rem_shas), "旧 sha が remote に戻った"
+        diag = (f"beat={r!r} remote={g1(rem, 'log', '--oneline', 'main')!r} mac={g1(mac, 'log', '--oneline', '-3')!r} "
+                f"rf={json.loads((mac / 'fleet' / f'{hostname_short()}.json').read_text()).get('rewrite_follow')!r} "
+                f"log={(td / 'rf.log').read_text() if (td / 'rf.log').exists() else ''!r}")
+        assert r == "committed+pushed", diag
+        assert not ({o1, o2, o3, b1} & rem_shas), "旧 sha が remote に戻った: " + diag
         assert n5 in rem_shas and g1(mac, "rev-parse", "HEAD~1") == n5, "beat は新しい履歴の先頭の上"
         d = json.loads((mac / "fleet" / f"{hostname_short()}.json").read_text())
         rf = d["rewrite_follow"]
