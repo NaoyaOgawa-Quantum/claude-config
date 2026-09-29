@@ -833,6 +833,12 @@ def run_record(cfg: Config, args, ledger: Ledger, gmail, today: str, out=print) 
     if not plans:
         out("記録できる thread が無い (exit 3)")
         return 3
+    if todo_id and not args.no_todo:
+        # 現在地は上書き = 前の値に残っていた手順は --next に書き直さないと消える (実測: 返事を記録した --next が
+        # その 1 件だけを書き、 前の現在地にあった別の手順が項目から消えた)。 上書きされる値を毎回見せる
+        old_ctx = str((ledger.todos[todo_id][2] or {}).get("status_context") or "").strip()
+        if old_ctx:
+            out(f"\n項目 {todo_id} の今の現在地 (上書きされる。 残っている手順は --next に含める):\n  {old_ctx}")
     if todo_id and not args.no_todo and not args.next:
         out("\n結ぶ項目の現在地を書くには --next \"<次の一手 1 行>\" が要る (項目を触らないなら --no-todo)")
         if args.apply:
