@@ -13,6 +13,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[chat-path-base-nudge.sh](chat-path-base-nudge.sh)** — PostToolUse(Bash): 作業ディレクトリが session を始めたフォルダから離れたとき、 chat の file 参照 (link の href・inline code の dir/file.ext) を右パネルが開く基準は変わらないことを、 session × 作業ディレクトリごとに 1 回だけ知らせる
 - **[chat-path-base-nudge.test.sh](chat-path-base-nudge.test.sh)** — logic selftest
 - **[currentdate-anchor.py](currentdate-anchor.py)** — session start temporal anchor
+- **[escape-hatch-guard.py](escape-hatch-guard.py)** — PreToolUse(Bash): commit gate を外す操作 (CLAUDE_*_GUARD=0 / git の --no-verify・commit -n / core.hooksPath の差し替え) を、 本人がこの session で明示に指示し承認として記録していない限り deny
+- **[escape-hatch-guard.test.sh](escape-hatch-guard.test.sh)** — gate の escape hatch の deny と、 本人の指示の記録 (承認台帳) による通過を hook の入出力で検査 (承認は実物の approve CLI で記録)
 - **[expensive-tmp-guard.sh](expensive-tmp-guard.sh)** — PreToolUse(Bash): Audiveris / oemer / ML training 系の -output /tmp/ パターンを検出して `permissionDecision: ask`
 - **[expensive-tmp-guard.test.sh](expensive-tmp-guard.test.sh)** — expensive-tmp-guard.sh の self-test (hermetic)
 - **[first-prompt-stamp.py](first-prompt-stamp.py)** — UserPromptSubmit: session の最初の prompt に限り、 完全な自己同定 stamp を再注入 (I7)
@@ -57,6 +59,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[session-start-mcp-scope-nudge.test.sh](session-start-mcp-scope-nudge.test.sh)** — session-start-mcp-scope-nudge.test.sh
 - **[session-start-provenance.py](session-start-provenance.py)** — Cache Claude SessionStart model metadata for Agent-Session Git trailers.
 - **[session-start-provenance.test.sh](session-start-provenance.test.sh)** — Claude session model cache の fixture test
+- **[session-start-rewrite-follow.sh](session-start-rewrite-follow.sh)** — SessionStart: 履歴を書き換えられた (force-push) repo の clone を、 書き換えられない層 (本 repo) の判定で新しい履歴に揃える + manifest のある repo に pre-push stub を置く (engine = scripts/lib/git_rewrite_follow.py。 fetch はしない = 同じ session の同期 sweep が fetch した remote-tracking ref を読む)
+- **[session-start-rewrite-follow.test.sh](session-start-rewrite-follow.test.sh)** — SessionStart の追従 hook の入口 test (判定本体の test = scripts/lib/git_rewrite_follow.py を直接実行)
 - **[session-start-windows-bootstrap.sh](session-start-windows-bootstrap.sh)** — SessionStart hook (layer 1): Windows 環境の毎 session 自動自己修復
 - **[session-start-windows-bootstrap.test.sh](session-start-windows-bootstrap.test.sh)** — self-tests for session-start-windows-bootstrap.sh
 - **[settings-entries.json](settings-entries.json)** — 層1 hook の settings.json 配線の唯一の list (event → entries)。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# commit-msg-leak-guard-runner.sh — 公開リポ commit-msg hook（BLOCK mode、 2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
+# commit-msg-leak-guard-runner.sh — git commit-msg hook（BLOCK mode）: 全 repo = 学生の識別子 (2026-09-29) / 公開 repo = leak 検出 (2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
 # commit-msg-leak-guard-runner.sh — git native commit-msg hook (BLOCK mode)
 #
 # 正本: claude-config/scripts/commit-msg-leak-guard-runner.sh (layer 1)
@@ -23,10 +23,10 @@
 #   2026-05-26 confirmed root cause = claude-code 2.1.x harness invoke bug
 #   の修復 option B、 詳細 `conventions/hook-authoring.md#delivery-audit-4-axes (d) 軸`)。
 #
-# Gating: `.claude/public-repo.marker` を持つ repo のみ install されるので、
-#   private repo の commit には fire しない (= install-public-commit-msg.sh
-#   が marker check)。 本 runner 自体も safety net として marker 不在なら
-#   silent pass (= 万が一 private repo に間違って install された場合の防御)。
+# Gating: Stage 0 (学生の識別子、 2026-09-29) は全 repo で走る = private repo にも
+#   `install-public-commit-msg.sh --any-repo` が同じ stub を置く。 Stage 1 以降 (公開 repo の
+#   leak 検出) は `.claude/public-repo.marker` を持つ repo だけ = 本 runner の marker の
+#   safety net が marker 不在の repo を Stage 0 の後で silent pass させる。
 #
 # 設計思想:
 #   既存 `public-precommit-runner.sh` (= file 本文 Tier A 検出) と本 runner
@@ -58,6 +58,27 @@ esac
 
 [ -n "$MSG_FILE" ] || exit 0
 [ -r "$MSG_FILE" ] || exit 0
+
+# ----------------------------------------------------------------------
+# Stage 0 (2026-09-29、 全 repo): 学生の識別子 (学籍番号の形・氏名) が message に入っていないか。
+# 公開 repo に限らない = private repo にも stub を置く (install-public-commit-msg.sh --any-repo)。 下の marker の
+# safety net より前に置く = private repo でもここまでは走る。 値の一覧は machine-local、 無い機械では何もしない。
+# 述語・escape hatch (CLAUDE_STUDENT_ID_GUARD=0) の SoT = check-student-identifiers.py docstring。
+# 止めるのは「exit 1 かつ engine の BLOCK 見出し」 のときだけ。 見出しの無い非 0 (engine の異常終了) は 1 行出して通す。
+# ----------------------------------------------------------------------
+SID_ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/check-student-identifiers.py"
+if [ -f "$SID_ENGINE" ] && command -v python3 >/dev/null 2>&1; then
+  sid_rc=0
+  sid_out="$(python3 "$SID_ENGINE" --commit-msg "$MSG_FILE" 2>&1)" || sid_rc=$?
+  [ -n "$sid_out" ] && printf '%s\n' "$sid_out" >&2
+  if [ "$sid_rc" -eq 1 ] && printf '%s' "$sid_out" | grep -q 'check-student-identifiers: BLOCK'; then
+    echo "[commit-msg-leak-guard-runner] commit rejected (student identifiers). 1 回だけ通す: CLAUDE_STUDENT_ID_GUARD=0" >&2
+    exit 1
+  fi
+  if [ "$sid_rc" -ne 0 ] && ! printf '%s' "$sid_out" | grep -q 'check-student-identifiers:'; then
+    echo "⚠️ commit-msg: 学生の識別子の検査が異常終了した (rc=${sid_rc}) — この commit では走っていない (commit は止めない)。 確認: python3 ${SID_ENGINE} --selftest" >&2
+  fi
+fi
 
 # ----------------------------------------------------------------------
 # repo marker safety net: marker 不在なら silent pass

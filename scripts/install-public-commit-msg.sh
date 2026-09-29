@@ -4,8 +4,11 @@
 # の 1 行 stub を配置する。
 #
 # 使い方:
-#   install-public-commit-msg.sh [<repo_path>]
+#   install-public-commit-msg.sh [--any-repo] [<repo_path>]
 #   repo_path が省略された場合は cwd を使う。
+#   --any-repo = `.claude/public-repo.marker` の無い private repo にも同じ stub を置く (2026-09-29)。 runner の
+#   Stage 0 (学生の識別子) は全 repo で走り、 Stage 1 以降 (公開 repo の leak 検出) は runner の marker の
+#   safety net が private repo では飛ばす = stub は 1 種類のまま (sibling の installer と取り合わない)。
 #
 # 動作:
 #   1. 対象ディレクトリが git repo かを check
@@ -37,6 +40,12 @@ RUNNER="$SCRIPT_DIR/commit-msg-leak-guard-runner.sh"
 # shellcheck source=lib/hook-stub.sh
 . "$SCRIPT_DIR/lib/hook-stub.sh"
 
+ANY_REPO=0
+if [ "${1:-}" = "--any-repo" ]; then
+  ANY_REPO=1
+  shift
+fi
+
 REPO="${1:-$(pwd)}"
 REPO="$(cd "$REPO" 2>/dev/null && pwd)" || { echo "not a directory: ${1:-$(pwd)}" >&2; exit 1; }
 
@@ -46,8 +55,8 @@ if [ ! -d "$REPO/.git" ] && [ ! -f "$REPO/.git" ]; then
   exit 1
 fi
 
-# --- marker check ---
-if [ ! -f "$REPO/.claude/public-repo.marker" ]; then
+# --- marker check (--any-repo なら飛ばす = private repo でも Stage 0 だけが走る) ---
+if [ "$ANY_REPO" -eq 0 ] && [ ! -f "$REPO/.claude/public-repo.marker" ]; then
   echo "no .claude/public-repo.marker in $REPO" >&2
   echo "this script refuses to install commit-msg hook on repos without the marker." >&2
   echo "create the marker first if this repo is indeed public." >&2

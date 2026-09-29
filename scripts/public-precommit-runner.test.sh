@@ -308,6 +308,28 @@ expect_named "block-unbraced-multibyte-var" 1 "run.sh" "$UMV_BAD"
 expect_named "pass-unbraced-multibyte-var-braced" 0 "run.sh" "$UMV_OK"
 CLAUDE_UNBRACED_MB_VAR_GUARD=0 expect_named "pass-unbraced-multibyte-var-escape-hatch-proves-which-gate" 0 "run.sh" "$UMV_BAD"
 
+# --------------------------------------------------------------------
+# 学生の識別子の gate (check-student-identifiers.py): この test だけの架空の一覧を env で渡し、 学生の姓を含む新しい path と、
+# 氏名・学籍番号を足した行を止める / 識別子の無い file は通る / escape hatch で通る (= 止めたのがこの gate だという証拠)。
+# 述語の SoT = check-student-identifiers.py docstring。 学籍番号の形の値は実行時に組み立てる (この file 自体が gate に当たらないように)。
+# --------------------------------------------------------------------
+SID_LIST="$TMPDIR_TEST/student-identity.json"
+cat > "$SID_LIST" <<'SID_EOF'
+{"schema": 1, "full_names_cjk": ["仮野 名子"], "full_names_latin": [["karino", "nako"]],
+ "surnames_latin": ["karino"], "surnames_cjk": ["仮野"]}
+SID_EOF
+SID_PAT="$TMPDIR_TEST/pii-patterns.txt"
+printf '%s\n' '(?i)(?<![0-9a-z])[a-z][0-9]{2}[a-z][0-9]{3,4}(?![0-9a-z])' > "$SID_PAT"
+SID_ID="$(printf 'A%02dX%s' 12 3456)"
+CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+  expect_named "block-student-surname-in-new-path" 1 "karino-renraku.txt" "x"
+CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+  expect_named "block-student-name-and-id-in-added-line" 1 "notes.txt" "contact: Nako Karino ($SID_ID)"
+CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+  expect_named "pass-no-student-identifier" 0 "renraku.txt" "contact: student A"
+CLAUDE_STUDENT_ID_GUARD=0 CLAUDE_STUDENT_IDENTITY="$SID_LIST" CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" \
+  expect_named "pass-student-id-escape-hatch-proves-which-gate" 0 "karino-renraku.txt" "contact: Nako Karino ($SID_ID)"
+
 # 編集時の hook (hooks/public-leak-guard.sh) と本 runner は同じ email allowlist を持つ。
 # 2026-09-12: runner だけ 2026-08-28 に例示 domain を足し、 hook は古いまま test fixture の
 # Write ごとに確認 dialog を出していた → 片側だけの修正が再発しないよう一致を固定する。

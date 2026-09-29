@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# pre-commit-bib.test.sh — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate と変数の直後の全角文字の gate が commit を止める / 通す / escape hatch で通る (hermetic)
+# pre-commit-bib.test.sh — pre-commit-bib (全 repo 共通の git pre-commit) の配線 test: SESSION.md の形の gate・変数の直後の全角文字の gate・学生の識別子の gate が commit を止める / 通す / escape hatch で通る (hermetic)
 #
 # 正本: claude-config/scripts/pre-commit-bib.test.sh
 # 実行: bash scripts/pre-commit-bib.test.sh (run-all-checks.sh が自動発見)
@@ -118,6 +118,68 @@ printf 'import sys\nsys.exit(1)\n' > "$FAKE_SCRIPTS/check-unbraced-multibyte-var
 ln -sf "$FAKE_SCRIPTS/pre-commit-bib" "$REPO/.git/hooks/pre-commit"
 if try_sh "$UMV_BAD"; then
   case "$OUT" in *"異常終了"*) ok "engine が見出しなしで落ちても commit は通り、 1 行出る";; *) ng "engine の故障で commit は通ったが 1 行が出ない";; esac
+else
+  ng "engine の故障で commit が止まった: $(printf '%s' "$OUT" | head -3)"
+fi
+ln -sf "$HOOK" "$REPO/.git/hooks/pre-commit"
+
+# 学生の識別子の gate (check-student-identifiers.py): この test だけの架空の一覧を env で渡し、 学生の姓を含む新しい path /
+# 氏名と学籍番号を足した行を止める / 識別子の無い commit は通る / CLAUDE_STUDENT_ID_GUARD=0 で通る (= 止めたのがこの gate) /
+# engine が見出しなしで落ちても commit は止めず 1 行出す / 壊れた一覧 (exit 3 + 見出し) では止めない。 述語の SoT = engine の docstring。
+# 学籍番号の形の値は実行時に組み立てる (この file 自体が gate に当たらないように)。
+SID_LIST="$TMP/student-identity.json"
+cat > "$SID_LIST" <<'SID_EOF'
+{"schema": 1, "full_names_cjk": ["仮野 名子"], "full_names_latin": [["karino", "nako"]],
+ "surnames_latin": ["karino"], "surnames_cjk": ["仮野"]}
+SID_EOF
+SID_PAT="$TMP/pii-patterns.txt"
+printf '%s\n' '(?i)(?<![0-9a-z])[a-z][0-9]{2}[a-z][0-9]{3,4}(?![0-9a-z])' > "$SID_PAT"
+SID_ID="$(printf 'A%02dX%s' 12 3456)"
+SID_BASE="$(git -C "$REPO" rev-parse HEAD)"
+try_sid() { # <path> <content> [env...] → stderr を $OUT に、 rc を返す (通った commit も戻す)
+  local path="$1" content="$2"; shift 2
+  mkdir -p "$REPO/$(dirname "$path")"
+  printf '%s\n' "$content" > "$REPO/$path"
+  (cd "$REPO" && git add -- "$path" && env HOME="$FAKE_HOME" CLAUDE_STUDENT_IDENTITY="$SID_LIST" \
+    CLAUDE_PII_FILENAME_PATTERNS="$SID_PAT" "$@" git commit -q -m t 2>"$TMP/err" >/dev/null)
+  local rc=$?
+  OUT="$(cat "$TMP/err")"
+  (cd "$REPO" && git reset -q --hard "$SID_BASE" && git clean -qfd) >/dev/null 2>&1
+  return $rc
+}
+if try_sid "todo/2026-01-01-karino-renraku.yaml" "id: x"; then
+  ng "学生の姓を含む新しい path の commit が通ってしまった"
+else
+  case "$OUT" in *"check-student-identifiers: BLOCK"*) ok "学生の姓を含む新しい path を pre-commit-bib が止める (engine の BLOCK 見出しつき)";; *) ng "止まったが engine の見出しが無い (別の gate?): $(printf '%s' "$OUT" | head -3)";; esac
+  case "$OUT" in *karino*) ng "BLOCK の出力に値が素のまま出ている";; *) ok "BLOCK の出力は値を伏せる";; esac
+fi
+if try_sid "notes.md" "連絡: 仮野 名子 ($SID_ID)"; then
+  ng "氏名と学籍番号を足した行の commit が通ってしまった"
+else
+  case "$OUT" in *"check-student-identifiers: BLOCK"*"notes.md:1"*) ok "平文 file の足した行の氏名と学籍番号を止める";; *) ng "止まったが engine の見出しか行が無い: $(printf '%s' "$OUT" | head -3)";; esac
+fi
+if try_sid "todo/2026-01-01-renraku.yaml" "id: x"; then ok "識別子を含まない path と本文の commit は通る"; else ng "識別子の無い commit が止まった: $(printf '%s' "$OUT" | head -3)"; fi
+if try_sid "todo/2026-01-01-karino-renraku.yaml" "id: x" CLAUDE_STUDENT_ID_GUARD=0; then ok "escape hatch (CLAUDE_STUDENT_ID_GUARD=0) で通る = 止めたのはこの gate"; else ng "escape hatch でも止まる: $(printf '%s' "$OUT" | head -3)"; fi
+if try_sid "todo/2026-01-01-karino-renraku.yaml" "id: x" CLAUDE_STUDENT_IDENTITY="$TMP/none.json" CLAUDE_PII_FILENAME_PATTERNS="$TMP/none.txt"; then
+  ok "一覧も形の設定も無い機械では何もしない (他の user と同じ)"
+else
+  ng "設定の無い機械で止まった: $(printf '%s' "$OUT" | head -3)"
+fi
+printf '{broken' > "$TMP/bad-identity.json"
+if try_sid "todo/2026-01-01-karino-renraku.yaml" "id: x" CLAUDE_STUDENT_IDENTITY="$TMP/bad-identity.json"; then
+  case "$OUT" in *"check-student-identifiers: 検査が走っていない"*) ok "壊れた一覧 (exit 3 + 見出し) では止めず、 見出しの 1 行が出る";; *) ng "壊れた一覧で commit は通ったが見出しが出ない";; esac
+else
+  ng "壊れた一覧で commit が止まった (故障を違反と読んだ): $(printf '%s' "$OUT" | head -3)"
+fi
+# 偽の scripts dir = hook は写し、 他は本物への symlink、 この engine だけ見出しなしの rc 1 で落ちる stub
+SID_FAKE="$TMP/fake-scripts-sid"; mkdir -p "$SID_FAKE"
+for f in "$HERE"/*; do ln -s "$f" "$SID_FAKE/$(basename "$f")"; done
+rm -f "$SID_FAKE/pre-commit-bib" "$SID_FAKE/check-student-identifiers.py"
+cp "$HOOK" "$SID_FAKE/pre-commit-bib"
+printf 'import sys\nsys.exit(1)\n' > "$SID_FAKE/check-student-identifiers.py"
+ln -sf "$SID_FAKE/pre-commit-bib" "$REPO/.git/hooks/pre-commit"
+if try_sid "todo/2026-01-01-karino-renraku.yaml" "id: x"; then
+  case "$OUT" in *"学生の識別子の検査が異常終了"*) ok "engine が見出しなしで落ちても commit は通り、 1 行出る";; *) ng "engine の故障で commit は通ったが 1 行が出ない";; esac
 else
   ng "engine の故障で commit が止まった: $(printf '%s' "$OUT" | head -3)"
 fi

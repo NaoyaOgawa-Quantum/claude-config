@@ -877,6 +877,8 @@ def git_operation_options(operation: str, args: list[str]) -> tuple[set[str], li
             continue
         if arg.startswith("--") and arg.partition("=")[0] in value_options:
             continue
+        if arg.startswith("--no-v") and "--no-verify".startswith(arg):
+            arg = "--no-verify"  # Git accepts a unique prefix of a long option (--no-verif skips the hooks, measured)
         if arg in long_flags:
             flags.add(long_flags[arg])
         elif operation == "add" and arg.startswith("-") and not arg.startswith("--"):
@@ -1038,7 +1040,8 @@ def selftest() -> int:
                 "cat <<< 'example'\ngit push --no-verify",
                 "echo ready\n# comment\ngit commit --no-verify", "git \\\n push --no-verify",
                 "bash -lc 'git commit -n -m test'", "git commit -an -m test",
-                "env -u CODEX_THREAD_ID git commit --no-verify"):
+                "env -u CODEX_THREAD_ID git commit --no-verify",
+                "git commit --no-verif -m test", "git push --no-veri origin main"):
         check("literal gate bypass is rejected: " + cmd, bool(git_bypass_attempts(cmd)))
     # Redirections are shell syntax, not arguments (an attached fd, a dup, a target word, &>).
     for cmd, expect in (("git commit -am x > log.txt 2>&1", [["git", "commit", "-am", "x"]]),
@@ -1060,7 +1063,7 @@ def selftest() -> int:
             check("incomplete redirection is rejected: " + cmd, False)
     for cmd in ("git commit -m 'mention --no-verify in a message'", "git commit -m --no-verify",
                 "git commit -mmention", "git commit -man", "git commit -Fnotes.txt",
-                "git commit -am --no-verify", "git commit -Ssigningkey -m test",
+                "git commit -am --no-verify", "git commit -Ssigningkey -m test", "git commit -m --no-verif",
                 "git commit -m --never", "git commit -- --no-verify", "echo git commit --no-verify",
                 "printf '%s\\n' ';' git push --no-verify",
                 "printf '%s\\n' '&&' git push --no-verify",
