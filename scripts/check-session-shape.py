@@ -43,7 +43,8 @@ README.md / CLAUDE.md / AGENTS.md にも同じ gate が「生成器」 を見る
   暗号化された SESSION.md の中身が平文の archive として push された。 手の経路は道具の側では止められないので commit で止める。
   escape hatch は別の env = CLAUDE_SESSION_CRYPT_GUARD=0 (形の escape hatch で漏洩の gate が一緒に外れないようにする)。
 
-README / SESSION を正本と書く行 (kind sot-claim、 README / SESSION 以外の file も対象):
+README / SESSION を正本と書く行 (kind sot-claim、 README / SESSION 以外の file も対象。 「正本」 の言い換え
+  〔SoT / SSoT / source of truth、 英文の is / are も〕 は「正本」 に直してから同じ述語で読む = _sot_norm):
   「手順は README.md §X が正本」「経緯の正本 = SESSION.md の entry」「Y は web/README.md が正本」 の形 = 同じ文 (。 と表の | で区切る)
   の中で、 README / SESSION の直後 40 字以内に「が / は (〜の) 正本」 か「を正本と / に」、 または「正本 = / は / :」 の直後 40 字以内の
   最初の file が README / SESSION。 間に主語の助詞 (は / が / 、)・別の file (`*.md` 等)・「でない / から / 以外」 を挟むもの、 正本の後が
@@ -344,8 +345,22 @@ def _sot_mask(line: str) -> str:
     return SOT_MD_LINK_RE.sub(r"\1", SOT_QUOTE_RE.sub(rep, line))
 
 
+# 「正本」 の言い換え (SoT / SSoT / source of truth) も同じ述語で見る。 実測: 「詳細・SoT は README.md の節」 が
+# 「正本」 の語だけを見る述語を素通りし、 公開 repo の CLAUDE.md で README が正本のまま残っていた。 SoT は大文字小文字を
+# 区別する (file 名の sot-registry・check-sot-drift を拾わない)
+SOT_SYNONYM_RE = re.compile(r"(?<![A-Za-z0-9_-])S?SoT(?![A-Za-z0-9_-])|(?i:(?<![A-Za-z])(?:single\s+)?source[\s-]+of[\s-]+truth(?![A-Za-z]))")
+SOT_EN_TAIL_RE = re.compile(r"\s+(?:is|are)\s+(?:the\s+)?正本", re.I)  # 「README.md is the source of truth」
+SOT_EN_HEAD_RE = re.compile(r"正本\s+(?:is|are|lives\s+in|=)\s+", re.I)  # 「The source of truth is README.md」
+
+
+def _sot_norm(line: str) -> str:
+    line = SOT_SYNONYM_RE.sub("正本", line)
+    return SOT_EN_HEAD_RE.sub("正本は ", SOT_EN_TAIL_RE.sub("が正本", line))
+
+
 def sot_claim(line: str) -> str | None:
     """README / SESSION を正本と書いた文 (見つからなければ None)。 述語の説明 = module docstring。"""
+    line = _sot_norm(line)
     if "正本" not in line or ("README" not in line and "SESSION" not in line):
         return None
     for clause in re.split(r"[。|]", _sot_mask(line)):
@@ -422,7 +437,7 @@ def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bo
     check_sot = not is_record_path(path)
     for lineno, text in lines:
         claim = sot_claim(text) if check_sot and lineno not in sot_skip else None
-        if claim and kind == "readme" and README_SELF_SOT_RE.search(text):
+        if claim and kind == "readme" and README_SELF_SOT_RE.search(_sot_norm(text)):
             claim = None  # README の自称正本は readme-self-sot が出す (二重に出さない)
         if claim:
             sev = "BLOCK" if public is False else "WARN"
@@ -448,7 +463,7 @@ def scan_lines(kind: str, path: str, lines: list[tuple[int, str]], *, public: bo
                 out.append(Finding("BLOCK", path, lineno, "long-line",
                                    f"1 行 {len(text.encode('utf-8'))} byte = 経緯を 1 行に詰めた形 ({LONG_LINE_BYTES} byte 超)", text))
         elif kind == "readme":
-            if README_SELF_SOT_RE.search(text):
+            if README_SELF_SOT_RE.search(_sot_norm(text)):
                 sev = "WARN" if public else "BLOCK"
                 msg = ("README が自分を正本と宣言 = 非公開 repo では正本は CLAUDE.md / DESIGN.md / 台帳 (README は入口)"
                        if not public else
@@ -544,7 +559,7 @@ def staged_findings(repo: Path) -> tuple[list[Finding], list[str]]:
             added[path].append((lineno, text))
     for path in sorted(kinds):
         kind = kinds[path]
-        has_sot_word = any("正本" in t for _n, t in added[path])
+        has_sot_word = any("正本" in _sot_norm(t) for _n, t in added[path])
         if kind == "doc" and not has_sot_word:
             continue  # 足した行に「正本」 が無い md = 見るものが無い (blob を読まない = 大きい commit を遅くしない)
         context = None  # 「正本」 が無ければ sot-claim は鳴らないので、 file 全体 (code fence の判定用) は要らない
@@ -681,7 +696,7 @@ def sot_fleet_rows(root: Path) -> list[str]:
             is_readme = bool(README_RE.match(p.name))
             skip = readme_skip_lines(lines) if is_readme else fence_lines(lines)
             hits = [(i, c) for i, l in enumerate(lines, 1) if i not in skip and (c := sot_claim(l))
-                    and not (is_readme and README_SELF_SOT_RE.search(l))]
+                    and not (is_readme and README_SELF_SOT_RE.search(_sot_norm(l)))]
             if not hits:
                 continue
             i, c = hits[0]
@@ -743,7 +758,7 @@ def mode_fleet(root: Path, limit: int = 15) -> int:
         rr = repo_root(f.parent)
         public = is_public_repo(rr)
         for i, l in enumerate(head.splitlines(), 1):
-            if README_SELF_SOT_RE.search(l):
+            if README_SELF_SOT_RE.search(_sot_norm(l)):
                 rows.append((1, f"🟡 {f.relative_to(root)}:{i}: README が自分を正本と宣言 ({'公開 repo = warn、 手順の置き場は CONVENTIONS.md#readme-style' if public else '非公開 repo = 正本は CLAUDE/DESIGN/台帳'})"))
                 break
     for f in iter_repo_readmes(root):
@@ -1095,6 +1110,9 @@ def run_selftest() -> int:
             ("CLAUDE.md", "- 未決着の義務は **`SESSION.md` が正本**\n"),
             ("DESIGN.md", "- note と検算の対応は [`notes/README.md`](notes/README.md) と `CALC.md` が正本。\n"),
             ("DESIGN.md", "- (正本は作業場の `CLAUDE.md` / `SESSION.md` だけ)\n"),
+            ("CLAUDE.md", "詳細・SoT は [`README.md`](README.md) `## For Claude` section (英)。\n"),
+            ("DESIGN.md", "The source of truth is README.md.\n"),
+            ("DESIGN.md", "- Build steps: README.md is the single source of truth.\n"),
         ]
         for rel, body in claims:
             stage(rel, "# x\n\n" + body)
@@ -1114,6 +1132,8 @@ def run_selftest() -> int:
             ("plans/2026-01-01-x.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
             ("SESSION-archive.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
             ("SESSION-archive/2026-01.md", "経緯の正本 = SESSION.md 08-08 entry\n"),
+            ("DESIGN.md", "登録は scripts/sot-registry.yaml、 README は入口\n"),
+            ("DESIGN.md", "The source of truth is CLAUDE.md; README.md is the entry point.\n"),
         ]
         for rel, body in not_claims:
             stage(rel, "# x\n\n" + body)
