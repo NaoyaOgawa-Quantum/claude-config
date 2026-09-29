@@ -239,6 +239,19 @@ def do_run(cfg: dict, state_path: Path, force=False, only=None, out=print) -> in
     return 0
 
 
+FAIL_MARK_RE = re.compile(r"✗|❌|🔴|\bFAIL(?:ED)?\b(?!=0)")
+
+
+def headline(tail: list) -> str:
+    """赤の検査の見出し。 失敗の印 (✗ ❌ 🔴 FAIL) の行があれば末尾の 4 行までをつなぐ。 無ければ文字を含む最後の行
+    (末尾の罫線だけの行 〔═══ 等〕 は飛ばす)。 最後の行をそのまま使うと、 失敗の要約の後に出た別の検査の警告
+    (selftest が試した警告の分岐の stderr など) が理由に見える (実測: 無関係な警告の行を 2 回理由と取り違えた)。"""
+    marked = [l.strip() for l in tail if FAIL_MARK_RE.search(l)]
+    if marked:
+        return " / ".join(marked[-4:])
+    return next((l.strip() for l in reversed(tail) if re.search(r"\w", l)), "")
+
+
 def do_status(cfg: dict, state_path: Path, strict=False, out=print) -> int:
     state = load_state(state_path)
     red, unprobed, pending = [], [], []
@@ -252,8 +265,7 @@ def do_status(cfg: dict, state_path: Path, strict=False, out=print) -> int:
             pending.append(f"{label} (一度も回っていない)")
             continue
         if rec["rc"] != 0:
-            # 末尾の罫線だけの行 (═══ 等) は飛ばし、 文字を含む最後の行を見出しにする
-            last = next((l.strip() for l in reversed(rec.get("tail", [])) if re.search(r"\w", l)), "")
+            last = headline(rec.get("tail", []))
             what = "timeout" if rec.get("timed_out") else f"exit {rec['rc']}"
             moved = (f" [依存 {' '.join(check.get('deps') or [])} が run の後に更新 = 次の --run で回し直す]"
                      if deps_moved_since(cfg, check, rec) else "")
@@ -312,6 +324,8 @@ def selftest() -> int:
                 {"repo": "bad", "name": "env", "run": [[py, "-c", "import os; print(os.environ['LOCAL_CI_SELFTEST_VAR'])"]]},
                 {"repo": "bad", "name": "boxed", "env": {"LOCAL_CI_SELFTEST_VAR": "own"}, "rerun_hours": 1,
                  "run": [[py, "-c", "import os, sys; print('real reason ' + os.environ['LOCAL_CI_SELFTEST_VAR']); print('════'); sys.exit(1)"]]},
+                {"repo": "bad", "name": "marked", "rerun_hours": 1,
+                 "run": [[py, "-c", "import sys; print('  ✗ selftest: real.py'); print('⚠️ unrelated warning'); sys.exit(1)"]]},
                 {"repo": "missing", "name": "ok", "run": "ok"},
                 # 依存先 (dep) の file を読む検査: dep/src/a.txt が "2" でないと赤 (初期値は "1")
                 {"repo": "bad", "name": "usesdep", "deps": ["dep"], "paths": ["src"],
@@ -339,6 +353,8 @@ def selftest() -> int:
                and "good · notool / bad · notool" in text)
         expect("status does not mention the green check", "good · ok" not in text)
         expect("status headline skips a trailing rule line", "🔴 bad · boxed: exit 1" in text and "— real reason own" in text)
+        expect("status headline prefers the failure-marked line over a later warning",
+               "— ✗ selftest: real.py" in text and "unrelated warning" not in text)
         expect("--strict exits 1 when something is red", do_status(cfg, state, strict=True, out=lambda *_: None) == 1)
         log = []
         do_run(cfg, state, out=log.append)

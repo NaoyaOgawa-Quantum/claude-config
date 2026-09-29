@@ -78,6 +78,10 @@ your spending limit needs to be increased」)。 **コードの失敗ではな�
   長く回っていない を 1 行ずつ出す)
 - **手元の scan は平文を読む**: git-crypt で暗号化して保存した secret は、 remote では暗号文なので CI の secret
   検出には掛からないが、 手元では毎回掛かる。 暗号化 file を scan から外す (local-ci.py の `@exclude-git-crypt`)
+- **CI が止まっている間に、 鍵の無い環境を手元で再現する**: git-crypt の repo を unlock せずに
+  `git clone <手元の path> <一時 dir>` すると、 暗号化 file は CI と同じく暗号のまま置かれる。 その clone の中で
+  検査を回せば、 「鍵の無い環境で暗号化 file を読む検査が落ちないか」 を CI を待たずに確かめられる。 sibling repo を
+  読む検査は手元の unlock 済みの repo を見るので、 この方法で確かめられるのはその repo の中で閉じた検査だけ
 - **`|| true` の検査は CI にあっても何も知らせていない**: SARIF を artifact に置くだけの Semgrep は red にならず、
   artifact を読みに行かない限り新しい finding は誰にも見えない。 手元へ移すときに finding で落ちる形
   (`--error`) にすると、 置き換えが監視の強化になる

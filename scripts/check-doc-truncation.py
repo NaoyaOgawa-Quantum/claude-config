@@ -176,9 +176,21 @@ def audit(root: Path, config: dict, use_cache: bool = True) -> list[tuple]:
         repo_path = root / repo_name
         full = f"{repo_name}/{rel}"
         # commit 付き ack = その commit までの削減だけを許す (baseline をそこで切る、監視は続く)
-        ack_sha = next((c for p, _, c in acks if len(c) >= 7 and p in full), "")
+        commit_acks = [c for p, _, c in acks if len(c) >= 7 and p in full]
+        ack_sha = commit_acks[0] if commit_acks else ""
         if repo_name not in heads:
             heads[repo_name] = git(repo_path, "rev-parse", "HEAD").strip()[:12]
+        # commit 付き ack は、 その commit が今の履歴に在るときだけ基準を切れる。 rebase・履歴の書き換えで作り直された
+        # 前の sha を書くと、 ack は在るのに黙って効かない (実測)。 同じ path に複数あると最初の 1 つだけが効く
+        if ack_sha and heads[repo_name]:
+            full_sha = git(repo_path, "rev-parse", "--verify", "-q", f"{ack_sha}^{{commit}}").strip()
+            if not full_sha or git(repo_path, "merge-base", full_sha, "HEAD").strip() != full_sha:
+                out.append(("🟠", "ACK_COMMIT_NOT_IN_HISTORY",
+                            f"{full}: acks の commit {ack_sha} が今の履歴に無い (作り直される前の sha?) = 基準を切れず"
+                            f" ack が効かない。 今の履歴で同じ変更をした commit に直す"))
+        if len(commit_acks) > 1:
+            out.append(("🟠", "ACK_DUPLICATE",
+                        f"{full}: commit 付き ack が {len(commit_acks)} 件 = 最初の {commit_acks[0]} だけが効く。 1 件にまとめる"))
         key = None
         if use_cache:
             try:
@@ -278,6 +290,14 @@ def selftest() -> int:
         check("git: 短すぎる sha (7 桁未満) は ack として効かない",
               codes2(dict(cfg2, acks=[{"path": "r2/led.md", "reason": "x", "commit": cut[:3]}]))
               == ["DOC_TRUNCATED"])
+        cfg2g = dict(cfg2, acks=[{"path": "r2/led.md", "reason": "移設", "commit": "deadbeefcafe"}])
+        check("git: 履歴に無い commit の ack は ACK_COMMIT_NOT_IN_HISTORY で知らせる",
+              "ACK_COMMIT_NOT_IN_HISTORY" in codes2(cfg2g))
+        cfg2d = dict(cfg2, acks=[{"path": "r2/led.md", "reason": "a", "commit": cut[:8]},
+                                 {"path": "r2/led.md", "reason": "b", "commit": cut[:9]}])
+        check("git: 同じ path の commit 付き ack が 2 件なら ACK_DUPLICATE", "ACK_DUPLICATE" in codes2(cfg2d))
+        check("git: 履歴に在る commit の ack 1 件は知らせない",
+              not ({"ACK_COMMIT_NOT_IN_HISTORY", "ACK_DUPLICATE"} & set(codes2(cfg2a))))
         check("git: repo 不在は fail-open",
               audit(root, {"targets": [{"repo": "nope", "path": "x.md"}]},
                     use_cache=False) == [])
