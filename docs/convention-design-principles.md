@@ -980,6 +980,8 @@ origin: ある institutional 締切超過の指摘を受け、 person-to-person 
 
 <a id="person-address-channels"></a>**変種 = 人のアドレスを 1 つの経路だけで数える**: ある人のメールアドレスを「受信メールの送信元」 だけで集めて「これで全部」 と言うのも single-channel null。 個人のアドレスは送信元に出ず、 **予定の参加者**・**git の commit author**・**共有の招待や共有通知**・連絡先の台帳にだけ出ることが多い (実測: 送信元には所属のアドレスしか出ず、 個人のアドレスは予定の参加者と commit author にだけあった)。 集めるときはこれらを全部引き、 見た範囲を書く。 そして**共有サービス (Dropbox・Drive 等) への招待は、 その人がそのサービスで使っているアドレスが分からないので、 見つかったアドレス全部に送る** — 使っているアカウントで参加が成立し、 残りの招待は未受諾のまま害なく残る (実測: 所属のアドレスへの招待は未受諾のまま、 個人のアドレスの 1 つで参加が成立していた)。
 
+<a id="snapshot-range-null"></a>**変種 = 取り込んだ写しの範囲だけを見て「記録に無い」 と言う**: repo に保存した外部データの写し (定期の export・scrape した CSV) は、 取り込んだ期間と項目しか持たない。 写しに無いのは「写しの範囲に無い」 であって、 元の system に無い証拠ではない。 答えが写しの外にありうる問い (年に 1 回の請求・古い取引) で null が出たら、 「分からない」 と返す前に (1) 写しの期間を言う (2) 同じ repo に取り込みの経路 (scrape・API・export の手順) があれば、 足りない期間を元から読んでから答える。 読むだけの取り込みは、 人に聞き返すより安い (実測: 写しには一部の月しか無く null → 同じ repo の取り込み経路で 1 年分以上を読むと 1 回で見つかった)。
+
 ### <a id="broadcast-obligation-blind-spot"></a>8.17 broadcast で届く個人義務 — per-person addressing proxy の構造的 false negative
 
 個人を拘束する義務 (= 受講報告・書類提出・会議出席・投票、 締切付き) は、 個人宛 mail だけでなく **broadcast 形態** (= BCC 一斉配信・ML・宛名「各位」) でも届く。 mail surfacing / triage を **per-person addressing** (= To/Cc の自分一致・本文/件名の名前 mention) を proxy に設計すると、 この class は**構造的に全通貫通する** — 宛名は「各位」 で名前はどこにも現れず、 To は list アドレスだから。 [`§8.8`](#proxy-blind-spot) の proxy 盲点の 1 具体形だが、 盲点が「institution が義務を配る**標準経路**そのもの」 と重なる点で被害が大きい: 初回 + リマインド数通が全て素通りし、 institution 側の escalation (= 業を煮やした個別名指しの催促) が唯一の catch になる = 最後の網が相手の善意。 [`§8.16`](#absence-channel-coverage) が「不在主張」 で broadcast channel を取りこぼす軸なら、 本節は「義務検出」 で broadcast channel を取りこぼす軸 (= 同じ channel category の別 direction)。
