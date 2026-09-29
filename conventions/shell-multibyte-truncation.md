@@ -60,8 +60,8 @@ except UnicodeDecodeError as e: print('INVALID', e)"
 - **zsh 5.9**: かな・漢字 (Unicode の文字) は変数名に取り込み (`$xを` は空)、 句読点・全角括弧 (`、` `）`) は取り込まない。 Claude Code の Bash tool は zsh なので、 Claude が発行するコマンドにも効く
 - **locale で出たり出なかったりする**: C locale (`LANG` / `LC_ALL` が空 = launchd や Bash tool の既定) ではどちらも正しく展開する。 UTF-8 の locale を渡す呼び出し元 (terminal・locale を持つ hook の実行環境) でだけ壊れるので、 **手元で通ったことは反証にならない** (実測: 検査 script が session 開始 hook から回ると落ち、 C locale では通った)
 - **書き方**: 変数の直後に非 ASCII の文字が来るときは必ず `${var}` と書く (`"… (${rpath}、 直近 14 日)"`)。 空白を挟めば起きない (`"$task_id を"` は安全) が、 句読点・括弧が直後に来る形は多い
-- **探し方**: 追跡中の shell script を byte 列として `(?<![\\'$])\$[A-Za-z_][A-Za-z0-9_]*[\xc0-\xff]` で走査する (コメント行は除く)。 実測では当たりは全件が本物だった。 **commit 時の機械の検出は未整備** — 次に同じ class の不具合を見たら、 この正規表現で検出器を作って pre-commit に載せる (un-defer trigger)
-- 新しい bash (Homebrew の 5.x) は未確認
+- **探し方**: 追跡中の shell script を byte 列として `(?<![\\'$])\$[A-Za-z_][A-Za-z0-9_]*[\xc0-\xff]` で走査する (コメント行は除く)。 実測では当たりは全件が本物だった。 **機械の検出** = [`scripts/check-unbraced-multibyte-var.py`](../scripts/check-unbraced-multibyte-var.py) (`--staged` = stage した shell script の足した行を見て違反で exit 1 を返す commit gate の段 / `--paths <file>...` / `--tree <dir>` = fleet の棚卸し。 1 行の中で閉じた単一引用符と引用符つき heredoc の本文の扱いを含む述語の正本 = その docstring)。 全 repo の pre-commit (pre-commit-bib と public stub) への `--staged` の配線は権限規約の保護下にあり、 本人の裁定を経て入るまで commit では止まらない
+- **新しい bash も同じ**: Homebrew の bash 5.3 (macOS) も UTF-8 の locale で先頭 byte を変数名に取り込み、 `set -u` なら落ちる (実測)。 `#!/usr/bin/env bash` が PATH の新しい bash を選んでも避けられない
 
 ## まとめ (reflex)
 
