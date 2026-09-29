@@ -246,6 +246,16 @@ Lessons from preparing and delivering a 2026 conference talk, kept separate from
   hide the absence of a point, and a "message" that only sets the stage (the model, the
   postulate, the previous work) belongs in the introduction's context, not among the three.
   Test: someone who remembers only the three sentences should hold the essence of the talk.
+- **When every candidate set of messages comes back flat, stop rewording and re-cut from the
+  reader's three questions.** "What is new, what is interesting, what is important" (the
+  reader-side triage of `manuscript-value-triage.md`) names three different *kinds* of
+  message: the one line nobody had written (new; often an identification of a known object in
+  known terms), the one physical picture the reader keeps (interesting; a mechanism, not a
+  slogan), and whose numbers change and by how much (important; a community as the subject).
+  A set that gives one kind to each slot is a genuinely different organization, not a
+  permutation, and it makes the author's own ranking visible: the slot they push back on is the
+  one whose kind is wrong. Field note, from a title-and-messages session where four
+  organizations built by re-dividing the same material were all rejected as flat.
 - **Do not require every message to carry a priority claim.** A message earns its place by being
   a cohesive idea worth remembering, not by having been discovered in the current paper. Mark
   provenance honestly: established framework may supply the physical picture, while the new
