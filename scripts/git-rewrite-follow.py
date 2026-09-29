@@ -21,6 +21,10 @@ usage:
       manifest (`<upstream>:.rewrite-follow/`) のある repo に pre-push stub を置く (既存の別の pre-push は触らない)。
   git-rewrite-follow.py status --repo PATH [--json]
       upstream / manifest の有無 / stub の有無 / forced-update の痕跡 / HEAD と upstream の関係。 heartbeat と gate が読む。
+  git-rewrite-follow.py map --repo PATH [--map GLOB]... SHA...
+      書き換え前の sha (7 文字以上の短縮可) を、 upstream の `.rewrite-follow/commit-map*` を最後まで辿って今の sha に引く
+      (記録 〔掲示板・受信の記録・TODO〕 に残る旧 sha を読むため)。 1 行ずつ「入力 → 今の sha  状態  説明」。
+      状態 = mapped / current (書き換えで変わっていない) / ambiguous / dropped / unknown。 exit 1 = unknown か ambiguous が在る。
   git-rewrite-follow.py --selftest
 
 対応表の外部供給: --map GLOB (repeatable) / ~/.claude/rewrite-follow-maps.txt (1 行 1 glob、 env GIT_REWRITE_FOLLOW_MAPS_FILE で
@@ -114,6 +118,13 @@ def cmd_status(a):
     return 0
 
 
+def cmd_map(a):
+    rows = RF.lookup(a.repo, a.sha, cli_globs=a.map)
+    for raw, state, new, note in rows:
+        print(f"{raw[:12]:<12} → {(new[:12] or '-'):<12}  {state:<9}  {note}")
+    return 1 if any(r[1] in ("unknown", "ambiguous") for r in rows) else 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--selftest", action="store_true")
@@ -151,6 +162,10 @@ def main(argv=None):
     p.add_argument("--repo", required=True)
     p.add_argument("--json", action="store_true")
     common(p)
+    p = sub.add_parser("map")
+    p.add_argument("--repo", required=True)
+    p.add_argument("sha", nargs="+", help="書き換え前の sha (7 文字以上の短縮可)")
+    common(p)
     a = ap.parse_args(argv)
     if a.selftest:
         return RF._selftest()
@@ -166,6 +181,8 @@ def main(argv=None):
         return cmd_ensure_prepush(a)
     if a.cmd == "status":
         return cmd_status(a)
+    if a.cmd == "map":
+        return cmd_map(a)
     ap.print_help()
     return 2
 
