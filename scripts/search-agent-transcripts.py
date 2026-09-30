@@ -10,6 +10,9 @@ repo に無くても、 会話そのものから発言者と時刻を確かめ�
   Claude Code : <claude-dir>/*/*.jsonl  (既定 ~/.claude/projects)
                 record の type が user / assistant、 message.content は文字列か
                 {type: text, text} の list
+                ⚠️ agent が作業している途中に打たれた発話は user の行にならず、 type が attachment で
+                attachment.type が queued_command の record (本文は prompt) にだけ残る。 これも user の発話として読む
+                (user の行だけを読むと、 途中で足された指示や事実の申告が「言っていない」 に見える = 実測)
   Codex       : <codex-dir>/**/*.jsonl (既定 ~/.codex/sessions と ~/.codex/archived_sessions)
                 record の type が response_item、 payload.type が message、
                 payload.role が user / assistant / developer、 content は {text} の list
@@ -64,6 +67,13 @@ DEFAULT_CODEX_DIRS = ("~/.codex/sessions", "~/.codex/archived_sessions")
 
 def _texts_claude(rec: dict) -> tuple[str | None, list[str]]:
     t = rec.get("type")
+    if t == "attachment":
+        # 作業の途中で打たれた発話。 user の行としては残らず、 この形でしか記録されない
+        a = rec.get("attachment")
+        if (isinstance(a, dict) and a.get("type") == "queued_command" and isinstance(a.get("prompt"), str)
+                and (a.get("origin") or {}).get("kind", "human") == "human"):
+            return "user", [a["prompt"]]
+        return None, []
     if t not in ("user", "assistant"):
         return None, []
     c = (rec.get("message") or {}).get("content")
@@ -304,6 +314,23 @@ def selftest() -> int:
             check("sessions だけだと元の発言は無く写しだけが当たる", [x[3] for x in hb] == ["user(写し)"]),
             check("archived も読むと元の発言 (写しの印なし) が出る", [x[3] for x in hb2] == ["user", "user(写し)"]),
             check("写しでない一致には印が付かない", all("写し" not in x[3] for x in search("りんご", **base))),
+        ]
+        # 作業の途中で打たれた発話 (queued_command) は user の行にならない
+        mid = Path(td) / "claude-mid" / "proj"
+        mid.mkdir(parents=True)
+        (mid / "cccccccc-3333.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in [
+            {"type": "user", "timestamp": "2099-03-01T00:00:00Z", "message": {"content": "資料を作って"}},
+            {"type": "queue-operation", "operation": "enqueue", "timestamp": "2099-03-01T00:01:00Z", "content": "柿は渋いと聞いた"},
+            {"type": "attachment", "timestamp": "2099-03-01T00:01:00Z",
+             "attachment": {"type": "queued_command", "prompt": "柿は渋いと聞いた", "origin": {"kind": "human"}}},
+            {"type": "attachment", "timestamp": "2099-03-01T00:02:00Z",
+             "attachment": {"type": "queued_command", "prompt": "柿の通知", "origin": {"kind": "task-notification"}}},
+            {"type": "attachment", "timestamp": "2099-03-01T00:03:00Z", "attachment": {"type": "skill_listing", "content": "柿"}},
+        ]) + "\n", encoding="utf-8")
+        hm = search("柿", **{**base, "agent": "claude", "claude_dir": Path(td) / "claude-mid"})
+        results += [
+            check("作業の途中で打たれた発話 (queued_command) を user の発話として拾う",
+                  [(x[3], x[4]) for x in hm] == [("user", "柿は渋いと聞いた")]),
         ]
         # --tool-runs: 呼び出しと結果の対 (Claude の tool_use / tool_result、 Codex の function_call / output)
         tl = Path(td) / "claude-tools" / "proj"
