@@ -74,11 +74,14 @@ _flatten() {
 
 _log_posted() {
   mkdir -p "$(dirname "$NLOG")" 2>/dev/null || return 0
+  # 本文には台帳の題が入る = 本人だけが読める file にする
+  [ -e "$NLOG" ] || ( umask 077; : > "$NLOG" ) 2>/dev/null || return 0
   printf '%s\t%s\t%s\n' "$(date +%s)" "$(_flatten "$1")" "$(_flatten "$2")" \
     >> "$NLOG" 2>/dev/null || return 0
   _n="$(wc -l < "$NLOG" 2>/dev/null | tr -d ' ')"
   if [ "${_n:-0}" -gt "$NLOG_KEEP" ] 2>/dev/null; then
-    tail -n "$NLOG_KEEP" "$NLOG" > "$NLOG.tmp" 2>/dev/null && mv -f "$NLOG.tmp" "$NLOG" 2>/dev/null
+    ( umask 077; tail -n "$NLOG_KEEP" "$NLOG" > "$NLOG.tmp" ) 2>/dev/null \
+      && mv -f "$NLOG.tmp" "$NLOG" 2>/dev/null
   fi
   return 0
 }
@@ -199,6 +202,13 @@ if [ "${SELFTEST:-0}" = "1" ]; then
   done
   _assert "(viii) 控えは直近 50 件で頭を切る" "$(wc -l < "$tmp/log.tsv" | tr -d ' ')" "50"
   _assert "(ix) 切った後に残るのは新しい側" "$(tail -1 "$tmp/log.tsv" | cut -f2)" "N59"
+  _assert "(x) 控えは本人だけが読める (切った後も)" \
+    "$(ls -l "$tmp/log.tsv" | cut -c1-10)" "-rw-------"
+  ( unset CLAUDE_NOTIFY_LOG
+    HOME="$tmp/home" CLAUDE_NOTIFY_QUEUE="$tmp/q5.tsv" CLAUDE_NOTIFY_DRYRUN=1 \
+      sh "$0" --title "D1" --body "b" >/dev/null 2>&1 )
+  _assert "(xi) dry-run は控えの場所を明示しない限り残さない (= 出していない通知を頁に並べない)" \
+    "$([ -e "$tmp/home/.claude/state/claude-notify-log.tsv" ] && echo exists || echo absent)" "absent"
 
   echo ""
   echo "=== selftest: $PASS passed, $FAIL failed ==="
@@ -208,8 +218,12 @@ fi
 
 [ -n "$TITLE" ] || exit 0
 
-# どの経路で出すにせよ、 出す通知は控えに残す (= 行き先の頁が先頭に置く)
-_log_posted "$TITLE" "$BODY"
+# どの経路で出すにせよ、 出す通知は控えに残す (= 行き先の頁が先頭に置く)。
+# dry-run は実際には出さないので、 控えの場所を明示した時 (= test) だけ残す
+# (= 出していない通知が「直近に出した通知」 として頁に並ばないように)
+if [ "${CLAUDE_NOTIFY_DRYRUN:-0}" != "1" ] || [ -n "${CLAUDE_NOTIFY_LOG:-}" ]; then
+  _log_posted "$TITLE" "$BODY"
+fi
 
 # 許可が実測できていない間は旧経路 (= 押せないが見える)
 if [ ! -f "$OKMARK" ] && [ "${CLAUDE_NOTIFY_DRYRUN:-0}" != "1" ]; then
