@@ -12,10 +12,13 @@
 #   exclusion_keywords: trigger があってもこれを含めば検査しない語 (同じ語を使うが Cc の要らない種類のメール)
 #   required_cc:        trigger が当たったメールで Cc に必ず入れる宛先
 #   inactive_cc:        休業・異動で届かない宛先。 Cc に入っていたら trigger の有無に依らず止める
+#   excluded_cc:        trigger が当たったメールで Cc に入れない宛先 (届くが、 その種類のメールの担当外になった人など)。
+#                       exclusion_keywords の有無に依らず、 入っていたら止める (別の話題のメールには口を出さない)
+#   excluded_note:      (1 行) excluded_cc の理由。 止めた理由の文に出す
 #   label:              (1 行) 「どういうメールの規律か」 の説明。 止めた理由の文に出す
 #   reason_doc:         (1 行) 規律の正本の在り処。 止めた理由の文に出す
 #
-# 動作: 足りない必須 Cc / 入っている休止の宛先があれば permissionDecision: ask (= user が認めれば通る)。
+# 動作: 足りない必須 Cc / 入っている休止の宛先 / 入っている除外の宛先があれば permissionDecision: ask (= user が認めれば通る)。
 #   deny にしないのは、 個別のメールで Cc を意図して変える正当な場合があるため。 それ以外は silent pass。
 # 依存: jq。 test = standing-cc-guard.test.sh
 
@@ -97,6 +100,23 @@ while IFS= read -r kw; do
     if echo "$SEARCH_CONTENT" | grep -qF -- "$kw"; then TRIGGER_HIT="$kw"; break; fi
 done <<< "$(parse_yaml_list "trigger_keywords" "$CONFIG")"
 [[ -n "$TRIGGER_HIT" ]] || exit 0
+
+# Step 1b: 除外の宛先 (trigger が当たったメールでは exclusion_keywords に依らず入れない)
+EXCLUDED_HIT=""
+while IFS= read -r addr; do
+    [[ -z "$addr" ]] && continue
+    echo "$CC_LIST" | grep -qiF -- "$addr" && EXCLUDED_HIT="$EXCLUDED_HIT
+  - $addr"
+done <<< "$(parse_yaml_list "excluded_cc" "$CONFIG")"
+if [[ -n "$EXCLUDED_HIT" ]]; then
+    NOTE=$(parse_yaml_scalar "excluded_note" "$CONFIG")
+    ask "⚠️ この種類のメールに入れない宛先が Cc に入っている (config の excluded_cc):$EXCLUDED_HIT
+
+trigger keyword 検出: \"$TRIGGER_HIT\"
+${NOTE:+理由 = ${NOTE}。 }外してから送る (前の便の Cc を写した時に起きやすい)。${DOC:+ 正本 = ${DOC}。}
+意図してこのメールだけ入れるなら承認で通る。"
+fi
+
 while IFS= read -r kw; do
     [[ -z "$kw" ]] && continue
     echo "$SEARCH_CONTENT" | grep -qF -- "$kw" && exit 0
