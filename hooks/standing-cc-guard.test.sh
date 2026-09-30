@@ -23,6 +23,9 @@ required_cc:
   - bbb@example.com
 inactive_cc:
   - zzz@example.com   # 休業中
+excluded_cc:
+  - yyy@example.com   # この種類のメールの担当外
+excluded_note: "テスト用の理由"
 YAML
 decision() {
     STANDING_CC_CONFIG="$CFG" bash "$HOOK" <<<"$1" 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null
@@ -35,6 +38,12 @@ run_assert "trigger + exclusion → pass" "" "$(decision '{"tool_name":"mcp__gma
 run_assert "body 側 trigger + 不足 → ask" "ask" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"ご連絡","body":"宿泊予約の件です","cc":[]}}')"
 run_assert "休止の宛先 → ask (trigger 無しでも)" "ask" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"打ち合わせ","body":"x","cc":["zzz@example.com"]}}')"
 run_assert "必須全員 + 休止の宛先 → ask" "ask" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"様式14","body":"x","cc":["aaa@example.com","bbb@example.com","zzz@example.com"]}}')"
+run_assert "trigger + 必須全員 + 除外の宛先 → ask" "ask" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"様式14","body":"x","cc":["aaa@example.com","bbb@example.com","yyy@example.com"]}}')"
+run_assert "trigger + exclusion 語 + 除外の宛先 → ask" "ask" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"様式14 事前案内","body":"x","cc":["YYY@example.com"]}}')"
+run_assert "trigger 無し + 除外の宛先 → 素通し" "" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"打ち合わせ","body":"x","cc":["yyy@example.com"]}}')"
+out="$(STANDING_CC_CONFIG="$CFG" bash "$HOOK" <<<'{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"様式14","body":"x","cc":["aaa@example.com","bbb@example.com","yyy@example.com"]}}' 2>/dev/null | jq -r '.hookSpecificOutput.permissionDecisionReason // empty')"
+case "$out" in *yyy@example.com*テスト用の理由*) got=ok ;; *) got="$out" ;; esac
+run_assert "除外の理由文に宛先と excluded_note が出る" "ok" "$got"
 # tools を指定すると、 それ以外の send_email は見ない
 printf 'tools:\n  - mcp__gmail-y__send_email\n' >> "$CFG"
 run_assert "tools 指定外の send_email は素通し" "" "$(decision '{"tool_name":"mcp__gmail-x__send_email","tool_input":{"subject":"様式14","body":"x","cc":[]}}')"
