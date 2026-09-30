@@ -23,7 +23,8 @@
 #   CLAUDE_NOTIFY_APP        アプリの path (既定 ~/Applications/ClaudeReminder.app)
 #   CLAUDE_NOTIFY_QUEUE      queue の path (既定 ~/.claude/state/claude-notify-queue.tsv)
 #   CLAUDE_NOTIFY_OK_MARKER  切替え済み marker (既定 ~/.claude/state/claude-notify-app.ok)
-#   CLAUDE_NOTIFY_DRYRUN     1 なら queue に書くだけでアプリを起こさない (test 用)
+#   CLAUDE_NOTIFY_LOG        出した通知の控え (既定 ~/.claude/state/claude-notify-log.tsv)
+#   CLAUDE_NOTIFY_DRYRUN    1 なら queue に書くだけでアプリを起こさない (test 用)
 set -u
 
 APP="${CLAUDE_NOTIFY_APP:-$HOME/Applications/ClaudeReminder.app}"
@@ -32,6 +33,14 @@ QUEUE="${CLAUDE_NOTIFY_QUEUE:-$HOME/.claude/state/claude-notify-queue.tsv}"
 # 新しいアプリの通知は既定で notificationsAllowed=false (= 通知センターに溜まるだけで
 # バナーも音も出ない) なので、 許可の前に切替えると通知が黙って消える。
 OKMARK="${CLAUDE_NOTIFY_OK_MARKER:-$HOME/.claude/state/claude-notify-app.ok}"
+# 出した通知の控え (TSV: epoch <tab> title <tab> body、 直近 50 件)。
+# click は「投稿したアプリを起こす」 だけで、 どの通知が押されたかは applet に渡らない。
+# 行き先の頁が 1 つの source だけから作られていると、 別の source が出した通知を押しても
+# その文が頁のどこにも無い (実測)。 控えを残せば、 行き先の頁は「直近に出した通知」 を
+# 先頭に置ける = 押した文が必ず在る。
+# 正本 = conventions/macos-clickable-notifications.md#click-target-contains-the-notification
+NLOG="${CLAUDE_NOTIFY_LOG:-$HOME/.claude/state/claude-notify-log.tsv}"
+NLOG_KEEP=50
 
 TITLE=""
 BODY=""
@@ -61,6 +70,17 @@ done
 # 1 行 1 通知の TSV なので tab / 改行は潰す
 _flatten() {
   printf '%s' "$1" | tr '\t\n\r' '   '
+}
+
+_log_posted() {
+  mkdir -p "$(dirname "$NLOG")" 2>/dev/null || return 0
+  printf '%s\t%s\t%s\n' "$(date +%s)" "$(_flatten "$1")" "$(_flatten "$2")" \
+    >> "$NLOG" 2>/dev/null || return 0
+  _n="$(wc -l < "$NLOG" 2>/dev/null | tr -d ' ')"
+  if [ "${_n:-0}" -gt "$NLOG_KEEP" ] 2>/dev/null; then
+    tail -n "$NLOG_KEEP" "$NLOG" > "$NLOG.tmp" 2>/dev/null && mv -f "$NLOG.tmp" "$NLOG" 2>/dev/null
+  fi
+  return 0
 }
 
 _bundle_id() {
@@ -141,6 +161,7 @@ if [ "${SELFTEST:-0}" = "1" ]; then
     else echo "[FAIL] $1"; echo "       got:  $2"; echo "       want: $3"; FAIL=$((FAIL+1)); fi
   }
   echo "=== claude-notify.sh --selftest ==="
+  CLAUDE_NOTIFY_LOG="$tmp/log.tsv"; export CLAUDE_NOTIFY_LOG   # 控えを実 file に書かない
 
   CLAUDE_NOTIFY_QUEUE="$tmp/q.tsv" CLAUDE_NOTIFY_DRYRUN=1 \
     sh "$0" --title "T1" --body "B1" --sound "Glass" >/dev/null 2>&1
@@ -166,6 +187,19 @@ if [ "${SELFTEST:-0}" = "1" ]; then
   _assert "(v) marker 無しでは queue に書かない (= 旧経路へ落ちる)" \
     "$([ -f "$tmp/q3.tsv" ] && echo exists || echo absent)" "absent"
 
+  _assert "(vi) 出した通知は控えに title と body が残る (= 行き先の頁が先頭に置ける)" \
+    "$(head -1 "$tmp/log.tsv" | cut -f2-3)" "$(printf 'T1\tB1')"
+  _assert "(vii) 控えも 1 行 1 通知 (本文の改行・tab は潰れる)" \
+    "$(awk -F'\t' 'NF != 3 {bad++} END {print bad+0}' "$tmp/log.tsv")" "0"
+  i=0
+  while [ "$i" -lt 60 ]; do
+    CLAUDE_NOTIFY_QUEUE="$tmp/q4.tsv" CLAUDE_NOTIFY_DRYRUN=1 \
+      sh "$0" --title "N$i" --body "b" >/dev/null 2>&1
+    i=$((i+1))
+  done
+  _assert "(viii) 控えは直近 50 件で頭を切る" "$(wc -l < "$tmp/log.tsv" | tr -d ' ')" "50"
+  _assert "(ix) 切った後に残るのは新しい側" "$(tail -1 "$tmp/log.tsv" | cut -f2)" "N59"
+
   echo ""
   echo "=== selftest: $PASS passed, $FAIL failed ==="
   [ "$FAIL" -eq 0 ] || exit 1
@@ -173,6 +207,9 @@ if [ "${SELFTEST:-0}" = "1" ]; then
 fi
 
 [ -n "$TITLE" ] || exit 0
+
+# どの経路で出すにせよ、 出す通知は控えに残す (= 行き先の頁が先頭に置く)
+_log_posted "$TITLE" "$BODY"
 
 # 許可が実測できていない間は旧経路 (= 押せないが見える)
 if [ ! -f "$OKMARK" ] && [ "${CLAUDE_NOTIFY_DRYRUN:-0}" != "1" ]; then

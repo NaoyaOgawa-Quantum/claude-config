@@ -28,6 +28,8 @@ API:
     section = {"kind": "rows", "heading": str, "note": str, "rows": [...], "empty": str}
             | {"kind": "raw",  "heading": str, "blocks": [{label,badge,when,header,text,open}]}
     row     = parse_item() の戻り + 任意の "tone" ("crit"|"warn"|"soon"|"calm") と "from"
+              + 任意の "href" (= その行の行き先。 http / https / file だけ。 meta に押せる chip が付く。
+                文字は "href_label"、 既定「開く」)
             | {"kind": "head", "title": str}   # 行グループの見出し
 
 usage: python3 ledger_page.py --selftest   (= 合成データで書式と壊れ方を検査)
@@ -54,6 +56,7 @@ _DATE_RE = re.compile(r"^(\d{1,2}/\d{1,2})(?=\s|$)")
 _REF_RE = re.compile(r"\[([^\[\]]+?):([^\[\]]+?)\]\s*$")
 _ACCT_RE = re.compile(r"\(([a-z][a-z0-9-]*)\)\s*$")
 _SELF_MARK = "🙋"
+_LINK_SCHEMES = ("https://", "http://", "file:///")
 
 
 def parse_item(raw: str, marks: tuple[str, ...] = DEFAULT_MARKS) -> dict:
@@ -133,6 +136,10 @@ def _row_html(it: dict) -> str:
         meta.append(f'<span class="chip chip-q">{esc(it["acct"])}</span>')
     if it.get("from"):
         meta.append(f'<span class="from">{esc(it["from"])}</span>')
+    href = str(it.get("href") or "")
+    if href.startswith(_LINK_SCHEMES):   # それ以外の scheme (javascript: 等) は link にしない
+        meta.append(f'<a class="chip chip-link" href="{esc(href, quote=True)}">'
+                    f'{esc(it.get("href_label") or "開く")} ↗</a>')
     meta_html = f'<span class="meta">{"".join(meta)}</span>' if meta else ""
     flag = f'<span class="flag" title="自分が動く">{_SELF_MARK}</span>' if it.get("self_act") else ""
     cls = " ".join(x for x in [it.get("tone", ""), "is-self" if it.get("self_act") else ""] if x)
@@ -260,6 +267,10 @@ ul.rows { list-style:none; margin:0; padding:0; background:var(--surface);
 .chip { font:11px/1 var(--sans); color:var(--ink-2); background:var(--surface-2);
   border-radius:4px; padding:3px 6px; }
 .chip-q { color:var(--accent); }
+a.chip-link { color:var(--accent); text-decoration:none; border:1px solid var(--accent);
+  background:transparent; }
+a.chip-link:hover { background:var(--surface-2); }
+a.chip-link:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .ident { font:11px/1.4 var(--mono); color:var(--ink-3); word-break:break-all; }
 .from { font:11px/1 var(--sans); color:var(--ink-3); white-space:nowrap;
   border-left:1px solid var(--line); padding-left:7px; }
@@ -408,6 +419,15 @@ def _selftest() -> int:
     check("外部 file を参照しない",
           "http://" not in html_out and "https://" not in html_out)
     check("横スクロールする要素は自分の器に入る", "overflow-x:auto" in html_out)
+
+    linked = render_page("行き先つき", sections=[{"kind": "rows", "heading": "告知", "rows": [
+        dict(parse_item("🔔 見本のページが変わった"), href="https://example.org/a?x=1&y=2",
+             href_label="ページを開く"),
+        dict(parse_item("🔔 scheme が不正な行"), href="javascript:alert(1)")]}])
+    check("href のある行は押せる chip を持つ (& は escape)",
+          '<a class="chip chip-link" href="https://example.org/a?x=1&amp;y=2">ページを開く ↗</a>' in linked)
+    check("http / https / file 以外の scheme は link にしない",
+          "javascript:" not in linked and "scheme が不正な行" in linked)
 
     print(f"\n=== selftest: {ok} passed, {fail} failed ===")
     return 0 if fail == 0 else 1
