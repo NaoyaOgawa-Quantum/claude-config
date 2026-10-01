@@ -34,6 +34,8 @@
                                             (= スマホへの通知など、 別の経路を呼び出し側が差し込む口)
   web-page-watch.py --ledger L --probe CMD  巡回のたびに CMD (その経路の軽い健康診断) を実行し、 失敗中は ⚠️ を出す
   web-page-watch.py --ledger L --surface    network に出ず、 state から未確認の変化と異常だけを出す (SessionStart 用)
+  web-page-watch.py --ledger L --surface --json   同じ内容を 1 件 1 object の JSON 配列で出す (別の道具が読む口。
+                                            kind / mark / id / url / label / message / at / line。 行の文字列を解析させない)
   web-page-watch.py --ledger L --show ID    未確認の変化の差分を出す
   web-page-watch.py --ledger L --ack ID     確認済みにする (今の本文を新しい基準にする)。 ID = all で全部
   web-page-watch.py --selftest              合成データだけで検査する (network に出ない)
@@ -229,11 +231,23 @@ def check(ledger: dict, state: dict, fetch=fetch_url, now: str | None = None) ->
     return fresh
 
 
-def report(ledger: dict, state: dict, *, surface: bool, prog: str, ledger_arg: str,
-           now: str | None = None) -> list[str]:
+def report_items(ledger: dict, state: dict, *, surface: bool, prog: str, ledger_arg: str,
+                 now: str | None = None) -> list[dict]:
+    """出す行を 1 件 1 dict で返す (= 行の文字列と、 別の道具が読む field の唯一の出所)。
+
+    kind = change / unreadable / stalled / probe_error / on_change_error / expired。
+    line = 人に見せる 1 行 (report() と --surface の出力はこれ)。 id / url / label / message / at は
+    当てはまる kind だけ値を持つ (無いものは None)。
+    """
     now_dt = dt.datetime.fromisoformat(now or now_iso())
     today = now_dt.date()
-    out: list[str] = []
+    out: list[dict] = []
+
+    def item(kind: str, mark: str, line: str, t: dict | None = None, message: str | None = None,
+             at: str | None = None) -> dict:
+        return {"kind": kind, "mark": mark, "id": t["id"] if t else None, "url": t.get("url") if t else None,
+                "label": label_of(t) if t else None, "message": message, "at": at, "line": line}
+
     active = [t for t in ledger.get("targets") or [] if not expired(t, today)]
     gone = [t for t in ledger.get("targets") or [] if expired(t, today)]
     st_targets = state.get("targets") or {}
@@ -241,29 +255,44 @@ def report(ledger: dict, state: dict, *, surface: bool, prog: str, ledger_arg: s
         s = st_targets.get(t["id"]) or {}
         if s.get("changed_at") and s.get("latest_hash") != s.get("baseline_hash"):
             mark = "🚨" if t.get("urgent") else "🔔"
-            out.append(f"{mark} {message_for(t, s)} ({s['changed_at'][:16].replace('T', ' ')})"
-                       f" / 差分 = {prog} --ledger {ledger_arg} --show {t['id']}、 済んだら --ack {t['id']}")
+            msg = message_for(t, s)
+            out.append(item("change", mark,
+                            f"{mark} {msg} ({s['changed_at'][:16].replace('T', ' ')})"
+                            f" / 差分 = {prog} --ledger {ledger_arg} --show {t['id']}、 済んだら --ack {t['id']}",
+                            t, message=msg, at=s["changed_at"]))
         errs = s.get("errors", 0)
         if errs and (s.get("marker_missing") or errs >= ERROR_THRESHOLD):
-            out.append(f"⚠️ {label_of(t)} を {errs} 回続けて読めていない ({s.get('last_error')}) — {t['url']}")
+            msg = f"{label_of(t)} を {errs} 回続けて読めていない ({s.get('last_error')})"
+            out.append(item("unreadable", "⚠️", f"⚠️ {msg} — {t['url']}", t, message=msg))
     if surface and active:
         stale = float(ledger.get("stale_hours") or DEFAULT_STALE_HOURS)
         age = hours_since(state.get("last_run"), now_dt)
         if age is None:
-            out.append(f"⏸️ ページの見張りがまだ一度も巡回していない (定期実行が未配備の疑い。 台帳 = {ledger_arg})")
+            out.append(item("stalled", "⏸️",
+                            f"⏸️ ページの見張りがまだ一度も巡回していない (定期実行が未配備の疑い。 台帳 = {ledger_arg})"))
         elif age > stale:
-            out.append(f"⏸️ ページの見張りの最後の巡回が {age:.0f} 時間前 (定期実行が止まっている疑い。 台帳 = {ledger_arg})")
+            out.append(item("stalled", "⏸️",
+                            f"⏸️ ページの見張りの最後の巡回が {age:.0f} 時間前 (定期実行が止まっている疑い。 台帳 = {ledger_arg})"))
     pe = state.get("probe_error")
     if pe and pe.get("error"):
-        out.append(f"⚠️ 変化を知らせる追加の経路が使えない状態 ({str(pe.get('at'))[:16].replace('T', ' ')} の検査: {pe['error']})"
-                   " = このまま変化が起きるとスマホ等に届かない")
+        out.append(item("probe_error", "⚠️",
+                        f"⚠️ 変化を知らせる追加の経路が使えない状態 ({str(pe.get('at'))[:16].replace('T', ' ')} の検査: {pe['error']})"
+                        " = このまま変化が起きるとスマホ等に届かない", at=pe.get("at")))
     oce = state.get("on_change_error")
     if oce and oce.get("error"):
-        out.append(f"⚠️ 変化を知らせる追加の経路 (--on-change) が {str(oce.get('at'))[:16].replace('T', ' ')} に失敗した"
-                   f" = スマホ等に届いていない可能性 ({oce['error']})")
+        out.append(item("on_change_error", "⚠️",
+                        f"⚠️ 変化を知らせる追加の経路 (--on-change) が {str(oce.get('at'))[:16].replace('T', ' ')} に失敗した"
+                        f" = スマホ等に届いていない可能性 ({oce['error']})", at=oce.get("at")))
     if gone:
-        out.append(f"⌛ 期限 (until) を過ぎた見張り {len(gone)} 件 ({', '.join(t['id'] for t in gone)}) → 台帳から外す")
+        out.append(item("expired", "⌛",
+                        f"⌛ 期限 (until) を過ぎた見張り {len(gone)} 件 ({', '.join(t['id'] for t in gone)}) → 台帳から外す"))
     return out
+
+
+def report(ledger: dict, state: dict, *, surface: bool, prog: str, ledger_arg: str,
+           now: str | None = None) -> list[str]:
+    return [it["line"] for it in report_items(ledger, state, surface=surface, prog=prog,
+                                              ledger_arg=ledger_arg, now=now)]
 
 
 def show(target: dict, state: dict) -> list[str]:
@@ -394,6 +423,8 @@ def main(argv: list[str] | None = None, *, fetch=fetch_url, notifier=notify_maco
     g.add_argument("--ack", metavar="ID")
     g.add_argument("--selftest", action="store_true")
     ap.add_argument("--ledger", help="台帳 (YAML / JSON)")
+    ap.add_argument("--json", action="store_true",
+                    help="出す行を 1 件 1 object の JSON 配列で出す (別の道具が読む口。 無ければ [])")
     ap.add_argument("--notify", action="store_true", help="新しい本文を見つけたら macOS 通知")
     ap.add_argument("--alert", action="store_true", help="--notify に加えて、 押すまで消えない警告ダイアログを出す")
     ap.add_argument("--on-change", metavar="CMD", help="新しい本文を見つけたら CMD を実行 (引数の末尾に「label → note」)")
@@ -448,9 +479,11 @@ def main(argv: list[str] | None = None, *, fetch=fetch_url, notifier=notify_maco
             write_state(sp, state)
         except OSError as e:
             print(f"⚠️ web-page-watch: state を書けない ({sp}: {e})")
-    lines = report(ledger, state, surface=a.surface, prog=prog, ledger_arg=a.ledger, now=now)
-    if lines:
-        print("\n".join(lines))
+    items = report_items(ledger, state, surface=a.surface, prog=prog, ledger_arg=a.ledger, now=now)
+    if a.json:
+        print(json.dumps(items, ensure_ascii=False))
+    elif items:
+        print("\n".join(it["line"] for it in items))
     return 0
 
 
@@ -542,6 +575,14 @@ def selftest() -> int:  # noqa: PLR0915
         run("--notify", "--alert", "--on-change", "push-cmd")
         ok(len(notified) == 1 and len(hooked) == 1, "same new body not re-notified nor re-hooked")
         ok("🚨" in run("--surface"), "pending change persists in surface")
+        js = json.loads(run("--surface", "--json"))
+        ch = [it for it in js if it["kind"] == "change"]
+        ok(len(ch) == 1 and ch[0]["id"] == "a" and ch[0]["url"] == "u:a" and ch[0]["mark"] == "🚨"
+           and ch[0]["message"].startswith("ページA が変わった") and ch[0]["at"]
+           and ch[0]["line"] in run("--surface"),
+           "--json: change item carries id / url / message / at and the same line as --surface")
+        ok(all(set(it) == {"kind", "mark", "id", "url", "label", "message", "at", "line"} for it in js),
+           "--json: every item has the same keys")
         diff = run("--show", "a")
         ok("-受付を中止しています。" in diff and "+申請受付を再開しました。" in diff, "show gives diff")
 

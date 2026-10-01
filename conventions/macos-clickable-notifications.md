@@ -102,6 +102,13 @@ applet に行き先を焼き込むと、そのアプリが 1 つの用途に縛�
 
 ⚠️ その script の `PATH` は `/usr/bin:/bin` しかない。python 等を使うなら script 側で張る。
 
+既製の行き先 = [`scripts/surface-report.py`](../scripts/surface-report.py) (surface の行・公開ページの見張り・
+直近に出した通知を 1 枚にする)。click の script は `surface-report.py --config <設定> --write` で頁を作って
+`open` するだけにし、並べ順・表示名・見張りの台帳の場所は設定 (JSON) で渡す。
+
+⚠️ 行き先を試すときは `--write` だけを回し、`--open` や click の script そのものは回さない
+(本人の画面にブラウザが開く。実測)。
+
 ## <a id="click-target-contains-the-notification"></a>行き先の頁には、押された通知の文が在る
 
 click で applet に渡るのは「起こされた」という事実だけで、**どの通知が押されたかは渡らない**。
@@ -115,7 +122,8 @@ click で applet に渡るのは「起こされた」という事実だけで、
 - **出した通知を控える。** 投稿の入口 (`claude-notify.sh`) が title と本文を 1 行ずつ
   控え (直近 N 件) に残す。行き先の頁は控えの新しい側を**先頭**に置く。source が
   増えても、押した文は必ず頁に在る。
-- **写しを経由しない。** 定期ジョブが見つけたものは、頁を作る時点でその state を読む。
+- **写しを経由しない。** 定期ジョブが見つけたものは、頁を作る時点でその state を読む
+  (公開ページの見張りなら `web-page-watch.py --surface --json` = state を読むだけで巡回しない)。
   session 開始時の写しにだけ頼ると、次の session まで頁に出ない。
 - **読めなかったことを黙らない。** state を読む段が失敗したら、その節を消さずに
   「読めなかった」 1 行を出す (「告知なし」 と区別する)。
@@ -144,7 +152,8 @@ click で applet に渡るのは「起こされた」という事実だけで、
 
 実装 = [`scripts/lib/ledger_page.py`](../scripts/lib/ledger_page.py)
 (`parse_item` で 1 行を marker / 残り日数 / 本文 / 出所 に分け、`render_page` で 1 枚にする。
-合成データの selftest つき)。呼ぶ側は「どの台帳をどの順で、どの節に置くか」だけを持つ。
+合成データの selftest つき) と、それを使う [`scripts/surface-report.py`](../scripts/surface-report.py)。
+呼ぶ側は「どの台帳をどの順で、どの節に置くか」だけを設定で持つ。
 
 ## <a id="notification-body-must-be-ranked"></a>通知本文の 1 行は「選ぶ」もの
 
