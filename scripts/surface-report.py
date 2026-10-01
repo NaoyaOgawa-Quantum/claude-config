@@ -392,7 +392,8 @@ def _selftest(config_path: str | None) -> int:
         t = write_report(cfg).read_text(encoding="utf-8")
         check("写しに無い通知の文が頁に出る (= 押した文が必ず在る)",
               "見本の議案ページ が変わった" in t and "古い通知" not in t)
-        check("直近の通知は finding より前", t.index("<h2>直近に出した通知") < t.index("<h2>鳴っている finding"))
+        check("直近の通知は finding より前",
+              "<h2>直近に出した通知" in t and t.index("<h2>直近に出した通知") < t.index("<h2>鳴っている finding"))
 
         ww = page_watch_rows([
             {"kind": "change", "mark": "🔔", "id": "sample-gian", "url": "https://example.org/gian.html",

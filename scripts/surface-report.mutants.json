@@ -1,0 +1,49 @@
+{
+  "_comment": "surface-report.py の selftest の foil に歯があることを、 押した通知の文を頁に置く仕組みの部品を 1 つずつ外した mutant 7 本で確かめる spec (check-foil-teeth.py が読む)。",
+  "target": "surface-report.py",
+  "run": "python3 {} --selftest",
+  "mutants": [
+    {
+      "name": "直近に出した通知の節を頁に足さない",
+      "pairs": [["    if recent:\n        lead.append(", "    if False:\n        lead.append("]],
+      "expect_fail": ["写しに無い通知の文が頁に出る", "直近の通知は finding より前"],
+      "expect_pass": ["控えは窓の中だけ", "優先順が glob 順を上書きする"]
+    },
+    {
+      "name": "控えの窓 (24 時間) で打ち切らない",
+      "pairs": [["if now - ts > hours * 3600:", "if False:"]],
+      "expect_fail": ["控えは窓の中だけ", "写しに無い通知の文が頁に出る"],
+      "expect_pass": ["控えの上限件数を守る"]
+    },
+    {
+      "name": "同じ文を 1 回にまとめない",
+      "pairs": [["        if (title, body) in seen:\n            continue\n", ""]],
+      "expect_fail": ["控えは窓の中だけ・新しい順・同じ文は 1 回"],
+      "expect_pass": ["控えの上限件数を守る"]
+    },
+    {
+      "name": "見張りの台帳が無いことを黙る",
+      "pairs": [["            out.append({\"kind\": \"unreadable\", \"mark\": \"⚠️\", \"line\": f\"⚠️ 見張りの台帳が無い ({led})\"})\n", "            pass\n"]],
+      "expect_fail": ["台帳が無ければ ⚠️"],
+      "expect_pass": ["engine が読めなかった item も落とさない"]
+    },
+    {
+      "name": "行にページへの link を付けない",
+      "pairs": [["\"href\": it.get(\"url\") or \"\"", "\"href\": \"\""]],
+      "expect_fail": ["変化の行は本文 + そのページへの link", "読めない行も link を持つ"],
+      "expect_pass": ["engine が読めなかった item も落とさない"]
+    },
+    {
+      "name": "surface を glob 順のまま並べる",
+      "pairs": [["files.sort(key=lambda p: (prio.index(p.stem) if p.stem in prio else len(prio), p.stem))", "files.sort(key=lambda p: p.stem)"]],
+      "expect_fail": ["優先順が glob 順を上書きする"],
+      "expect_pass": ["最上位は CRITICAL の台帳の行"]
+    },
+    {
+      "name": "config の知らない key を黙る",
+      "pairs": [["return cfg, (f\"config に知らない key: {', '.join(unknown)} ({path})\" if unknown else None)", "return cfg, None"]],
+      "expect_fail": ["知らない key は理由として返す"],
+      "expect_pass": ["config を読める"]
+    }
+  ]
+}
