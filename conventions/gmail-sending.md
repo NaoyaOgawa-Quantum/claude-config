@@ -114,6 +114,7 @@ file 名 substring パターンは「file 名に言及するだけの無害コ�
    - <a id="mandated-dry-run-doubles-chip"></a>**「dry-run には chip が出るが軽微」 として残さない**: 手順が「送信前に dry-run で確かめる」 を必須にしている経路では、 dry-run が gate を踏むと**規律を守るほど毎回 1 送信 2 chip** になる (= 条件 (b) の恒常違反。 subcommand 名 〔`mailer.py <acct> send`〕 に anchor した gate で実測、 合成例)。 tool が fail-safe 既定 (flag 無し = 送信不能) なら、 全層の anchor を実送信 flag まで絞ってよい。
    - <a id="hook-keeps-ask-on-expansion"></a>**hook は flag が展開で入りうる形だけ保守的に ask を残す**: hook も宣言 ask も見ているのは typed command 文字列なので、 `$VAR` / `` `...` `` 経由の flag は literal 判定できない。 宣言 ask は glob しか書けないが、 hook は述語を書けるので「実送信 flag が literal に在る」 か「`$` / backtick を含む」 なら ask にする (= 検証用の dry-run は通し、 判定不能な形は止める)。
    - 複数マシンでは宣言 ask が machine-local なので、 絞った rule は旧 rule の置き換え表とともに auto-apply 層で各マシンに揃える ([`multi-machine-state.md#gate-rules-reassert-every-session`](multi-machine-state.md#gate-rules-reassert-every-session))。
+   - <a id="new-send-script-registers-in-gate"></a>**新しい送信 script を足した commit で、 gate の fail-safe CLI の一覧にも登録する**: 名前の形 (例: 名前に `send` を含む `*.py`) で送信を見分ける gate は、 一覧に無い新しい送信 engine の selftest・plan・`--help` のたびに確認を出す。 委任した worker が検証を回すと、 その確認が owner の画面に連続して出る (実測)。 実送信 flag が無ければ送信不能な script を足したら、 同じ commit で一覧に入れ、 argparse 系は `allow_abbrev=False` にし、 「dry-run では確認が出ない / 実送信 flag では ask / 別の送信経路との複合では ask」 の test を足す。
 
 ## <a id="draft-approval-single-source"></a>9. 承認対象と実送信 body の single-source 原則 (= chat 提示 draft と body-file の 2 度書き乖離)
 
