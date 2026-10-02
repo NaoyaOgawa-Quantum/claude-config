@@ -38,16 +38,25 @@ fi
 #   1. システム特殊 (X11, TeX) → 配列の前 = PATH の末尾近く
 #   2. brew (homebrew/local) と Python 系 → 配列の中
 #   3. ユーザー個人 bin (~/.local/bin) → 配列の最後 = PATH の頭
+#
+# brew の 2 つの prefix は、 この Mac の arch に合う側を後ろ (= PATH の前) に置く。
+# Intel から移行した Apple Silicon 機の /usr/local には Intel 版の CLI が残りうるので、
+# 固定順だと Intel 版が arm64 版を覆い隠す (正本 = conventions/macos-cpu-arch.md#homebrew-prefix-by-arch)。
+if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
+  BREW_NATIVE=/opt/homebrew; BREW_OTHER=/usr/local
+else
+  BREW_NATIVE=/usr/local; BREW_OTHER=/opt/homebrew
+fi
 REQUIRED_PATHS=(
   "/opt/X11/bin"
   "/Library/TeX/texbin"
   "/opt/homebrew/opt/python@3.12/libexec/bin"
   "$HOME/Library/Python/3.9/bin"
   "$HOME/.npm-global/bin"
-  "/opt/homebrew/sbin"
-  "/usr/local/sbin"
-  "/opt/homebrew/bin"
-  "/usr/local/bin"
+  "$BREW_OTHER/sbin"
+  "$BREW_OTHER/bin"
+  "$BREW_NATIVE/sbin"
+  "$BREW_NATIVE/bin"
   "$HOME/.local/bin"
 )
 

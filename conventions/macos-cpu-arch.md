@@ -1,0 +1,100 @@
+<!-- doc-meta
+when: 新しい Mac を立ち上げるとき + Intel Mac から Apple Silicon Mac へ移行アシスタントで移した直後 + dotfile・script・launchd plist に Homebrew の path や arch を書く前 + `Bad CPU type in executable` / `EBADARCH` / launchd の exit 126 を見たとき + 「どの機械で定期ジョブを回すか」 を arch で決めようとしたとき
+category: macos
+summary: Intel (x86_64) と Apple Silicon (arm64) の判定は「機械の arch」 と「process の arch (uname -m)」 の使い分け、 Homebrew の prefix は arch で決まる (/opt/homebrew と /usr/local) ので dotfile は arch を見て選び PATH はネイティブ側を先にする。 arch を「どの機械か」 の判定に使わない。 移行アシスタントは Intel の binary・Homebrew・node・Python の拡張・npx cache・git-crypt の filter path・アプリ・launchd plist・同期フォルダの写しをそのまま運ぶので、 Rosetta が無いと全部起動せず、 入れると黙って混ざる。 点検 = scripts/macos-arch-audit.py (読むだけ、 両 arch 対応)
+-->
+# Intel と Apple Silicon — 自動判定して、 どちらの Mac でも正しく動かす
+
+同じ設定・script を Intel Mac (x86_64) と Apple Silicon Mac (arm64) の両方で使うときと、 Intel から
+Apple Silicon へ移ったときの正本。 点検の機械化 = [`scripts/macos-arch-audit.py`](../scripts/macos-arch-audit.py)
+(読むだけ。 どちらの arch の機械でも同じに動き、 「この機械ではネイティブで動かないもの」 を列挙する)。
+
+## <a id="detect"></a>判定 — 「機械の arch」 と「この process の arch」 は別
+
+| 知りたいこと | 見るもの | 注意 |
+|---|---|---|
+| 機械が Apple Silicon か | `sysctl -n hw.optional.arm64` が `1` | Rosetta 下の process からでも本物を返す |
+| この process / shell の arch | `uname -m` (`arm64` / `x86_64`) | Rosetta で変換中の shell では `x86_64` を返す (= そのとき選ぶべき Homebrew は x86 側) |
+| この process が変換中か | `sysctl -n sysctl.proc_translated` が `1` | |
+| binary がどの arch を持つか | `lipo -archs <file>` | `arm64e` は arm64 として扱う。 script では失敗する (= 判定対象外) |
+
+「ネイティブ」 = 機械の arch の slice を持つ binary。 Apple Silicon 機では x86_64 だけの binary、
+Intel 機では arm64 だけの binary が異物。 i386 / ppc だけの binary (32-bit 時代のアプリ) はどちらでも起動しない。
+
+## <a id="homebrew-prefix-by-arch"></a>Homebrew の置き場所と PATH の並び
+
+Homebrew の prefix は arch で決まる: **arm64 = `/opt/homebrew`、 x86_64 = `/usr/local`**。
+dotfile に `/usr/local/bin` を決め打ちで先頭に置くと、 Apple Silicon 機では (移行で残った) Intel 版が arm64 版を覆い隠す。
+
+`~/.zshenv` (= 非対話 shell・agent の Bash も読む唯一の file) は arch を見て選ぶ:
+
+```sh
+# いまの shell の arch に合う brew を優先し、 無ければもう一方
+if [ "$(uname -m)" = arm64 ] && [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+elif [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+```
+
+login shell では `/etc/zprofile` の `path_helper` が `/etc/paths` (先頭 = `/usr/local/bin`) を PATH の前に押し込み、
+上の並びを崩す。 `~/.zprofile` で `brew shellenv` が設定した `$HOMEBREW_PREFIX` を先頭へ戻す
+(`brew shellenv` 自体は二重に呼ばない = [`shell-env.md`](shell-env.md)):
+
+```sh
+if [ -n "$HOMEBREW_PREFIX" ]; then
+  export PATH="$HOMEBREW_PREFIX/bin:$HOMEBREW_PREFIX/sbin:$PATH"
+fi
+typeset -U path PATH
+```
+
+`.zshrc` で PATH を足すときも `/usr/local/bin` と書かず `${HOMEBREW_PREFIX:-/usr/local}/bin` と書く。
+script・launchd plist に PATH を焼くときは **両方の prefix を書き、 ネイティブ側を先に**する
+(片方しか無い機械では、 無い dir は害が無い)。 候補を順に試す script (`for c in ...`) もネイティブ側を先に。
+agent の Bash の snapshot を補う [`hooks/fix-snapshot-path-patch.sh`](../hooks/fix-snapshot-path-patch.sh) も同じ規則で並べる。
+
+## <a id="arch-is-not-a-host-id"></a>arch を「どの機械か」 の判定に使わない
+
+「x86_64 なら常時起動の本番機」 のように arch で機械を見分けると、 機械を買い替えた瞬間に逆向きに外れる
+(本番になった新機で判定が偽になり、 退役する旧機で真のまま残る)。 機械の役割は hostname を鍵にした台帳で決める
+(= [`multi-machine-state.md#account-host-failover`](multi-machine-state.md#account-host-failover) の
+`routine-host-gate.py`、 終了値 0 = この機械が本番)。 arch で分けてよいのは「その arch で動く binary を選ぶ」 ことだけ。
+
+## <a id="migration-intel-to-apple-silicon"></a>Intel から Apple Silicon へ移行アシスタントで移したとき
+
+移行アシスタントは user の領域を丸ごと運ぶので、 **Intel の binary がそのまま来る**。 Rosetta が入っていないと
+それらは起動せず (`Bad CPU type in executable` / `EBADARCH` / launchd の `exit 126`)、 Rosetta を入れると
+**黙って Intel 版が動き出して arm64 版と混ざる** (例: Intel 版 python3 が arm64 で入れ直した拡張を読めず import で落ちる)。
+⚠️ zsh は PATH 上の最初の候補が起動できないと次の候補を黙って試すので、 対話 shell では一部が動いて見える。
+`env` 経由・`sh -c`・launchd・git の filter は試し直さないので、 同じ機械で「手で打つと動くのにジョブは落ちる」 になる。
+
+直す順 (どれも元の物を消さず退避してから。 実測の順):
+
+| 何が来るか | 症状 | 直し方 |
+|---|---|---|
+| Rosetta 未導入 | Intel 専用アプリ (同期クライアント等) が起動しない | `sudo softwareupdate --install-rosetta --agree-to-license` (つなぎ。 下の入れ替えを済ませれば頼らない) |
+| `/usr/local` の Intel Homebrew | brew の CLI・`git-crypt`・`gh`・`jq` が起動しない | `/opt/homebrew` に Homebrew を入れ、 自分で入れた formula (各 `INSTALL_RECEIPT.json` の `installed_on_request`) を入れ直す。 `/usr/local/{bin,lib,...}` の Cellar への symlink を退避し、 `/usr/local/Homebrew` 等の本体は root 所有の親の下なので sudo で後片付け |
+| 公式 installer の CLI (`~/.local/share/<tool>/versions/*` 等) | その CLI が起動しない | 古い版を退避して公式 installer を再実行。 ⚠️ installer が PATH 上の `jq` 等を呼ぶので、 **PATH を `/usr/bin:/bin:/usr/sbin:/sbin` に絞って**走らせる (Intel 版の補助 binary を掴むと installer ごと落ちる) |
+| nvm の node | MCP server・`npx` が起動しない | 版の dir を退避して同じ版を `nvm install <ver>` (PATH を絞って)。 global package は入れ直す |
+| npx cache の platform 部品 (`*-darwin-x64`) | native 部品を使う package が落ちる | `~/.npm/_npx/<hash>` ごと消す (次回ネイティブで取り直す) |
+| Python の user site の拡張 (`.so`) | numpy・lxml・PyMuPDF 等が import で落ちる | `pip freeze --user` → `pip install --user --force-reinstall --no-deps -r <list>` を arm64 の python で |
+| python.org の Framework Python / pyenv の版 | `python3` が Intel 版に化ける | `.zprofile` の Framework を PATH に足す行を外す。 pyenv は版を作り直すか `pyenv global system` |
+| git-crypt の filter | `git status` すら `external filter ... git-crypt clean failed 126/127` | unlock 時の git-crypt の**絶対 path** が各 repo の `.git/config` に焼かれている。 `macos-arch-audit.py --fix-git-crypt-paths --repos-root <dir>` が今の git-crypt に書き換える |
+| launchd plist | ジョブが毎回 `exit 126` | 生成した installer を再実行して plist を作り直す (焼かれた PATH・interpreter・機械名も更新される) |
+| アプリ | Rosetta 頼み / 32-bit は起動不能 | Homebrew cask で入れ直す (旧 bundle を退避してから。 ⚠️ cask が**同じ bundle id** かを先に確かめる = 改名したアプリで別物を入れない。 `.pkg` の cask は sudo が要る。 配布停止の cask もある)。 32-bit (i386 / ppc だけ) は削除候補 |
+| クラウド同期フォルダ (File Provider) | 同期クライアントが「フォルダが見つからない」 / 二重 | `~/Library/CloudStorage/<service>` は File Provider として移らず、 **ただのフォルダの写し**として来る。 写しを同期フォルダとして拾わせない (古い写しが、 移行後にクラウド側で消したファイルを復活させうる) = 写しを改名して退避 → 同期クライアントを入れ直して再リンク → 同期後に写しとの差を点検してから写しを消す |
+| CLI の認証 (keychain) | headless の CLI が未 login | config-dir ごとに login し直す ([`remote-control-server.md#account-auth-keychain`](remote-control-server.md#account-auth-keychain)) |
+
+⚠️ `brew` を `while read` の loop の中で呼ぶと、 brew が loop の入力を食べて 2 件目以降が黙って飛ぶ = `brew ... </dev/null`。
+
+点検の終わり = `macos-arch-audit.py` の「実行経路に別 arch なし」 + 定期ジョブを 1 本手で回して最後まで走ること。
+アプリ・npx cache・退避した Intel Homebrew の残置は 🟠 として出続ける (= 片付けるまでの carrier)。
+
+## 関連
+
+- PATH の rc file と shell の種類の対応 = [`shell-env.md`](shell-env.md)
+- 機械の役割 (本番ホスト) の台帳 = [`multi-machine-state.md#account-host-failover`](multi-machine-state.md#account-host-failover)
+- install の失敗の記録の仕方 = [`install-failures.md`](install-failures.md)
+- 旧新版アプリの並存の片付け = [`macos-side-by-side-app-migration.md`](macos-side-by-side-app-migration.md)

@@ -990,7 +990,21 @@ if command -v git-crypt &> /dev/null && { [ -f "$GIT_CRYPT_KEY" ] || ls "$HOME"/
     # Claude Code の Bash ツールなど PATH に /usr/local/bin 等を持たないプロセスから
     # git commit / checkout 時に「git-crypt: command not found」で filter が失敗するのを防ぐ。
     # secrets-config/CLAUDE.md にも「git filter は絶対パス使用」と明記済み。
-    GITCRYPT_ABS="$(command -v git-crypt)"
+    # 焼く binary は、 この Mac の arch に合う Homebrew の側を優先し、 実際に起動できるものだけにする
+    # (Intel から移行した Apple Silicon 機では PATH の先に Intel 版が残りうる。 それを焼くと全 repo の
+    # `git status` が filter の失敗で止まる = conventions/macos-cpu-arch.md#migration-intel-to-apple-silicon)。
+    # 移行後に再実行すれば、 焼いた path も今の git-crypt に揃い直る。
+    if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ]; then
+        _GC_CANDS="/opt/homebrew/bin/git-crypt /usr/local/bin/git-crypt"
+    else
+        _GC_CANDS="/usr/local/bin/git-crypt /opt/homebrew/bin/git-crypt"
+    fi
+    GITCRYPT_ABS=""
+    for _gc in $_GC_CANDS "$(command -v git-crypt 2>/dev/null)"; do
+        if [ -n "$_gc" ] && [ -x "$_gc" ] && "$_gc" --version >/dev/null 2>&1; then
+            GITCRYPT_ABS="$_gc"; break
+        fi
+    done
     if [ -n "$GITCRYPT_ABS" ]; then
         echo ""
         echo "=== Step 5c: Pinning git-crypt absolute path in .git/config ==="

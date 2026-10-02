@@ -90,7 +90,7 @@ REQUIRED_PATHS リストで管理。各スナップショットをスキャン�
 
 **REQUIRED_PATHS の更新:** 新しいツール（例: Ruby, Go）をインストールしたら、スクリプトの REQUIRED_PATHS 配列に追加すること。
 
-**Intel Mac / Apple Silicon の両対応:** REQUIRED_PATHS には Apple Silicon の `/opt/homebrew/{bin,sbin}` と Intel の `/usr/local/{bin,sbin}` の **両方を併記**する。各エントリは `[ -d ]` で実在チェックされるので、該当しない側は自動的にスキップされ無害。Intel Mac で `/usr/local/bin` が抜けていると `jq` 等の brew インストール CLI が `command not found` になる事故が発生した（2026-04-07）。
+**Intel Mac / Apple Silicon の両対応:** REQUIRED_PATHS には Apple Silicon の `/opt/homebrew/{bin,sbin}` と Intel の `/usr/local/{bin,sbin}` の **両方を併記**する。各エントリは `[ -d ]` で実在チェックされるので、該当しない側は自動的にスキップされ無害。Intel Mac で `/usr/local/bin` が抜けていると `jq` 等の brew インストール CLI が `command not found` になる事故が発生した（2026-04-07）。**並び順は機械の arch で決める** (判定の仕方 = [`macos-cpu-arch.md#detect`](macos-cpu-arch.md#detect)。 Apple Silicon 機なら `/opt/homebrew` を、 Intel 機なら `/usr/local` を PATH の前に): Intel から移行した Apple Silicon 機の `/usr/local` には Intel 版の CLI が残りうるので、 固定順だと Intel 版が arm64 版を覆い隠す (実測)。 dotfile 側の書き方と移行で壊れるものの一覧 = [`macos-cpu-arch.md`](macos-cpu-arch.md)。
 
 **post-merge hook での即時反映:** REQUIRED_PATHS を更新して `git pull` した場合、新規スナップショットは launchd WatchPaths が捕捉するが、**既に生成済みのスナップショットには反映されない**。post-merge hook (`setup.sh` Step 4 で生成) が pull 後に `fix-snapshot-path-patch.sh` を一度実行することで既存スナップショットも即時更新される。
 
