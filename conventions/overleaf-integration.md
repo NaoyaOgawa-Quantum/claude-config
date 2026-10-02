@@ -61,7 +61,8 @@ mirror script (= sync-overleaf.sh template) を作る場合は、 冒頭 comment
 
 Overleaf personal access token (= `olp_*` で始まる ~40 char):
 - 取得: Overleaf web の **Account Settings → Git Integration → Generate token**
-- 保管: `~/.secrets/overleaf-token` (= mode 600)
+- 保管: `~/.secrets/overleaf-token` (= mode 600)。 別の場所に置くなら環境変数 `OVERLEAF_TOKEN_FILE` (template の sync script が読む)
+- token は account 単位 = 共有リポでは共同編集者が各自の token を発行して置く。 招待の連絡に手順を書かず、 repo の collaborator-check に `file ~/.secrets/overleaf-token OVERLEAF_TOKEN_FILE -- <直し方>` を宣言して session 開始時に点検させる ([`shared-repo.md#collaborator-check`](shared-repo.md#collaborator-check))
 - Dropbox encrypted backup の方針は odakin の case で `secrets-config/CLAUDE.md §Overleaf` 参照
 
 token は account 単位、 project access 権限とは別 layer。 token 期限切れと collaborator 権限 deny を切り分ける手順:
