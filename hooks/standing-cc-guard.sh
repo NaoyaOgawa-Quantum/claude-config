@@ -17,10 +17,22 @@
 #   excluded_note:      (1 行) excluded_cc の理由。 止めた理由の文に出す
 #   label:              (1 行) 「どういうメールの規律か」 の説明。 止めた理由の文に出す
 #   reason_doc:         (1 行) 規律の正本の在り処。 止めた理由の文に出す
+#   bash_send_cli:      (1 行) Bash で打つ送信 CLI の file 名 (例: mailer.py)。 書けば Bash tool の command も検査する
+#                       (無ければ Bash は素通し)。 command 中のこの CLI の呼び出しを 1 通ずつ send_email の入力の形
+#                       {tool_name, tool_input: {subject, body, cc, attachments}} に直し、 下の検査を同じく通す
+#   bash_send_flag:     (1 行) 実際に送る印の option (既定 --send)。 無い呼び出し (= dry-run) は見ない
+#   bash_tool_name:     (1 行) 直した入力の tool 名。 {account} は --account の値 (既定 mcp__gmail-{account}__send_email)。
+#                       tools の一覧に当てるので、 MCP の送信 tool と同じ名前にしておけば同じ一覧で両方が対象になる
+#   bash_value_flags:   値を取る option を足す (既定 = --account --to --cc --bcc --subject --body --body-file --attach
+#                       --reply-to-message --quote-chain --ack-newer --thread-id --in-reply-to --references --from-name)
+#
+# Bash の CLI で読むもの: --cc と --bcc (カンマ区切り) → cc / --subject → subject / --body-file の中身と --body → body /
+#   --attach → attachments / --account → tool 名。 ⚠️ 返信で件名を省くと件名 (Re: …) は見えない = trigger は本文と
+#   添付の path で当てる。 引用の付け足し (CLI が後から足す元メールの本文) も見えない。 1 行に呼び出しが複数あれば 1 つずつ見る。
 #
 # 動作: 足りない必須 Cc / 入っている休止の宛先 / 入っている除外の宛先があれば permissionDecision: ask (= user が認めれば通る)。
 #   deny にしないのは、 個別のメールで Cc を意図して変える正当な場合があるため。 それ以外は silent pass。
-# 依存: jq。 test = standing-cc-guard.test.sh
+# 依存: jq (Bash の CLI を読むときは python3 も)。 test = standing-cc-guard.test.sh
 
 INPUT=$(cat)
 command -v jq &> /dev/null || exit 0
@@ -56,6 +68,97 @@ parse_yaml_scalar() {
 }
 
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // empty')
+
+# 送信 CLI の command → send_email の入力 (1 行 1 JSON)。 ⚠️ heredoc を <( … ) や $( … ) の中に書かない =
+# macOS 標準の bash 3.2 は中の括弧・{ } で構文を誤る (実測: if の塊ごと飛ばされた) ので、 先に変数へ読む
+read -r -d '' PY_CONVERT <<'PY' || true
+import json, os, shlex
+env = os.environ
+try:
+    cmd = json.loads(env["STANDING_CC_INPUT"]).get("tool_input", {}).get("command", "") or ""
+except Exception:
+    raise SystemExit(0)
+cli = env["STANDING_CC_CLI"]
+if cli not in cmd:
+    raise SystemExit(0)
+try:
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars="|&;")
+    lex.whitespace_split = True
+    toks = list(lex)
+except ValueError:
+    toks = cmd.split()
+STOP = {"&&", "||", ";", "|", "&", ";;"}
+TAKES = {"--account", "--to", "--cc", "--bcc", "--subject", "--body", "--body-file", "--attach", "--reply-to-message",
+         "--quote-chain", "--ack-newer", "--thread-id", "--in-reply-to", "--references", "--from-name"}
+TAKES |= {f.strip() for f in env.get("STANDING_CC_VALUE_FLAGS", "").splitlines() if f.strip()}
+send_flag = env["STANDING_CC_SEND_FLAG"]
+def read(path):
+    try:
+        with open(os.path.expanduser(path), encoding="utf-8") as f:
+            return f.read()
+    except Exception:
+        return ""
+def addrs(v):
+    return [a.strip() for a in v.split(",") if a.strip()]
+for i, t in enumerate(toks):
+    if os.path.basename(t) != cli:
+        continue
+    args = []
+    for x in toks[i + 1:]:
+        if x in STOP:
+            break
+        args.append(x)
+    acct, subject, body, send, cc, attach = "", "", "", False, [], []
+    j = 0
+    while j < len(args):
+        a, val = args[j], None
+        if a.startswith("--") and "=" in a:
+            a, val = a.split("=", 1)
+        if a in TAKES and val is None:
+            j += 1
+            val = args[j] if j < len(args) else ""
+        if a == send_flag:
+            send = True
+        elif a == "--account":
+            acct = val
+        elif a in ("--cc", "--bcc"):
+            cc += addrs(val)
+        elif a == "--subject":
+            subject = val
+        elif a == "--body-file":
+            body += read(val)
+        elif a == "--body":
+            body += val
+        elif a == "--attach":
+            attach.append(val)
+        j += 1
+    if send:
+        name = env["STANDING_CC_TOOL_NAME"].replace("{account}", acct or "unknown")
+        print(json.dumps({"tool_name": name, "tool_input": {"subject": subject, "body": body, "cc": cc,
+                                                             "attachments": attach}}, ensure_ascii=False))
+PY
+
+# Bash: config の送信 CLI の実送信を 1 通ずつ send_email の入力の形 (1 行 1 JSON) に直し、 本 file に通し直す
+if [[ "$TOOL" == "Bash" ]]; then
+    CLI=$(parse_yaml_scalar "bash_send_cli" "$CONFIG")
+    [[ -n "$CLI" ]] || exit 0
+    command -v python3 &> /dev/null || exit 0
+    SENDFLAG=$(parse_yaml_scalar "bash_send_flag" "$CONFIG")
+    TOOLNAME=$(parse_yaml_scalar "bash_tool_name" "$CONFIG")
+    [[ -n "$TOOLNAME" ]] || TOOLNAME='mcp__gmail-{account}__send_email'   # ${…:-…} に書くと { } で展開が切れる
+    while IFS= read -r one; do
+        [[ -z "$one" ]] && continue
+        OUT=$(printf '%s' "$one" | bash "$0")
+        if [[ -n "$OUT" ]]; then
+            printf '%s\n' "$OUT"
+            exit 0
+        fi
+    done < <(STANDING_CC_INPUT="$INPUT" STANDING_CC_CLI="$CLI" STANDING_CC_SEND_FLAG="${SENDFLAG:---send}" \
+             STANDING_CC_TOOL_NAME="$TOOLNAME" \
+             STANDING_CC_VALUE_FLAGS="$(parse_yaml_list "bash_value_flags" "$CONFIG")" python3 -c "$PY_CONVERT" 2>/dev/null)
+    exit 0
+fi
+
 TOOLS=$(parse_yaml_list "tools" "$CONFIG")
 if [[ -n "$TOOLS" ]]; then
     echo "$TOOLS" | grep -qxF -- "$TOOL" || exit 0
