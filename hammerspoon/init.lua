@@ -1,27 +1,61 @@
 -- CLI (hs コマンド) を有効化
 require("hs.ipc")
 
--- Claude for Mac: Cmd+Q 誤終了防止
--- eventtap で低レベルにキーイベントを捕捉し、
--- Claude 宛の Cmd+Q をブロックする
+-- Claude for Mac: Cmd+Q 誤終了防止 (長押しで終了)
+-- Claude が前面のとき、 Cmd+Q を claudeQuitHoldSeconds 秒 (既定 1.5) 押し続けた
+-- ときだけ Claude を終了する。 途中で Q か Cmd を離せば取り消し。
+-- 秒数は ~/.hammerspoon/local.lua で claudeQuitHoldSeconds = 5 のように変えられる
+-- (押した時に読むので、 local.lua が init.lua の後に読まれても効く)。
 --
--- ⚠️ tap と見張りの timer は global に持つ。 local に入れると init.lua の実行が
--- 終わった後に Lua の GC が回収し、 tap が黙って止まる (起動直後は効くので気づけない。
--- 実測 = 起動から日数が経った Mac で Cmd+Q が素通りして Claude が終了した)。
+-- ⚠️ 終了の代わりのキーに Cmd+Shift+Q を案内しない: macOS では Cmd+Shift+Q は
+-- 「ログアウト」 (Claude のメニューに無いので Apple メニューに落ちる)。
+-- ⚠️ メニューバーの「Claude を終了」 は止められない (キー入力でないので tap に来ない)。
+-- ⚠️ tap と timer は global に持つ。 local に入れると init.lua の実行が終わった後に
+-- Lua の GC が回収し、 tap が黙って止まる (起動直後は効くので気づけない。
+-- 実測 = 長く動かしている Hammerspoon で Cmd+Q が素通りして Claude が終了した)。
 -- 名前は他の設定とぶつからないよう接頭辞つき。
 
-claudeQuitTap = hs.eventtap.new({hs.eventtap.event.types.keyDown}, function(event)
+claudeQuitHold = nil  -- 押している間だけ {timer, alert}
+
+local function claudeQuitHoldCancel()
+    if claudeQuitHold then
+        claudeQuitHold.timer:stop()
+        hs.alert.closeSpecific(claudeQuitHold.alert)
+        claudeQuitHold = nil
+    end
+end
+
+local types = hs.eventtap.event.types
+claudeQuitTap = hs.eventtap.new({types.keyDown, types.keyUp, types.flagsChanged}, function(event)
+    local t = event:getType()
     local flags = event:getFlags()
     local keyCode = event:getKeyCode()
 
-    -- Cmd+Q (keyCode 12 = Q) かつ Shift なし
-    if flags.cmd and not flags.shift and not flags.alt and not flags.ctrl and keyCode == 12 then
-        -- フロントアプリが Claude かチェック
+    -- Cmd+Q (keyCode 12 = Q)、 他の修飾キーなし
+    if t == types.keyDown and keyCode == 12
+        and flags.cmd and not flags.shift and not flags.alt and not flags.ctrl then
         local app = hs.application.frontmostApplication()
         if app and app:name() == "Claude" then
-            hs.alert.show("Quit Claude: Cmd+Shift+Q", 1)
-            return true  -- イベントを消費（quit を阻止）
+            if not claudeQuitHold then  -- 押し始め (押しっぱなしのキーリピートは無視)
+                local secs = claudeQuitHoldSeconds or 1.5
+                local alert = hs.alert.show(
+                    string.format("⌘Q を %g 秒押し続けると Claude を終了", secs), secs)
+                claudeQuitHold = {
+                    alert = alert,
+                    timer = hs.timer.doAfter(secs, function()
+                        claudeQuitHold = nil
+                        app:kill()  -- 通常の終了 (強制終了ではない)
+                    end),
+                }
+            end
+            return true  -- Claude には渡さない
         end
+    end
+
+    -- 離したら取り消す (Q を離した / Cmd を離した)
+    if claudeQuitHold and ((t == types.keyUp and keyCode == 12)
+        or (t == types.flagsChanged and not flags.cmd)) then
+        claudeQuitHoldCancel()
     end
     return false  -- 他はそのまま通す
 end)
