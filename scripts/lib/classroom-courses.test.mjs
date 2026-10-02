@@ -1,7 +1,7 @@
 // Hermetic self-test for classroom-courses.mjs; uses a fake Classroom client and needs no network or googleapis.
 import assert from "node:assert/strict";
 import {
-  summarize, createCourse, updateCourse, createAnnouncement, inviteMembers, rosterStatus, emailsFromRosterText,
+  summarize, createCourse, updateCourse, createAnnouncement, inviteMembers, rosterStatus, emailsFromRosterText, gradeHistory,
 } from "./classroom-courses.mjs";
 
 const apiError = (status, code) => Object.assign(new Error(status), { code, response: { status: code, data: { error: { status, message: status } } } });
@@ -93,6 +93,30 @@ await check("rosterStatus classifies joined / invited / missing / error and find
   assert.deepEqual(s.rows.map((r) => r.status), ["joined", "invited", "missing", "error"]);
   assert.equal(s.classroomStudents, 2);
   assert.deepEqual(s.notInRoster, ["Helper Nine"]);
+});
+
+await check("gradeHistory counts grade changes by teacher and flags grades without history", async () => {
+  const sub = (state, draftGrade, hist) => ({
+    state, draftGrade,
+    submissionHistory: [{ stateHistory: { state: "CREATED" } },
+      ...hist.map(([actorUserId, pointsEarned, gradeTimestamp]) => ({ gradeHistory: { actorUserId, pointsEarned, gradeTimestamp, gradeChangeType: "DRAFT_GRADE_POINTS_EARNED_CHANGE" } }))],
+  });
+  const pages = [
+    { studentSubmissions: [sub("TURNED_IN", 5, [["t1", 5, "2030-01-02T00:00:00Z"]]), sub("CREATED", 0, [])], nextPageToken: "p2" },
+    { studentSubmissions: [sub("TURNED_IN", 5, [["t1", 5, "2030-01-01T00:00:00Z"]]), sub("CREATED", undefined, [["t1", undefined, "2030-01-03T00:00:00Z"]])] },
+  ];
+  const c = { courses: {
+    teachers: { list: async () => ({ data: { teachers: [{ userId: "t1", profile: { name: { fullName: "Teacher A" } } }] } }) },
+    courseWork: { studentSubmissions: { list: async ({ pageToken }) => ({ data: pages[pageToken ? 1 : 0] }) } },
+  } };
+  const r = await gradeHistory(c, "c1", "w1");
+  assert.equal(r.submissions, 4);
+  assert.equal(r.changes["Teacher A | DRAFT_GRADE_POINTS_EARNED_CHANGE | 5"], 2);
+  assert.equal(r.changes["Teacher A | DRAFT_GRADE_POINTS_EARNED_CHANGE | none"], 1);
+  assert.equal(r.noHistory, 1);
+  assert.deepEqual(r.span, ["2030-01-01T00:00:00Z", "2030-01-03T00:00:00Z"]);
+  assert.equal(r.byState["TURNED_IN late=false draft=5 assigned=none"], 2);
+  await assert.rejects(gradeHistory(c, "c1"), /courseWorkId are required/);
 });
 
 await check("emailsFromRosterText takes the last column, skips the header and non-addresses", () => {
