@@ -135,6 +135,7 @@ claude-config/
 │   ├── overleaf-integration.md             # Overleaf↔GitHub 連携 repo を設定・sync するとき
 │   ├── paper-audit.md                      # 論文 merger 等の構造 issue を体系 audit するとき
 │   ├── paper-submission.md                 # 論文投稿ポータル (ScholarOne / Editorial Manager / arXiv) へ submit するとき
+│   ├── passkey-cross-device.md             # パスキーでしか入れないサービスに別の端末 (スマホ・別の PC) から入れないとき + 「この QR コードをスキャン」 と出て止まったとき + パスキーを 2 台目の端末に足すとき + パスキーの保存先を選ぶ画面が出たとき
 │   ├── paste-destined-plain-text.md        # Claude が書いた文面 / コマンドを user が手で貼り付けて実行・投稿する workflow を設計・実行するとき (= 貼り先が plain text 入力欄でも terminal でも)
 │   ├── peer-review-workflow.md             # referee・審査委員として他者の paper / 申請書を評価するとき
 │   ├── personal-skills.md                  # personal skill (~/.claude/skills/) を規律の発火面として使うとき
