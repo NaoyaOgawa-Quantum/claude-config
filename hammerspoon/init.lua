@@ -119,3 +119,32 @@ if hs.fs.attributes(localLua) then
         hs.alert.show("local.lua の読み込みに失敗: " .. tostring(err), 4)
     end
 end
+
+-- 設定の file (init.lua と local.lua の symlink 先) が変わったら読み直す。
+-- git pull で届いた変更を、 マシンごとに手で「Reload Config」 しなくても効かせるため。
+-- 保存や pull では変更の通知が続けて来るので、 1 秒まとめてから読み直す。
+-- watcher と timer は global に持つ (上の Cmd+Q ガードと同じ GC の罠)。
+local function realDir(path)
+    local target = hs.fs.symlinkAttributes(path, "target")
+    local real = path
+    if target then
+        real = target:sub(1, 1) == "/" and target or (path:match("^(.*)/") .. "/" .. target)
+    end
+    return real:match("^(.*)/[^/]+$")
+end
+claudeConfigReloadTimer = nil
+claudeConfigWatchers = {}
+for _, p in ipairs({os.getenv("HOME") .. "/.hammerspoon/init.lua", localLua}) do
+    local dir = hs.fs.attributes(p) and realDir(p)
+    if dir then
+        table.insert(claudeConfigWatchers, hs.pathwatcher.new(dir, function(paths)
+            for _, f in ipairs(paths) do
+                if f:sub(-4) == ".lua" then
+                    if claudeConfigReloadTimer then claudeConfigReloadTimer:stop() end
+                    claudeConfigReloadTimer = hs.timer.doAfter(1, hs.reload)
+                    return
+                end
+            end
+        end):start())
+    end
+end
