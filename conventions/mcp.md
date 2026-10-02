@@ -376,6 +376,13 @@ send (= MCP `send_email` / Gmail API `messages/send`) に file を添付する�
 - **body だけ受ける send helper / thin wrapper は body しか送らない** (= 添付フィールドを持たない)。 添付が要るなら API 直叩きで raw MIME を自前で組む経路に切り替える (= `send_email` MCP tool が添付 param を出すかは server / version 依存、 確実なのは raw MIME)。
 - **送信前に添付パスの存在を atomic に検証**する (= 1 つでも欠けたら batch 全体を abort)。 §書き側 の HTML-entity gate と同様、 部分送信してから気付く事故を防ぐ。
 
+## <a id="gmail-read-email-omits-cc"></a>Gmail MCP: read_email は Cc を出さない
+
+`@gongrzhe/server-gmail-autoauth-mcp` (v1.1.11) の `read_email` / `search_emails` が出すヘッダは Thread ID・Subject・From・To・Date だけで、 **Cc と Message-ID は出ない** (実測)。 出力に Cc 行が無いことは「Cc が空」 を意味しない。
+
+- Cc に誰が入っているかを**述べる・判断に使う・返信で引き継ぐ**前に、 原メッセージのヘッダを Gmail API で読む (`messages.get?format=metadata&metadataHeaders=To&metadataHeaders=Cc`、 または `format=raw` を `.eml` に保存して読む。 認証は [§API 直接アクセス](#api-direct-access))。
+- 典型の誤り = 「この返事は相手を Cc から外している」 と読み、 要らない転送を起案する (実測)。 書き側の同類 = 全員への返信で Cc を落とす。
+
 ## Gmail MCP: read_email の大容量出力と chunked 処理
 
 ### 現象
