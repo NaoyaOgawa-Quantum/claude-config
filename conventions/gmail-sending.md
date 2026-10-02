@@ -41,6 +41,8 @@ meta = svc.users().messages().get(
 <a id="reply-newer-in-thread"></a>**返信先より新しい相手の message を送信前に数える**: threading が正しくても、 返信先を決めた後に相手が同じ thread で返事をしていれば、 それを読まない続報 (答え済みの質問の聞き直し) になる (実測)。 返信 option は thread を取り、 返信先より新しく送信アカウント以外からの message を dry-run の先頭に出して実送信を止める。 通す flag には最新の相手 message の id を取らせる (= 読んだ証拠。 後から届けば id が変わり再び止まる)。 自分の判定は From だけでなく SENT label と Message-ID でも行う (ML が配り直した自分の投稿は From が ML 名義になる)。
 判定と表示の実装は [`scripts/lib/newer_in_thread.py`](../scripts/lib/newer_in_thread.py) の 1 か所 (selftest + [mutants](../scripts/newer_in_thread.mutants.json))。 返信する CLI は thread を読んで row をこの engine に渡し、 文言・flag 名・exit code は templates と extra で差し替える (例 = [`reviewed_mail.py`](../scripts/reviewed_mail.py) の `check_newer`)。 新しい返信経路を作るときも判定を書き直さずにこれを呼ぶ。
 
+<a id="widened-reply-quote-target"></a>**宛先を広げる返信 (ML・ほかの人を足す) では、 返信先に選んだ message が引用される**: thread の最新が自分だけに宛てた私信 (ML の thread に個人で返してきたもの) のとき、 それを返信先にして原文を引用すると、 私信が ML 全体に出る。 返信先は宛先にもう出ている message (ML に出た自分の投稿など) にし、 新しい私信は読んだうえで 上の「返信先より新しい message」 の flag で通す。 私信の中身を伝えたいなら本文で言い直す (実測)。
+
 ## <a id="rfc2231-attachment-filename"></a>3. 非 ASCII 添付 filename は RFC 2231 (最重要の壊れ方)
 
 Python email lib で header 値全体を f-string で渡すと壊れる:
