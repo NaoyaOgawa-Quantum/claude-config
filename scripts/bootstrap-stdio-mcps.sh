@@ -14,11 +14,15 @@
 # 動作 (= fully 冪等):
 #   1. registry を読む (= 不在なら silent exit 0)
 #   2. `claude mcp list` と diff を取り、 未登録 pair を特定
-#   3. 未登録 pair それぞれに対し:
+#   3. 全 pair (登録済も) に対し、 node_modules が package-lock.json とずれていれば
+#      `npm install` で合わせ、 stdout に「<mcp-name>: node_modules を ... 合わせた」 を print
+#      (= 依存の版上げを merge / pull しても、 各マシンの node_modules は初回 install の版の
+#      まま残る。 lockfile の版と実際に動く版が黙ってずれるのを塞ぐ、 2026-10-03)
+#   4. 未登録 pair それぞれに対し:
 #      a. <base-dir>/<subdir>/server.mjs が無ければ silent skip
 #      b. <base-dir>/<subdir>/node_modules が無ければ `npm install` (初回 only)
 #      c. `claude mcp add <mcp-name> -- node <full-path>` で登録
-#   4. 登録に成功した pair を stdout に「<mcp-name> = node <path>」 1 行ずつ print
+#   5. 登録に成功した pair を stdout に「<mcp-name> = node <path>」 1 行ずつ print
 #
 # Exit code: 0 always (fail-open)。 ファイル不在・npm 失敗・claude not found
 #   は silent skip。 呼び出し側 (= layer 3 hook) は stdout の有無で「何か追加されたか」 を判定。
@@ -83,10 +87,50 @@ else
   current_mcps="$(claude mcp list 2>/dev/null || true)"
 fi
 
+# node_modules が package-lock.json の版とずれているか (= exit 0 ならずれている)。
+# 比べるのは npm が node_modules に書く hidden lockfile (.package-lock.json) の版。
+# lockfile にあって入っていない optional (= 他 platform 用) はずれに数えない。
+# python3 が無い・どちらかが読めない時は「ずれていない」 (= fail-open、 毎回 install しない)。
+lock_drift() {
+  command -v python3 >/dev/null 2>&1 || return 1
+  python3 - "$1" <<'PY' 2>/dev/null
+import json, os, sys
+d = sys.argv[1]
+try:
+    want = json.load(open(os.path.join(d, "package-lock.json")))["packages"]
+    have = json.load(open(os.path.join(d, "node_modules", ".package-lock.json")))["packages"]
+except Exception:
+    sys.exit(1)
+for k, v in want.items():
+    if not k or "version" not in v:
+        continue
+    got = have.get(k, {}).get("version")
+    if got is None and v.get("optional"):
+        continue
+    if got != v["version"]:
+        sys.exit(0)
+sys.exit(1)
+PY
+}
+
 # registry の各 pair を iterate
 while IFS=: read -r subdir mcpname; do
   [ -z "$subdir" ] && continue
   [ -z "$mcpname" ] && continue
+
+  # 登録済でも node_modules を lockfile に追従させる (= 上の docstring 3)
+  pair_dir="$BASE_DIR/$subdir"
+  if [ -f "$pair_dir/package-lock.json" ] && [ -d "$pair_dir/node_modules" ] \
+     && command -v npm >/dev/null 2>&1 && lock_drift "$pair_dir"; then
+    if [ "${CLAUDE_BOOTSTRAP_NO_ADD:-0}" = "1" ]; then
+      printf '%s (dry-run, would npm install: node_modules が package-lock.json とずれている)\n' "$mcpname"
+    else
+      (cd "$pair_dir" && npm install --silent --no-audit --no-fund) >/dev/null 2>&1 || true
+      if ! lock_drift "$pair_dir"; then
+        printf '%s: node_modules を package-lock.json の版に合わせた (npm install。 動いている server は再起動まで旧版)\n' "$mcpname"
+      fi
+    fi
+  fi
 
   # 既登録なら skip (= 冪等 / fast path)
   # claude mcp list の format: "<mcp-name>: <type> - ..." or "<mcp-name> <type>"

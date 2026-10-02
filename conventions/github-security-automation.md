@@ -210,6 +210,10 @@ Tier 4 の例:
 
 build step を持たない runtime project (= 自作 MCP server、 CLI、 script 群) の major dep bump では「build test」 の中身を明示する必要がある。 特に **自作 MCP server は API client (`googleapis` 等) を lazy 構築する** (= 初回 `tools/call` まで未構築) ため、 stdio `initialize` handshake は server boot + protocol negotiation のみ確認し、 **その依存を一切 exercise しない**。 → handshake PASS は major dep bump の検証として **不十分**、 read-only な `tools/call` を投げて**実 API round-trip**まで確認する (= 手順は [`mcp.md` handshake-not-dependency-check](mcp.md#handshake-not-dependency-check))。 staged verification (= 1 dir bump → bump 前と live 結果比較 → 全 dir 展開) で blast radius 最小化。
 
+### <a id="node-modules-follow-lockfile"></a>merge しても各マシンの node_modules は追従しない (2026-10-03)
+
+依存の版上げ PR を merge / pull しても、 git が運ぶのは `package.json` と `package-lock.json` だけで、 各マシンの `node_modules` は最後に install した版のまま残る = lockfile の版と実際に動く版が黙ってずれる (検証した版が本番で動いていない)。 自作 stdio MCP server なら session 開始の bootstrap が、 lockfile と npm の hidden lockfile (`node_modules/.package-lock.json`) の版を突き合わせ、 ずれていれば `npm install` する ([`scripts/bootstrap-stdio-mcps.sh`](../scripts/bootstrap-stdio-mcps.sh)。 他 platform 用で入っていない package は数えない)。 registry に載らない dir (OAuth の consent だけの helper 等) は追従の射程外 = その dir の script を走らせる直前に `npm install`。
+
 ### Dependabot security-update PR は monorepo の全 manifest を cover しないことがある
 
 `directories:` 設定の monorepo で、 同一脆弱 package が複数 subdir の lockfile に出ても、 Dependabot の **security-update PR は一部 dir のみ生成される** ことがある (= rate-limit / batching)。 partial PR だけ merge すると残 dir の alert を見逃す。 → **全 affected dir 横断の local `npm audit fix` (non-`--force`) の方が完全**。 local fix → push → 残った partial PR は supersede として close、 が確実 (= §10 cascading loop に乗せて PR を 1 件ずつ追う より速い)。
