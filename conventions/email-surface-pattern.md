@@ -141,6 +141,12 @@ opt-out list の両方 — 後者にしか痕跡が無い決着もある (= clas
 - 条件は **件名の除外で雑音を削る** (サインイン用リンク等、 同じ送り手からの読む価値の無い通知)
 - 期間は待つ長さに合わせる (`newer_than` を回答見込み + 余裕に)。 記録済みの mail は出さないので、 過去の
   やりとりに当たっても静か
+- <a id="watch-query-spam"></a>**Web フォーム経由の問い合わせの返事を待つときは `in:anywhere` を付ける**: フォームサービス
+  (Wix など) の自動返信や、 店の担当者の初めての返事は迷惑メールに入りやすい。 Gmail の検索は既定で迷惑メールと
+  ごみ箱を見ないので、 条件に `in:anywhere` が無いと網は黙る (実測: フォーム送信直後の自動返信が迷惑メールに
+  入っていた)。 迷惑メールから見つけたら API で `SPAM` ラベルを外して `INBOX` を付ければ受信トレイに戻るが、
+  これが画面の「迷惑メールではない」 と同じ学習の合図になるかは公開文書に書かれていない = 確実にしたいなら
+  「迷惑メールにしない」 フィルタ (残る設定なので本人の OK を取ってから)
 - 実装 = [`scripts/lib/mail_watch.py`](../scripts/lib/mail_watch.py) の `watch_queries` / `unrecorded_threads`。
   一般則 = [`convention-design-principles.md#retrieval-key-choice`](../docs/convention-design-principles.md#retrieval-key-choice)
   (thread ID でなく送り手・件名という別の鍵で引く)、 予告された inbound の時計は
