@@ -43,7 +43,7 @@ layer 1 (public) のドメイン固有規約 145 file をカテゴリ別に列�
 - **[output-cap-death-loop.md](output-cap-death-loop.md)** — worker session (spawn_task / headless claude -p / Agent subagent / 別ベンダー CLI 〔Codex 等〕) に長い導出・生成 task を渡す spec を書くとき・spawn した worker が「isRunning なのに成果ゼロ」 のとき・受け手の context 窓が小さい (自動圧縮が早い) と分かっているとき
   - 1 応答の出力上限 (Claude Code 既定 64,000 output token、 thinking 込み) を超える巨大 turn を worker が試みると、 API error → 同じ turn を retry → また超過、 の決定的 loop で session が silent 死する (= output-cap 死 loop)。 診断 signature = 実作業ゼロ + 空 thinking block が ~10-15 分間隔で規則的に並ぶ (rate-limit backoff と誤診しやすい)。 復旧 = 粘らず捨てる + **spec を分割してから** 再spawn (同 spec の再spawn は同じ死に方をする、 実測 2 連死)。 予防の宛先は worker でなく **spec author (親)**: 1 worker = 1 bounded stage / 開放的判断問題には「未解決と書いて閉じてよい」 permission / turn 分割規律 (1 応答で完結させない・小節ごと commit) / 1 Write ≤~150 行・定型は shell 複製 / 部分結果 = 成功 mode。 2026-07-10/11 に独立 2 project で計 3 worker 同型死 + bounded な sibling 2 worker は完走の実測から。 姉妹機構 = **context 圧縮による途中経過の消失** (#context-compaction-loss、 別ベンダー worker で context 窓が ~250K 級の場合): 予防は同じ = step ごとに file に書いて commit + 読ませる文書を最小化。
 - **[personal-skills.md](personal-skills.md)** — personal skill (~/.claude/skills/) を規律の発火面として使うとき
-  - personal skill (= ~/.claude/skills/、 全 session 常時可視の auto-discover) を規律の発火面として使う規約 — 機構 fact 〔symlink 可・session 開始時 discovery〕 + description の書き方 + 多 machine 配線 〔explicit allowlist registry〕 + 検証作法 〔trigger test → discovery test の汚染回避順序、 headless claude -p の制約〕
+  - personal skill (= ~/.claude/skills/、 全 session 常時可視の auto-discover) を規律の発火面として使う規約 — 機構 fact 〔symlink 可・いつ拾われるかは build 依存 = 2.1.287 は同じ session に反映〕 + description の書き方 + 多 machine 配線 〔explicit allowlist registry〕 + 検証作法 〔trigger test → discovery test の汚染回避順序、 headless claude -p の制約〕
 - **[preview.md](preview.md)** — preview / dev server 稼働中に user へ動作確認を依頼するとき
   - preview / dev server 動作中はユーザー確認依頼ターンに URL を毎回明示する出力ルール
 - **[prompt-injection.md](prompt-injection.md)** — 外部由来 tool result に adversarial 指示文を疑ったとき
@@ -153,8 +153,8 @@ layer 1 (public) のドメイン固有規約 145 file をカテゴリ別に列�
   - 「天気」投稿の機構 — 種別選択 (調査ノートは 6pp 以内・掲載料無料・和文/英文要旨とも不要 #category-fit)、 掲載料は種別で不連続で格上げは課金を伴い免除条項は課金区分にしか効かない (#page-charge-by-category)、 LaTeX のまま投稿できる 3 点セット (#tex-submission-set)、 著者要件 = 原則会員を含む + 種別非依存 + 会員番号発行まで 3-4 週の lead + 学生のうちに入るのが最安 (#membership-early-check)、 非会員のみの著者構成なら例外を打診する作法 (#non-member-inquiry)、 提出経路ごとに添付書類が違い電子投稿フォームは原稿 1 ファイル制約で TeX と相性が悪い (#channel-vs-attachments)、 様式の実 URL と文中引用規則
 - **[tikz-pgfplots.md](tikz-pgfplots.md)** — TikZ / pgfplots を含む LaTeX project で図を作るとき
   - TikZ/pgfplots 固有 gotchas（infographic / poster / 1 枚 figure 制作で必読、 latex.md と併読）
-- **[writing-discipline.md](writing-discipline.md)** — AI が文章を書く・直すとき常時 (論文・研究ノート・報告書・README・chat・code の docstring と図のラベルまで) + 「kernel」 と書きそうになった瞬間
-  - 文章の標語 = 「平易に、論理の流れがスッキリ追えるように、簡潔に」 (AI の文章は放っておくと冗長になる = 書いた文ごとに標語を当てる) + 多義語 kernel を汎称に使わない (重み関数・窓関数・伝播関数・積分核など、その式が表す対象を名指す)
+- **[writing-discipline.md](writing-discipline.md)** — AI が文章を書く・直すとき常時 (論文・研究ノート・報告書・README・chat・code の docstring と図のラベルまで) + 「kernel」 と書きそうになった瞬間 + 文面を「柔らかく」 と頼まれたとき (#softening-without-self-description)
+  - 文章の標語 = 「平易に、論理の流れがスッキリ追えるように、簡潔に」 (AI の文章は放っておくと冗長になる = 書いた文ごとに標語を当てる) + 多義語 kernel を汎称に使わない (重み関数・窓関数・伝播関数・積分核など、その式が表す対象を名指す) + 「柔らかく」 は自分の行為を形容する語 (gently 等) でなく構文で出す
 
 ## macOS (`macos`)
 

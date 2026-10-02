@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: personal skill (~/.claude/skills/) を規律の発火面として使うとき
 category: harness-core
-summary: personal skill (= ~/.claude/skills/、 全 session 常時可視の auto-discover) を規律の発火面として使う規約 — 機構 fact 〔symlink 可・session 開始時 discovery〕 + description の書き方 + 多 machine 配線 〔explicit allowlist registry〕 + 検証作法 〔trigger test → discovery test の汚染回避順序、 headless claude -p の制約〕
+summary: personal skill (= ~/.claude/skills/、 全 session 常時可視の auto-discover) を規律の発火面として使う規約 — 機構 fact 〔symlink 可・いつ拾われるかは build 依存 = 2.1.287 は同じ session に反映〕 + description の書き方 + 多 machine 配線 〔explicit allowlist registry〕 + 検証作法 〔trigger test → discovery test の汚染回避順序、 headless claude -p の制約〕
 -->
 # Personal skills — 規律の発火を doc recall でなく description dispatch に乗せる
 
@@ -39,8 +39,10 @@ hook への格上げを evidence-driven で検討する (escalation trigger を 
 - **symlink された skill dir も拾われる** (= 公式 doc 未記載の実測、 2026-06-13
   claude-code 2.1.170)。 build 依存の可能性に注意 (= [`hook-authoring.md` build-dependent-behavior](hook-authoring.md#build-dependent-behavior) と同類:
   upstream docs / build 挙動は変わりうる、 新環境では §4 の検証を回す)
-- **discovery は session 開始時** (= 新規 skill は既存 session に現れず、 新 session で
-  出現するのを実測。 hook の snapshot 挙動 [`hook-authoring.md` new-hook-session-snapshot](hook-authoring.md#new-hook-session-snapshot) と整合)
+- **いつ拾われるかは build で変わった**: claude-code 2.1.170 では discovery は session 開始時だけで、 新規 skill は
+  既存 session に現れなかった (実測、 hook の snapshot 挙動 [`hook-authoring.md` new-hook-session-snapshot](hook-authoring.md#new-hook-session-snapshot) と同じ)。
+  2.1.287 (desktop) では、 skill dir を足す・SKILL.md の description を直すと、 **同じ session** の skill 一覧に反映された (実測)。
+  新しい環境では、 足した skill が今の session に出るかを一覧で確かめてから「次の session から」 と言う
 
 ## <a id="description-writing"></a>§2. description の書き方 (= trigger 品質が設計の本体)
 
