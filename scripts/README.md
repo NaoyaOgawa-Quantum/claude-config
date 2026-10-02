@@ -189,6 +189,7 @@
 - **[list-live-sessions.py](list-live-sessions.py)** — 同 cwd で生きてる兄弟 Claude session を surface する read-only reader。
 - **[local-ci.py](local-ci.py)** — CI を持たない repo の検査を手元で回す runner（config の repo × 検査を、 対象 path の最終 commit が変わったものだけ実行して結果を machine-local state に残し、 --status で red / 検査不能 / 長く未実行を 1 行ずつ出す。 並列起動は lock で 1 本、 --selftest 内蔵）
 - **[macos-app-bundle-audit.py](macos-app-bundle-audit.py)** — Inventory side-by-side macOS app bundles by name or bundle identifier. --selftest included.
+- **[macos-arch-audit.py](macos-arch-audit.py)** — この Mac の CPU (Intel / Apple Silicon) を自動判定し、 ネイティブで動かないものを列挙する (読むだけ)。
 - **[macos-crash-triage.py](macos-crash-triage.py)** — macOS のアプリ crash report (.ips) を、 Chromium の Crashpad crash key と unified log で裏付けて型に分ける (読むだけ)。--selftest 内蔵。 conventions/macos-app-crash-triage.md
 - **[macos-exec-kill-triage.py](macos-exec-kill-triage.py)** — script の exec が macOS に SIGKILL される (exit 137 / "Killed: 9" / git の "died of signal 9") 原因を、 syspolicyd の状態・unified log・file ごとの検査で揃える (読むだけ)。
 - **[macos-notification-db.py](macos-notification-db.py)** — macOS 通知センターの DB から、ある app が出した通知 (題・副題・本文・時刻) を読む。
