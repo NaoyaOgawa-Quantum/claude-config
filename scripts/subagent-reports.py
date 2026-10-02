@@ -19,8 +19,8 @@ projects-dir の既定 (先に見つかった方から全部):
 
 使い方:
   subagent-reports.py <session id か先頭の数文字>       # 既定は環境変数 CLAUDE_CODE_SESSION_ID
-  subagent-reports.py bbb02153 --max-chars 2000
-  subagent-reports.py bbb02153 --json
+  subagent-reports.py abcd1234 --max-chars 2000
+  subagent-reports.py abcd1234 --json
 
 OS: macOS / Linux / Windows (Git Bash・PowerShell) で同じに動く (標準 library だけ、 Python 3.8+、 path は pathlib、
 出力は UTF-8 に固定 = Windows の cp932 console で絵文字が UnicodeEncodeError にならない)。
