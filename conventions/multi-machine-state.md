@@ -53,11 +53,10 @@ State drift が起きうる箇所 (= 上の「マシンローカル state」) �
 
 launchd / cron の定期ジョブは **登録したマシンでだけ走る**。 フリートに複数マシンがあると「常時起動でジョブを担うべきホスト」 を 1 台に決め、 そこだけに登録する (= ノート等の non-always-on マシンには登録しない)。
 
-ジョブ script 側で「自分は稼働ホストか」 を判定したい時 (= 非ホストでは沈黙する surface 等) は **arch (`uname -m` / `platform.machine()`) や hostname を programmatic discriminator** に使う。 arch はフリートが arch で割れている場合 (例: 常時起動機 = x86_64 / ノート = arm64) に簡潔で堅牢。
+ジョブ script 側で「自分は稼働ホストか」 を判定したい時 (= 非ホストでは沈黙する surface 等) は **hostname を鍵にした台帳**で判定する (= 下の [`#account-host-failover`](#account-host-failover) の `routine-host-gate.py`、 終了値 0 = この機械が本番)。 **arch (`uname -m` / `platform.machine()`) を判定子にしない** — 機械を買い替えると逆向きに外れる (本番になった新機で偽、 退役する旧機で真のまま。 実測)。 正本 = [`macos-cpu-arch.md#arch-is-not-a-host-id`](macos-cpu-arch.md#arch-is-not-a-host-id)。
 
-- **判定は config 値に外出し + env で override 可能に**する (= 別 arch のマシンから両分岐を test できる)。 例: `host_arch` を config に置き、 `platform.machine()` と比較、 test 用に env `..._HOST_ARCH` で上書き
-- arch 判定は fleet 構成 (= どのマシンが何 arch か) に依存する **cross-machine な比較 fact**。 これは個人レイヤー (= 各 user の machine 構成 doc) に置く。 本 public 規約には具体 arch を hardcode しない (= 環境依存の値を配る物に焼かない一般則は [convention-design-principles.md #environment-literal-placement](../docs/convention-design-principles.md#environment-literal-placement))
-- 将来 arch が揃う (例: 全マシン Apple Silicon 化) と arch discriminator は効かなくなる → hostname / 明示 marker file へ移行
+- **判定は台帳 (repo の file) に外出し + env で override 可能に**する (= 別の機械から両分岐を test できる)。 例: script が gate を呼び、 test 用に env `..._IS_HOST=1|0` で上書き
+- どの機械が本番かは各 user の台帳が持つ。 本 public 規約には具体の hostname を hardcode しない (= 環境依存の値を配る物に焼かない一般則は [convention-design-principles.md #environment-literal-placement](../docs/convention-design-principles.md#environment-literal-placement))
 
 ### <a id="account-host-failover"></a>account / host failover: active-routine-host 台帳 + gate
 

@@ -167,7 +167,12 @@ def take_lock(lock: Path) -> bool:
 # ⚠️ 追跡中の PDF は組み直さない = 組み直すと変更として誰かの commit に紛れ込み、 履歴を太らせる
 # (= repo が PDF を git から外すまでは、 その repo に何もしない)。
 BUILD_LOCK_STALE = 3600
-TEX_BINS = ("/Library/TeX/texbin", "/usr/local/bin", "/opt/homebrew/bin")
+# Homebrew の 2 つの prefix は、 この Mac の arch に合う側を先に (Intel から移行した Apple Silicon 機の
+# /usr/local には Intel 版が残りうる = conventions/macos-cpu-arch.md#homebrew-prefix-by-arch)。
+_ARM64 = subprocess.run(["sysctl", "-n", "hw.optional.arm64"], capture_output=True, text=True).stdout.strip() == "1" \
+    if sys.platform == "darwin" else False
+TEX_BINS = ("/Library/TeX/texbin",) + (("/opt/homebrew/bin", "/usr/local/bin") if _ARM64
+                                       else ("/usr/local/bin", "/opt/homebrew/bin"))
 
 
 def is_ignored(repo: Path, rel: str) -> bool:
