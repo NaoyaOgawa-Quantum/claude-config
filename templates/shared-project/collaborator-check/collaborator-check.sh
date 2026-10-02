@@ -8,6 +8,7 @@
 #
 # 設定 = repo root の .collaborator-check.conf (1 行 1 項目、 # で始まる行と空行は無視):
 #   file <path> [<上書きの環境変数>] -- <直し方>     例: file ~/.secrets/svc-token SVC_TOKEN_FILE -- 自分の token を発行して置く
+#     (その環境変数に none を入れた人は「使わない」 扱いで出さない = 満たせない項目で毎回 ❌ を出し続けないため)
 #   command <名前> -- <直し方>                       例: command latexmk -- TeX Live を入れる
 #   read <file の節> -- <何が書いてあるか>            例: read CLAUDE.md §共同編集者向け -- 招待された人の手順
 #
@@ -59,6 +60,11 @@ while IFS= read -r line || [ -n "$line" ]; do
       shown="${2:-}"
       if [ -n "$envvar" ]; then
         val="$(printenv "$envvar" 2>/dev/null)"
+        if [ "$val" = "none" ]; then
+          ok="$ok
+  ⏭ $shown は使わない (\$$envvar=none)"
+          continue
+        fi
         if [ -n "$val" ]; then path="$(expand_home "$val")"; shown="$val (\$$envvar)"; fi
       fi
       if [ -s "$path" ]; then
