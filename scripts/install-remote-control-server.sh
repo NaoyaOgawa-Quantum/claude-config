@@ -141,7 +141,9 @@ RC_NAME_ARGS=""
 if [ -n "$LABEL_SUFFIX" ]; then
   HOST_SHORT="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-')"
   if [ -n "$HOST_SHORT" ]; then
-    RC_HELP="$("$CLAUDE_BIN" remote-control --help 2>/dev/null || true)"
+    # cwd を $HOME に移し stdin を閉じて呼ぶ: repo の中から呼ぶと --help が終わらず install ごと止まる
+    # ことがある (実測。 /tmp・$HOME では即終了、 同じ binary を特定の repo の中で呼ぶと待ち続けた)。
+    RC_HELP="$(cd "$HOME" 2>/dev/null; "$CLAUDE_BIN" remote-control --help </dev/null 2>/dev/null || true)"
     if [ -n "$RC_HELP" ]; then
       printf '%s' "$RC_HELP" | grep -q -- '--name' \
         && RC_NAME_ARGS=" --name \"$HOST_SHORT-$LABEL_SUFFIX\""

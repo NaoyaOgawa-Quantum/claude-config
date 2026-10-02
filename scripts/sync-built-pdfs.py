@@ -274,6 +274,13 @@ def run_builds(base: Path, rules, recent_days: int, state_dir: Path, dry: bool, 
 def run(base: Path, dest: Path, exclude, dry: bool, quiet: bool, recent_days: int = 0,
         build_rules=None, state_dir: Path = Path("~/.claude/state").expanduser()) -> int:
     run_builds(base, build_rules or [], recent_days, state_dir, dry, quiet)
+    if not dest.exists() and not dest.parent.is_dir():
+        # 写し先の親 (= 同期フォルダの root、 例 ~/Dropbox) が無い = 同期クライアントが未接続・移設中。
+        # ここで mkdir -p すると同期フォルダの位置にただの dir を作り、 後で置くはずの symlink や
+        # クライアントの再リンクを塞ぐ (実測)。 写さずに退く。
+        if not quiet:
+            print(f"写し先の親 {dest.parent} が無い (同期フォルダが未接続) = 写さない", file=sys.stderr)
+        return 0
     lock = Path(tempfile.gettempdir()) / f"sync-built-pdfs-{os.getuid()}.lock"
     if not take_lock(lock):
         return 0
@@ -325,6 +332,10 @@ def _selftest(t: Path) -> None:
     (repo / ".gitattributes").write_text("sec/** filter=git-crypt diff=git-crypt\n")
     jobs = {str(d.relative_to(dest)) for _, d in plan(base, dest, [])}
     assert jobs == {"r1/r1.pdf", "r1/topic.pdf", "r1/talk.pdf"}, jobs
+    # 写し先の親 (同期フォルダの root) が無いときは写さず、 その root を作らない
+    unlinked = Path(t) / "no-sync-root" / "pdfs"
+    run(base, unlinked, [], False, True)
+    assert not unlinked.parent.exists(), "同期フォルダの root が無いのに作った"
     assert {str(d.relative_to(dest)) for _, d in plan(base, dest, ["r1/notes/*"])} == {"r1/r1.pdf", "r1/talk.pdf"}
     # 別の run が lock を持つ間は写さずに退き、 その lock を消さない (消すと次の起動と 2 本が並走する)
     lk = Path(tempfile.gettempdir()) / f"sync-built-pdfs-{os.getuid()}.lock"
