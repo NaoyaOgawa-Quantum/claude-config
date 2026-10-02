@@ -347,7 +347,7 @@ gh api repos/<owner>/<repo>/invitations
 - **仕組み** — repo に project の SessionStart hook (`.claude/settings.json`)・点検 script の写し (`tools/collaborator-check/collaborator-check.sh`)・要る物の一覧 (`.collaborator-check.conf`) を置く。 相手がその repo で session を開くと、 欠けている物だけが直し方つきで agent に渡り、 agent が user に伝える。 揃えば何も出さない。 最初に読む節は clone ごとの初回だけ出す。 session は止めない (終了値 0)
 - **配り方** — `python3 scripts/install-collaborator-check.py install <repo> --item '<conf の 1 行>' ...`。 写しが正本と同じか・hook が共有されるかは `check <repo>`。 書式と限界 = script の docstring。 **正本 = [`templates/shared-project/collaborator-check/`](../templates/shared-project/collaborator-check/)**、 repo の写しは repo 単体で動くために置く (共同編集者は claude-config を持たない = [§「standalone で成立」](#standalone-operational-definition))。 直すときは正本を直して配り直す
 - **hook を持たない agent** (Codex ほか) — repo の CLAUDE.md に「session 開始時に 1 回 `bash tools/collaborator-check/collaborator-check.sh`」 を書く (installer が文面を出す)
-- **個人の値の置き場所は所有者の配置を前提にしない** — 既定の path + 上書きの環境変数 (conf の `file <path> <ENV>`)。 script 側も同じ環境変数を読む
+- **個人の値の置き場所は所有者の配置を前提にしない** — 既定の path + 上書きの環境変数 (conf の `file <path> <ENV>`)。 script 側も同じ環境変数を読む。 その service を使わない人は環境変数に `none` を入れると出なくなる (満たせない ❌ を毎回出し続けると、 他の ❌ まで読まれなくなる)
 - ⚠️ 所有者の global の gitignore が `.claude/*` を落としていると、 hook の設定が共同編集者に届かない。 installer は repo の `.gitignore` に `!.claude/settings.json` を足し、 `check` が ignore されていないことを確かめる
 - 確かめるのは存在まで (token が有効かは各 service の検査に任せる)
 

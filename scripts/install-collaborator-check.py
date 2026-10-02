@@ -23,6 +23,7 @@ repo 自身に project の SessionStart hook を持たせ、 **相手が repo �
     install-collaborator-check.py --selftest        # 合成の repo で、 欠けた物だけ出る・初回だけ読む節が出る・冪等 まで確かめる
 
 `--item` の例: `--item 'file ~/.secrets/svc-token SVC_TOKEN_FILE -- 自分の token を発行して置く'`
+(その service を使わない人は SVC_TOKEN_FILE=none で黙らせられる = 満たせない ❌ を毎回出し続けない)
 (既に同じ行が conf にあれば足さない)。 commit と push はしない。 CLAUDE.md に足す文面は最後に出す (保護 file なので書かない)。
 
 ## 限界
@@ -226,6 +227,9 @@ def selftest() -> int:
         out3 = run(extra={"SELFTEST_TOKEN_FILE": str(tok)})
         if "selftest-token" in out3 or "SELFTEST_TOKEN_FILE" in out3:
             fails.append(f"環境変数で置いた token が見えていない:\n{out3}")
+        out3b = run(extra={"SELFTEST_TOKEN_FILE": "none"})
+        if "selftest-token" in out3b:
+            fails.append(f"環境変数 = none なのに token の ❌ が出た:\n{out3b}")
         (td / "home" / ".secrets").mkdir()
         (td / "home" / ".secrets" / "selftest-token").write_text("x")
         out4 = run(extra={"PATH": f"{td}:{env['PATH']}"})
