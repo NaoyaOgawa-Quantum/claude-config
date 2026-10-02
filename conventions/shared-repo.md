@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 共同編集者がいるリポで作業するとき
+when: 共同編集者がいるリポで作業するとき + 所有者だけの repo を共有リポに切り替えるとき (#convert-owner-repo-to-shared) + 招待した相手の手元の準備 (個人の token・道具・最初に読む節) を repo に点検させるとき (#collaborator-check)
 category: infra
 summary: 共有リポ固有規約
 -->
@@ -301,6 +301,18 @@ reading mirror には **真正本ポインタ** を併記する:
 
 同じ identifier が 機能 literal + shared mirror + personal mirror の 3 段に重複する場合 (例: Discord channel ID = workflow yaml + shared CLAUDE.md + personal layer の reference doc) は mirror を 1 段に絞ることを優先検討する。ただし「auto-load される doc に書いておけば Claude が即参照できる」便宜と weight する — 残す場合は各 mirror に真正本ポインタを忘れず付ける。
 
+## <a id="convert-owner-repo-to-shared"></a>所有者だけの repo を共有リポに切り替える
+
+招待は今の tree だけでなく**全履歴**を渡す。 切り替えの手順:
+
+1. **履歴ごと点検する** — tree と `git log -p` の両方で、 次の class を洗う: (a) 所有者が「共同編集者にも見せない」 と決めていた事項 (repo の規約に「転記しない」 と書いた物) (b) 第三者の連絡先 (c) 所有者の個人層・他の非公開 repo への path (d) 所有者の絶対 path・account 識別子。 見つけた class を所有者に並べ、 class ごとに渡すかを所有者が決める (agent は「private だから」「信頼できる相手だから」 で決めない = [§判断基準にしないもの](#pii-data-minimization))
+2. **分岐** — 渡さない物が履歴に 1 つでも残る → 共有用の repo を新しく作り、 渡す物だけを履歴 1 から入れる (今の repo は所有者だけの記録として残し、 共有側を名前で参照する = 正本は共有側に 1 つ)。 履歴の書き換えは最後の手段 (不可逆・他の clone の作り直し・文字列単位の除去は漏れやすい)。 所有者が全 class を渡すと決めた → 今の repo をそのまま共有する
+3. **運用文書だけを直す** — CLAUDE.md / SESSION.md / AGENTS.md / script にある、 所有者の個人層への path を、 repo 名の言及 + 「共同編集者は辿る必要がない」 の境界文に置き換える (上の §「L2 における「名指し」 の適用 (boundary 明示付き)」)。 所有者の secret の置き場所を前提にした script は、 各自の値を環境変数で渡す形にする。 記録の文書 (archive・送付記録・講演の計画) の path は書き換えない (= 記録を歪める)。 代わりに CLAUDE.md に、 記録に出てくる他 repo は辿る必要がない、 と 1 か所書く
+4. **「user」 が誰を指すかを書く** — 所有者だけの時代の文書の「user」 は所有者を指す。 共同編集者の agent は自分の相手を user と読むので、 CLAUDE.md に「記録の user = 所有者」 と 1 行書く
+5. **所有者側の検査を前後で回す** — 所有者の個人層に、 この repo の文書の見出しや token を読む検査があれば、 書き換えの前後で結果が変わらないことを確かめる (path を消すと検査の needle まで消えることがある)
+6. **相手の手元の準備を repo に載せる** = [§collaborator-check](#collaborator-check)
+7. **判断を記録する** (DESIGN.md: 何を渡すと決めたか・切り直さなかった理由) → **招待** (次節) → 所有者の repo 一覧の記載を更新
+
 ## Collaborator の招待（GitHub）
 
 GitHub UI 経由でも可だが、`gh` CLI で 1 行で完結する:
@@ -327,6 +339,17 @@ gh api repos/<owner>/<repo>/invitations
 ```
 
 `permission` の選択指針: 卒論・共同論文等の write 必要なケースは `push`。`maintain` は branch 保護や release 管理を任せる場合のみ。`admin` は鍵管理者か co-owner だけ。
+
+## <a id="collaborator-check"></a>招待した相手の手元の準備は repo が session 開始時に確かめる
+
+招待の後に、 相手の手元でしか済まない手順が残る (自分の token を発行して置く・道具を入れる・最初に読む節)。 招待の連絡に書いて伝えると、 相手が読み落とすか忘れた時点で止まり、 誰も気付かない ([`docs/convention-design-principles.md#human-memory-not-a-carrier`](../docs/convention-design-principles.md#human-memory-not-a-carrier))。 そこで**準備の点検を repo 自身に持たせる**:
+
+- **仕組み** — repo に project の SessionStart hook (`.claude/settings.json`)・点検 script の写し (`tools/collaborator-check/collaborator-check.sh`)・要る物の一覧 (`.collaborator-check.conf`) を置く。 相手がその repo で session を開くと、 欠けている物だけが直し方つきで agent に渡り、 agent が user に伝える。 揃えば何も出さない。 最初に読む節は clone ごとの初回だけ出す。 session は止めない (終了値 0)
+- **配り方** — `python3 scripts/install-collaborator-check.py install <repo> --item '<conf の 1 行>' ...`。 写しが正本と同じか・hook が共有されるかは `check <repo>`。 書式と限界 = script の docstring。 **正本 = [`templates/shared-project/collaborator-check/`](../templates/shared-project/collaborator-check/)**、 repo の写しは repo 単体で動くために置く (共同編集者は claude-config を持たない = [§「standalone で成立」](#standalone-operational-definition))。 直すときは正本を直して配り直す
+- **hook を持たない agent** (Codex ほか) — repo の CLAUDE.md に「session 開始時に 1 回 `bash tools/collaborator-check/collaborator-check.sh`」 を書く (installer が文面を出す)
+- **個人の値の置き場所は所有者の配置を前提にしない** — 既定の path + 上書きの環境変数 (conf の `file <path> <ENV>`)。 script 側も同じ環境変数を読む
+- ⚠️ 所有者の global の gitignore が `.claude/*` を落としていると、 hook の設定が共同編集者に届かない。 installer は repo の `.gitignore` に `!.claude/settings.json` を足し、 `check` が ignore されていないことを確かめる
+- 確かめるのは存在まで (token が有効かは各 service の検査に任せる)
 
 ## 共有 git-crypt 鍵パターン
 

@@ -49,7 +49,7 @@ git-crypt status
 
 ### 6. 履歴 (git log) に過去の漏洩がないか
 
-新リポを切り直したばかりなら不要。既存リポを clean up した場合は `git filter-repo` 等で履歴も浄化したか確認。
+新リポを切り直したばかりなら不要。既存リポを共有に切り替える場合は、 履歴にある class ごとに所有者が渡すかを決めたか確認 (手順 = [`conventions/shared-repo.md#convert-owner-repo-to-shared`](https://github.com/<owner>/claude-config/blob/main/conventions/shared-repo.md#convert-owner-repo-to-shared))。 履歴を書き換えた場合は `git filter-repo` 等で浄化しきったか確認。
 
 ## 監査が通ったら
 
@@ -60,6 +60,7 @@ git-crypt status
 - [ ] README.md にこのリポが何のためのリポか分かる説明がある
 - [ ] git-crypt を使う場合、新規 collaborator が鍵を取得する手順が（口頭でもよいので）明確
 - [ ] **このチェックを通した日付を本 file (AUDIT.md) の末尾に記録し、 SESSION.md はこの案件の現在地の行を置き換える**
+- [ ] 相手の手元で要る準備 (各自の token・道具・最初に読む節) を collaborator-check に宣言し、 `install-collaborator-check.py check <repo>` が通る
 - [ ] collaborator を招待
 
 監査の項目は本リポの性質に応じて追加してよい。

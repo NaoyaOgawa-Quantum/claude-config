@@ -1,0 +1,11 @@
+# .collaborator-check.conf — この共有リポを各自の手元で使うのに要るもの (repo root に置く)
+# 書式と挙動の正本 = tools/collaborator-check/collaborator-check.sh の冒頭
+#
+#   file <path> [<上書きの環境変数>] -- <直し方>
+#   command <名前> -- <直し方>
+#   read <file の節> -- <何が書いてあるか>
+#
+# 例 (合成):
+# read CLAUDE.md §共同編集者向け -- 招待された人が最初に読む節
+# file ~/.secrets/example-service-token EXAMPLE_TOKEN_FILE -- 自分の example-service の token を発行して置く (chmod 600)
+# command latexmk -- TeX Live を入れる

@@ -31,7 +31,9 @@ See [`docs/personal-layer.md`](../../docs/personal-layer.md) for the layer model
 
 5. (If the project builds PDFs) **Do not commit the built PDFs** — each version is stored whole in history (no delta), see [`conventions/repo-history-growth.md`](../../conventions/repo-history-growth.md). Install the push-triggered publisher instead: `python3 ~/Claude/claude-config/scripts/install-pdf-publish.py install . --dest <shared-folder> --doc '<doc>.tex' --build '<cmd>'`. It vendors [`pdf-publish/`](pdf-publish/) into `tools/pdf-publish/`, ignores the built PDFs, and installs a pre-push hook that builds (if stale) and copies the pushed documents' PDFs into a shared Dropbox folder in the background. Each clone runs `sh tools/pdf-publish/install-hook.sh` once.
 
-6. Create the GitHub private repo and invite collaborators:
+6. (If collaborators need per-person setup — their own tokens, tools, a section to read first) **Let the repo check it at session start** instead of writing it in the invitation: `python3 ~/Claude/claude-config/scripts/install-collaborator-check.py install . --item '<line>' ...`. It vendors [`collaborator-check/`](collaborator-check/) into `tools/collaborator-check/`, writes `.collaborator-check.conf`, and adds a project SessionStart hook to `.claude/settings.json` (and un-ignores it in `.gitignore`). Missing items are reported with how to fix them; nothing is printed once everything is in place. See [`conventions/shared-repo.md#collaborator-check`](../../conventions/shared-repo.md#collaborator-check). Converting an existing owner-only repo instead of starting a new one: [`#convert-owner-repo-to-shared`](../../conventions/shared-repo.md#convert-owner-repo-to-shared).
+
+7. Create the GitHub private repo and invite collaborators:
    ```bash
    gh repo create <owner>/<your-shared-project> --private --source=. --push
    gh api repos/<owner>/<your-shared-project>/collaborators/<collab> -X PUT
