@@ -260,6 +260,7 @@
 - **[sot-registry-add.py](sot-registry-add.py)** — check-sot-drift.py の registry に topic を足す前に検査し、 通ったものだけ registry の書式で末尾に追記する
 - **[sot-registry-edit.py](sot-registry-edit.py)** — check-sot-drift.py の registry を topic 単位の操作で行ごと書き換える (comment と書式を保つ)
 - **[spawn-dispatch-dedupe.py](spawn-dispatch-dedupe.py)** — 同じ依頼に worker session を 2 つ起動させない検出 (chip の二重起票) の CLI。
+- **[subagent-reports.py](subagent-reports.py)** — ある session が使った agent (subagent) の最終報告を、 会話記録から読み出す。--selftest 内蔵。
 - **[substack-fetch.py](substack-fetch.py)** — Substack の公開一覧・記事本文・有料全文 (browser session 再利用)・購読メール整形を CLI で取る。
 - **[surface-discord-bot-dm.py](surface-discord-bot-dm.py)** — Discord bot DM channel の未記録 message surface engine（daily fetcher が吐く JSON と user 側 ledger（text/YAML 内 messageId）の diff で「bot DM に返事が来ても誰も読まない」 死角を埋める汎用 CLI、 個別環境への依存ゼロ＝引数で bot ID / json-dir / ledger-dir / counterpart map / title を渡す、 finding 0 件 silent、 --selftest 内蔵。 personal layer に thin wrapper を 1 つ置いて呼ぶ、 conventions/discord-bot.md#bot-dm-surface）
 - **[surface-report.mutants.json](surface-report.mutants.json)** — surface-report.py の selftest の foil に歯があることを、 押した通知の文を頁に置く仕組みの部品を 1 つずつ外した mutant 7 本で確かめる spec (check-foil-teeth.py が読む)。
