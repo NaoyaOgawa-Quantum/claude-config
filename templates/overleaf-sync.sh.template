@@ -16,7 +16,8 @@
 #
 # 設計 (= 三例目 2026-06-12 RCA の再発防止):
 #   - PROJECT_ID を本 script に hardcode = ID を手で持ち回らない恒久記録
-#   - token は ~/.secrets/overleaf-token に隔離 (repo に commit しない)。
+#   - token は ~/.secrets/overleaf-token に隔離 (repo に commit しない)。 別の場所なら環境変数 OVERLEAF_TOKEN_FILE。
+#     token は account 単位 = 共同編集者は各自の token を置く (点検 = conventions/shared-repo.md#collaborator-check)。
 #     remote は .git/config に永続化せず、 fetch 時に URL 直指定 (token 非永続)
 #   - Overleaf への push は共著者に直接影響 → 実装しない (user 明示 OK の手動操作)
 #   - 連携を廃止したら本 script を削除せず冒頭で DEPRECATED を表示して exit 0 に置換
@@ -42,7 +43,7 @@ MERGE_OPTS="-X theirs"
 AHEAD_EXPECTED=0
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TOKEN_FILE="$HOME/.secrets/overleaf-token"
+TOKEN_FILE="${OVERLEAF_TOKEN_FILE:-$HOME/.secrets/overleaf-token}"
 
 mask() { sed -E 's/olp_[A-Za-z0-9]+/olp_REDACTED/g'; }
 run_git() { "$@" 2>&1 | mask; return "${PIPESTATUS[0]}"; }
