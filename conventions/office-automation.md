@@ -3676,7 +3676,7 @@ origin: 実測 (autofit 表の docx 様式) — 変換を繰り返して (1)+(2)
 - **読み方**: 報告値は本体の**設定**であって、 紙を測った値でないことがある (サイズ検知の無いトレイは設定をそのまま返す)。 実測は「報告と出た紙が一致した」 だけで、 本体の設定を変えたときに報告が追従するかは未検証。 ∴ 合わなければ止める根拠にはなるが、 一致を 5. の user への確認の代わりにしない。 追従を実測したら、 確認を「トレイの紙」 だけに絞れるかを判断する。
 - **両面は別に見る**: 本体の `sides-default` が片面でも、 CUPS の queue の既定 (driver 独自の option) が両面のことがある (実測)。 紙に効くのは queue の側 = `lpoptions -p <queue> -l` の `*` の付いた値を見て、 片面は `lp -o <その option>=<片面の値>` で明示する。 `--printer` はこの既定も出す。
 - <a id="dnssd-queue-stale-name"></a>**名前で引く queue (`dnssd://…`) は、 本体の広告名が変わると「プリンタを検索しています」 のまま止まる** (実測: 別の Mac から移行した queue で、 広告名の重複回避の番号が付け直されていた)。 同じ本体を IP で指す queue (`ipp://<host>/ipp/print`) が同じ Mac にあればそちらで刷る。 止まった job は **先に `cancel` してから**別の queue に出す (放っておくと、 名前が解けた時に遅れて刷られて二重になる)。 queue の追加・削除はシステムの設定なので user に頼む。 見分け方 = `lpstat -p <queue>` の 2 行目、 `dns-sd -B _ipps._tcp local.` の広告名と `lpoptions -p <queue>` の `device-uri` の名前の突き合わせ。
-- **意図して別の紙に刷る** (縮小・拡大) ときは hook が止めるので、 command の頭に `PRINT_PREFLIGHT_PRINTER=0` を付ける。 本体の報告が誤っていると現物で確かめたときも同じ。
+- **意図して別の紙に刷る** (縮小・拡大。 本体が PDF の用紙を扱えないとき = 例: A3 の掲示物を A4 機で刷る) ときは、 刷る file 自体をその紙にする = `pdf-print-preflight.py <元.pdf> --rasterize <刷る.pdf> --fit-paper <用紙>` (縦横比を保って縮め、 中央に置く raster 版)。 `lp -o fit-to-page` に縮小を任せると、 PDF と本体の用紙が食い違ったまま送ることになり hook が止める。 A3 が要るならその 1 枚をコピー機で拡大する (実測)。 `PRINT_PREFLIGHT_PRINTER=0` を付けるのは、 本体の報告が誤っていると現物で確かめたときだけ。
 
 <a id="print-intermediate-files"></a>**刷るために作った file は元の文書の完全な写し**: raster 版や頁を選んだ版を、 元の file の隣・repo の中・同期される folder に作ると、 機密の文書が同期や commit で別の場所に複製される。 session の作業用の temp dir に作り、 機密の文書なら刷り終えたら消す (作り直しは数秒 = 残す理由が無い)。
 

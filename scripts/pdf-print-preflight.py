@@ -18,6 +18,10 @@
 
 オプション:
   --rasterize OUT.pdf [--dpi 600]  : 検査後に RGB raster 版を書き出す (font 問題を原理的に消す印刷用)
+  --fit-paper NAME                 : --rasterize の各頁を用紙 NAME (a4 / a3 / b5 / letter …) に縮め (拡げ) て中央に置く。
+                                     本体が PDF の用紙を扱えない (A3 の掲示物を A4 機で刷る等) ときに、 刷る file 自体を
+                                     本体の用紙にする = lp の fit-to-page に縮小を任せず、 --printer と lp の hook がそのまま通る。
+                                     向きは頁に合わせる。 --dpi は出来上がった紙の上での解像度
   --extract OUT.pdf                : 頁を選んだ vector 版を書き出す (Word / Excel が直接吐いた PDF 等、 raster が要らない時)
   --pages SPEC                     : OUT に入れる頁 (all / 1-2,4 / changed)。 入れた頁を「提出」 と宣言して OUT に書く。
                                      ⚠️ lp -o page-ranges は無視される queue がある (実測) = 刷る頁だけの file を作る
@@ -39,6 +43,7 @@
   python3 pdf-print-preflight.py form.pdf --rasterize form_print.pdf --pages 1-2      # 窓口に出す 2 頁だけ刷る
   python3 pdf-print-preflight.py new.pdf --changed-from printed.pdf --rasterize re.pdf --pages changed
   python3 pdf-print-preflight.py print.pdf --printer Office_Printer                    # 本体のトレイの用紙と比べる
+  python3 pdf-print-preflight.py a3-poster.pdf --rasterize /tmp/x/a4.pdf --fit-paper a4 --printer Office_Printer  # A3 を A4 機で刷る
 
 設計: 同じ 1 枚の様式の刷り直しが続いた実測の RCA (2 頁はみ出し → 組み込み font 文字化け →
 raster を gray にして認印が黒 → 値の位置ずれ) から。 各失敗は個別には既知だったが印刷前に**機械で**
@@ -231,8 +236,35 @@ def _select(doc, spec, changed=None):
     return sel, flagged, declared_off
 
 
-def write_selected(src, out, sel, raster, dpi=600, src_label="", include_flagged=None):
-    """src の sel 頁 (1 始まり) だけを out に書き、 「提出」 と宣言する。 raster = RGB で描き直す。"""
+def fit_size(paper):
+    """--fit-paper の用紙名 (a4 / a3 / letter …) → (幅, 高さ) pt。 知らない名前は ValueError。"""
+    w, h = fitz.paper_size(paper)
+    if w <= 0 or h <= 0:
+        raise ValueError(f"用紙名が分からない: {paper} (例 = a4 / a3 / b5 / letter)")
+    return w, h
+
+
+def raster_page(o, page, dpi, fit=None):
+    """page を RGB raster にして o に 1 頁足す。 fit = (幅, 高さ) pt なら、 縦横比を保ってその用紙に縮め (拡げ) 中央に置く
+    (頁の向きに用紙の向きを合わせる)。 dpi は出来上がった紙の上での解像度。"""
+    pw, ph = page.rect.width, page.rect.height
+    if fit:
+        tw, th = fit
+        if (pw > ph) != (tw > th):
+            tw, th = th, tw
+        s = min(tw / pw, th / ph)
+        pix = page.get_pixmap(matrix=fitz.Matrix(s * dpi / 72, s * dpi / 72), colorspace=fitz.csRGB)
+        np_ = o.new_page(width=tw, height=th)
+        x0, y0 = (tw - pw * s) / 2, (th - ph * s) / 2
+        np_.insert_image(fitz.Rect(x0, y0, x0 + pw * s, y0 + ph * s), pixmap=pix)
+        return
+    pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
+    np_ = o.new_page(width=pw, height=ph)
+    np_.insert_image(np_.rect, pixmap=pix)
+
+
+def write_selected(src, out, sel, raster, dpi=600, src_label="", include_flagged=None, fit=None):
+    """src の sel 頁 (1 始まり) だけを out に書き、 「提出」 と宣言する。 raster = RGB で描き直す (fit = 用紙に合わせる)。"""
     doc = fitz.open(src)
     rec = read_record(doc)
     decl = rec["pages"] if rec and len(rec["pages"]) == doc.page_count else None
@@ -243,9 +275,7 @@ def write_selected(src, out, sel, raster, dpi=600, src_label="", include_flagged
         g = classify(page)
         labels.append((decl[k - 1].get("label") if decl else "") or g["heading"])
         if raster:
-            pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
-            np_ = o.new_page(width=page.rect.width, height=page.rect.height)
-            np_.insert_image(np_.rect, pixmap=pix)
+            raster_page(o, page, dpi, fit)
         else:
             o.insert_pdf(doc, from_page=k - 1, to_page=k - 1)
     copy_marker(doc, o)  # 紙専用の印 (lib/seal_artifact.py) を引き継ぐ
@@ -264,14 +294,12 @@ def write_selected(src, out, sel, raster, dpi=600, src_label="", include_flagged
     return out
 
 
-def rasterize(src, out, dpi=600):
-    """全頁を RGB raster に (頁を選ばない従来の経路)。 src の頁の宣言と紙専用の印を引き継ぐ。"""
+def rasterize(src, out, dpi=600, fit=None):
+    """全頁を RGB raster に (頁を選ばない従来の経路)。 src の頁の宣言と紙専用の印を引き継ぐ。 fit = 用紙に合わせる。"""
     doc = fitz.open(src)
     o = fitz.open()
     for page in doc:
-        pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
-        np_ = o.new_page(width=page.rect.width, height=page.rect.height)
-        np_.insert_image(np_.rect, pixmap=pix)
+        raster_page(o, page, dpi, fit)
     copy_marker(doc, o)  # 紙専用の印 (lib/seal_artifact.py) を raster 版へ引き継ぐ (印影が画素に焼かれて見分けられなくなるため)
     rec = read_record(doc)
     if rec is not None and len(rec["pages"]) == doc.page_count:
@@ -423,8 +451,21 @@ def selftest():
     doc.save(gone, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
     fg, ig = inspect(gone)
     assert not [f for f in fg if "雛形" in f] and any("雛形が無い" in x for x in ig), (fg, ig)
+    # O: --fit-paper = A3 縦 → A4 縦 1 頁 / 横長の頁は A4 を横にして入る / 知らない用紙名は ValueError
+    a3 = os.path.join(d, "a3.pdf")
+    doc = fitz.open(); w3, h3 = fitz.paper_size("a3"); doc.new_page(width=w3, height=h3)
+    doc.new_page(width=h3, height=w3); doc.save(a3)
+    fo = os.path.join(d, "fit.pdf"); rasterize(a3, fo, dpi=36, fit=fit_size("a4"))
+    w4, h4 = fitz.paper_size("a4"); od = fitz.open(fo)
+    assert od.page_count == 2, od.page_count
+    assert abs(od[0].rect.width - w4) < 1 and abs(od[0].rect.height - h4) < 1, od[0].rect
+    assert abs(od[1].rect.width - h4) < 1 and abs(od[1].rect.height - w4) < 1, od[1].rect
+    try:
+        fit_size("no-such-paper"); raise AssertionError("unknown paper accepted")
+    except ValueError:
+        pass
     printer_media._selftest()
-    print("pdf-print-preflight selftest: 14/14 PASS (printer_media 含む)")
+    print("pdf-print-preflight selftest: 15/15 PASS (printer_media 含む)")
 
 
 HOOK_LP = re.compile(r"(^|[;&|\s])lpr?\s")
@@ -604,6 +645,8 @@ def main():
     ap.add_argument("--include-flagged", metavar="REASON", help="説明書き等に見える頁を理由つきで残す")
     ap.add_argument("--changed-from", metavar="OLD_PDF", help="前に刷った版と頁ごとに比べる")
     ap.add_argument("--dpi", type=int, default=600)
+    ap.add_argument("--fit-paper", metavar="NAME",
+                    help="--rasterize の各頁を用紙 NAME (a4 / a3 …) に縮め (拡げ) て中央に置く (本体が PDF の用紙を扱えないとき)")
     ap.add_argument("--printer", nargs="?", const="", metavar="QUEUE",
                     help="本体にトレイの用紙を IPP で聞いて PDF と比べる (QUEUE 省略 = 既定の送信先)")
     ap.add_argument("--template-xlsx", metavar="雛形.xlsx", help="雛形との照合 (図形の字・見出し) を手で指定 (宣言が無い PDF 用)")
@@ -628,7 +671,11 @@ def main():
         ap.error("pdf を指定 (or --selftest)")
     rc = run_checks(a, ap)
     if a.printer is not None:
-        pf, pi = printer_media.check(a.printer or None, pdf_sizes(a.pdf), names=PAPER_NAMES)
+        # --fit-paper で書き出したときは、 刷る file (書き出した方) の用紙を本体と比べる
+        printed = a.rasterize if (a.fit_paper and a.rasterize and os.path.exists(a.rasterize)) else a.pdf
+        if printed != a.pdf:
+            print(f"  · 本体と比べるのは書き出した file ({os.path.basename(printed)}) の用紙")
+        pf, pi = printer_media.check(a.printer or None, pdf_sizes(printed), names=PAPER_NAMES)
         for i in pi:
             print("  ·", i)
         for f in pf:
@@ -644,6 +691,14 @@ def run_checks(a, ap):
     out = a.rasterize or a.extract
     if a.pages and not out:
         ap.error("--pages は --rasterize か --extract と使う (刷る頁だけの file を作る)")
+    fit = None
+    if a.fit_paper:
+        if not a.rasterize:
+            ap.error("--fit-paper は --rasterize と使う (縮めるのは raster 版)")
+        try:
+            fit = fit_size(a.fit_paper)
+        except ValueError as e:
+            ap.error(str(e))
 
     changed = None
     if a.changed_from:
@@ -670,7 +725,7 @@ def run_checks(a, ap):
             print("  🔴 窓口に出さない頁に見える頁を選んでいる: " + ", ".join(flagged))
             print("  ✗ 書かない。 --pages から外す。 本当に窓口に出す (or 読むために刷る) なら --include-flagged '<理由>'")
             return 1
-        write_selected(a.pdf, out, sel, raster=bool(a.rasterize), dpi=a.dpi, include_flagged=a.include_flagged)
+        write_selected(a.pdf, out, sel, raster=bool(a.rasterize), dpi=a.dpi, include_flagged=a.include_flagged, fit=fit)
         kind = f"raster 版 ({a.dpi} dpi RGB)" if a.rasterize else "vector 版"
         print(f"  ✅ {kind}: {out} ({os.path.getsize(out)//1024} KB、 元の {src_doc.page_count} 頁から "
               + ", ".join(f"p.{k}" for k in sel) + " を提出頁として宣言) — 印刷はこちらを lp に渡す")
@@ -688,7 +743,7 @@ def run_checks(a, ap):
     for f in findings:
         print(" ", f)
     if a.rasterize:
-        out = rasterize(a.pdf, a.rasterize, a.dpi)
+        out = rasterize(a.pdf, a.rasterize, a.dpi, fit=fit)
         print(f"  ✅ raster 版: {out} ({os.path.getsize(out)//1024} KB, {a.dpi} dpi RGB) — 印刷はこちらを lp に渡す")
         of, _ = inspect(out, a.expect_pages, a.template)
         page_bad = [f for f in of if f.startswith("🔴 頁:") or "page 数" in f]
