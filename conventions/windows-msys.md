@@ -140,7 +140,7 @@ UnicodeEncodeError: 'cp932' codec can't encode character '\U0001f550'
 
 **対処**: hook を直したら `setup.sh` を再実行する (または当該 file を copy し直す)。 加えて Claude Code の hook は **session 開始時の snapshot** で動くため、 反映は次 session から。 「直したのに直らない」 ときはこの 2 段を疑う。
 
-<a id="symlink-idempotency-on-copies"></a>**symlink 前提の冪等判定は copy の上で壊れる**: Git Bash の `ln -s` は管理者権限か開発者モードが無いと**黙って copy を作り、 成功で終わる**。 install script が「`[ -L link ]` で `readlink` が元を指していれば OK、 実 file があれば `.bak` へ退避して張り直す」 型だと、 2 回目以降の実行は自分の作った copy を「他人の実 file」 と読み、 **実行のたびに `.bak` を積む** (実測 = 2 回で 64 個)。 `~/.claude/skills/<name>.bak/` は SKILL.md の `name` が同じなので **同じ skill が二重に読まれる**。 対処 = Windows では copy を正規の配線にし、 判定を「中身の一致」 (`diff -rq src dst`) に替え、 違えば消して copy し直す (= repo の修正も次の実行で届く)。 macOS / Linux の symlink の経路は変えない。 test は、 copy mode を env で強制して macOS でも copy の経路を通す + 「`ln -s` が copy を作る」 偽の `ln` を PATH の先頭に置いて直す前の実装で赤くなることを見る。
+<a id="symlink-idempotency-on-copies"></a>**symlink 前提の冪等判定は copy の上で壊れる**: Git Bash の `ln -s` は管理者権限か開発者モードが無いと**黙って copy を作り、 成功で終わる**。 install script が「`[ -L link ]` で `readlink` が元を指していれば OK、 実 file があれば `.bak` へ退避して張り直す」 型だと、 2 回目以降の実行は自分の作った copy を「他人の実 file」 と読み、 **実行のたびに `.bak` を積む** (「`ln -s` が copy を作る」 偽の `ln` で再現 = 2 回で 64 個。 実機の Windows ではまだ確かめていない)。 `~/.claude/skills/<name>.bak/` は SKILL.md の `name` が同じなので **同じ skill が二重に読まれる**。 対処 = Windows では copy を正規の配線にし、 判定を「中身の一致」 (`diff -rq src dst`) に替え、 違えば消して copy し直す (= repo の修正も次の実行で届く)。 macOS / Linux の symlink の経路は変えない。 test は、 copy mode を env で強制して macOS でも copy の経路を通す + 「`ln -s` が copy を作る」 偽の `ln` を PATH の先頭に置いて直す前の実装で赤くなることを見る。
 
 ## <a id="tempfile-open-handle"></a>開いたままの temp file handle は Windows でだけ後続 write を拒む
 
