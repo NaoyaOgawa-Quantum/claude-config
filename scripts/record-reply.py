@@ -15,7 +15,9 @@ Gmail の読み = lib/gmail_read.py。
 何をするか:
   1. 対象 (項目 id / threadId / messageId / entry id) から thread を解決する (項目 → thread は 3 経路 = lib)。
   2. Gmail から thread の全 message を取り (読むだけ)、 **全台帳** の entry と項目から記録済み id を集め、
-     message ごとに「この entry に在る / 他所で記録済み / 未記録」 に分ける。
+     message ごとに「この entry に在る / 他所で記録済み / 未記録」 に分ける。 ⚠️ 「他所で記録済み」 は項目の `email_ref` に
+     書かれた id も数える = 項目を先に作って `email_ref: threadId:<id>` を書くと、 台帳に entry が無くても「他所済」 と出る
+     (`--apply` で home entry は作られる。 未記録の扱いを見たいなら email_ref を書く前に dry-run する)。
   3. dry-run (既定) では未記録の本文 (引用行を除く) と書く予定の差分を出す。 `--apply` で書く。
   4. 書くもの (= この 2 file だけ): 台帳の月 file (thread の home entry を作る or 足す = `threadId` 〔無ければ〕・
      `recorded_upto`・`messages[]`・`related_todo` 〔結ぶ項目が無ければ〕) と、 結ぶ項目 (`status_context` を上書き、
@@ -1564,7 +1566,7 @@ def main(argv=None) -> int:
     ap.add_argument("--next", help="次の一手 1 行 (項目の status_context に書く)")
     ap.add_argument("--status", help="項目の status (enum を渡していれば検査)")
     ap.add_argument("--summary", help="新規 entry の summary (3 行まで)")
-    ap.add_argument("--slug", help="新規 entry の id の中央 (romaji)")
+    ap.add_argument("--slug", help="新規 entry の id の中央 (romaji)。 末尾の -sent / -received は道具が付ける = slug に入れない")
     ap.add_argument("--id", help="新規 entry の id (完全指定)")
     ap.add_argument("--ledger-for-new", help="新規 entry を置く台帳 (既定 = 項目の台帳、 無ければ最初の台帳)")
     ap.add_argument("--no-todo", action="store_true")
