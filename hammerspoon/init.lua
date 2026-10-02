@@ -4,8 +4,13 @@ require("hs.ipc")
 -- Claude for Mac: Cmd+Q 誤終了防止
 -- eventtap で低レベルにキーイベントを捕捉し、
 -- Claude 宛の Cmd+Q をブロックする
+--
+-- ⚠️ tap と見張りの timer は global に持つ。 local に入れると init.lua の実行が
+-- 終わった後に Lua の GC が回収し、 tap が黙って止まる (起動直後は効くので気づけない。
+-- 実測 = 起動から日数が経った Mac で Cmd+Q が素通りして Claude が終了した)。
+-- 名前は他の設定とぶつからないよう接頭辞つき。
 
-local quitTap = hs.eventtap.new({hs.eventtap.event.types.keyDown}, function(event)
+claudeQuitTap = hs.eventtap.new({hs.eventtap.event.types.keyDown}, function(event)
     local flags = event:getFlags()
     local keyCode = event:getKeyCode()
 
@@ -20,7 +25,15 @@ local quitTap = hs.eventtap.new({hs.eventtap.event.types.keyDown}, function(even
     end
     return false  -- 他はそのまま通す
 end)
-quitTap:start()
+claudeQuitTap:start()
+
+-- macOS は応答の遅い eventtap を無効にすることがある (sleep からの復帰後など)。
+-- 止まっていたら 5 秒以内に再開する。
+claudeQuitTapWatchdog = hs.timer.doEvery(5, function()
+    if not claudeQuitTap:isEnabled() then
+        claudeQuitTap:start()
+    end
+end)
 
 -- クリップボード整形 + 貼り付け: ⌃⌥⌘V
 -- PDF からコピーしたテキストの余分な改行・RTF 書式を除去し、 そのまま
