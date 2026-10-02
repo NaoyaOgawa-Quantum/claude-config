@@ -133,6 +133,41 @@ export async function rosterStatus(classroom, courseId, emails, concurrency = 6)
   return { rows, classroomStudents: all.length, notInRoster };
 }
 
+// Who set the grades on one assignment, and where the grades stand. Each submission's submissionHistory
+// carries gradeHistory entries with actorUserId (the teacher who changed the grade), gradeChangeType
+// (draft or assigned grade), pointsEarned and gradeTimestamp; teachers.list turns the actor id into a name.
+// Returns counts only, no student names, so the result can be shown in a chat or kept in a note.
+// An entry without pointsEarned cannot be told apart between 0 and a cleared grade, so it is counted as
+// "none"; the current value is draftGrade / assignedGrade. A submission can hold a grade with no
+// grade-history entry at all (seen in practice), so history alone does not attribute every grade.
+export async function gradeHistory(classroom, courseId, courseWorkId) {
+  if (!courseId || !courseWorkId) throw new Error("courseId and courseWorkId are required");
+  const teachers = (await classroom.courses.teachers.list({ courseId })).data.teachers || [];
+  const name = Object.fromEntries(teachers.map((t) => [t.userId, t.profile?.name?.fullName || t.userId]));
+  const subs = [];
+  let pageToken;
+  do {
+    const res = await classroom.courses.courseWork.studentSubmissions.list({ courseId, courseWorkId, pageSize: 100, pageToken });
+    subs.push(...(res.data.studentSubmissions || []));
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+  const bump = (o, k) => { o[k] = (o[k] || 0) + 1; };
+  const byState = {}, changes = {}, stamps = [];
+  let noHistory = 0;
+  for (const s of subs) {
+    bump(byState, `${s.state} late=${!!s.late} draft=${s.draftGrade ?? "none"} assigned=${s.assignedGrade ?? "none"}`);
+    const hist = (s.submissionHistory || []).map((h) => h.gradeHistory).filter(Boolean);
+    if (!hist.length && (s.draftGrade != null || s.assignedGrade != null)) noHistory += 1;
+    for (const g of hist) {
+      const who = name[g.actorUserId] || `not a teacher ${g.actorUserId}`;
+      bump(changes, `${who} | ${g.gradeChangeType} | ${g.pointsEarned ?? "none"}`);
+      if (g.gradeTimestamp) stamps.push(g.gradeTimestamp);
+    }
+  }
+  stamps.sort();
+  return { submissions: subs.length, byState, changes, noHistory, span: stamps.length ? [stamps[0], stamps.at(-1)] : null };
+}
+
 // Addresses from a roster CSV whose last column is the e-mail (header row skipped, quotes stripped,
 // rows without "@" dropped). Matches the course roster files the registrar's system exports.
 export function emailsFromRosterText(text) {
