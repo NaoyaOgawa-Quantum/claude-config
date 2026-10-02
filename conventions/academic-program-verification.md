@@ -58,6 +58,9 @@ AI ベンダー等が PI 向けに出す割引・無償プランは、 申請フ
 - **結果の通知は毎回 新しいスレッドの no-reply で来て、 送り手 domain が雑音 list に入っていることが多い** →
   待ち項目に送り手の検索条件を書く ([`email-surface-pattern.md#new-thread-expected-inbound`](email-surface-pattern.md#new-thread-expected-inbound))。
   手動審査の結果は、 見込み (7 営業日) より早く来ることがある (実測)
+- 問い合わせフォーム・サポートチャットで出した依頼はメールのスレッドを持たないので、 スレッド基準の沈黙検出に乗らない。
+  出した turn に待ち項目の最終更新日を出した日にし、 待ちの記録そのものに時計を付ける
+  ([`convention-design-principles.md#outbound-wait-clock`](../docs/convention-design-principles.md#outbound-wait-clock))。 返事の見込みが書かれていないフォームは、 出してから 7 日で催促する
 
 ## <a id="after-decline"></a>6. 手動審査で不承認になった後
 
