@@ -1,0 +1,37 @@
+{
+  "_comment": "pdf-print-preflight.py の「様式の案件の出力の受け入れ」 (7 段目) と派生物の origin の selftest に歯があることを、 判定の一部を外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。 selftest は assert の列で check ごとの行を出さないので、 終了値を 1 行に畳んで照合する (どの assert が落ちたかまでは見ない)。",
+  "target": "pdf-print-preflight.py",
+  "run": "sh -c 'if python3 \"$0\" --selftest >/dev/null 2>&1; then echo \"[PASS] selftest\"; else echo \"[FAIL] selftest\"; fi' {}",
+  "mutants": [
+    {
+      "name": "案件の道具が「止める」 と答えても止めない (受け入れの判定を読まない)",
+      "pairs": [
+        ["    if res[\"status\"] == \"block\":\n", "    if False:\n"]
+      ],
+      "expect_fail": ["selftest"]
+    },
+    {
+      "name": "照合の宣言が無く案件にも辿れない様式の出力を止めない (旧世代の素通り)",
+      "pairs": [
+        ["        if labelled and not declared:\n            findings.append(orphan)\n        return findings, infos\n    res = None",
+         "        return findings, infos\n    res = None"]
+      ],
+      "expect_fail": ["selftest"]
+    },
+    {
+      "name": "派生物 (頁の抜き出し・raster) に元の file の origin を書かない",
+      "pairs": [
+        ["include_flagged=include_flagged, origin=origin,", "include_flagged=include_flagged, origin=None,"]
+      ],
+      "expect_fail": ["selftest"]
+    },
+    {
+      "name": "頁が見つからない対象を「照合できていない」 と言わずに通す (照合していないのに ✓)",
+      "pairs": [
+        ["            infos.append(f\"⚪ 雛形との照合 {where}: この範囲の頁が PDF に見つからない (raster・頁の抜き出し等) = 照合できていない\")\n            continue\n",
+         "            pass\n"]
+      ],
+      "expect_fail": ["selftest"]
+    }
+  ]
+}
