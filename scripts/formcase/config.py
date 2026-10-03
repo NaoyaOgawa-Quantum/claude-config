@@ -38,6 +38,8 @@ key (すべて任意。 相対 path は config file のある dir から、 ``gl
   markers          {errata_note, precedent_prefix} (隔離 marker に入る呼び元の文 = errata の注記 /
                    「前例を base にしない」 一般則の link の前に置く語)
   scaffold         {spec_hint, process_hint, derived_workbook_suffix}
+  build_notices    [{form, group, text}] = その様式・group を build する時に必ず出す行 (持ち主の決めごとに道具がまだ追い付いて
+                   いない差を、 行為の場所に出す。 group を省くと様式の全 group。 追い付いたら消す)
   fidelity_log     雛形との照合の結果 (build ごと・group ごとの見出しの欠けた cell・止めたか・画像の数) を足す jsonl (config dir から。
                    空 = 記録しない)。 呼び元の dashboard が読んで見出しの欠けが出た build の一覧を出す (誤検出なら spec の
                    meta.accept_missing_labels に名指し)
@@ -78,6 +80,7 @@ DEFAULTS = {
               "note": "<!-- 生成物 (formcase.py views --write)。 手で直さない — 規則はお手本 spec を直す -->"},
     "markers": {"errata_note": "", "precedent_prefix": ""},
     "fidelity_log": "",
+    "build_notices": [],
     "scaffold": {"spec_hint": "", "process_hint": "", "derived_workbook_suffix": {}},
 }
 
@@ -239,6 +242,20 @@ def fidelity_log():
     """雛形との照合の記録 (jsonl) の path。 設定が空なら None。"""
     v = cfg().get("fidelity_log") or ""
     return from_config_dir(v) if v else None
+
+
+def build_notices(form_id, group_id) -> list:
+    """その様式・group を作る・受け入れる時に必ず出す行 (設定の ``build_notices`` = [{form, group, text}]。 group を省くと様式の全 group)。
+    用途 = 持ち主の決めごとに道具がまだ追い付いていない間、 その差を**行為の場所** (build の出力) に出す。 決めごとを規約の文書に
+    書いただけだと、 build の案内 (押す場所の列挙など) は古い規則を言い続け、 作る側は手近な代わりの形を黙って選ぶ (実測)。
+    道具が追い付いたら設定から消す。"""
+    out = []
+    for n in cfg().get("build_notices") or []:
+        if not isinstance(n, dict) or str(n.get("form")) != str(form_id):
+            continue
+        if n.get("group") in (None, "", group_id) and str(n.get("text") or "").strip():
+            out.append(" ".join(str(n["text"]).split()))
+    return out
 
 
 def seal_mode() -> str:

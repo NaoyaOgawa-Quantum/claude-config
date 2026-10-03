@@ -310,6 +310,28 @@ def run_regate_tests(tmp: Path, inst: Path, expect) -> None:
             cfg["gates"], cfg["default_gates"] = prev_gates, prev_default
             if gate.exists():
                 gate.unlink()
+
+        # --- build_notices: 道具がまだ追い付いていない決めごとを、 その様式・group の build の出力に出す -------------
+        cfg = CF.cfg()
+        prev_notices = cfg.get("build_notices")
+        try:
+            cfg["build_notices"] = [{"form": "fx", "group": "g1", "text": "写しは\n別の手順で作る"},
+                                    {"form": "fx", "text": "様式の全 group に出す行"}, {"form": "other", "text": "別の様式"},
+                                    {"form": "fx", "group": "g2", "text": "  "}]
+            expect("build_notices: 様式と group が合う行だけ (group を省いた行は全 group、 空の text は出さない、 改行は畳む)",
+                   CF.build_notices("fx", "g1") == ["写しは 別の手順で作る", "様式の全 group に出す行"]
+                   and CF.build_notices("fx", "g2") == ["様式の全 group に出す行"] and CF.build_notices("zz", "g1") == [],
+                   (CF.build_notices("fx", "g1"), CF.build_notices("fx", "g2")))
+            buf_b = io.StringIO()
+            with contextlib.redirect_stdout(buf_b), contextlib.redirect_stderr(buf_b):
+                try:                                     # 合成の様式は作れない (recipe が中身を持たない) = 行が作る前に出ることだけを見る
+                    cli.main(["build", str(case), "--doc", "d1", "--group", "g1"])
+                except Exception:  # noqa: BLE001
+                    pass
+            out_b = buf_b.getvalue()
+            expect("build_notices: build は作る前にその行を 📌 で出す (build が止まっても見える)", "📌 g1: 写しは 別の手順で作る" in out_b, out_b[:300])
+        finally:
+            cfg["build_notices"] = prev_notices
     finally:
         tpl.write_bytes(tpl_bytes)
         spec_path.write_bytes(spec_bytes)

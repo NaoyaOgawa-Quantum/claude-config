@@ -435,6 +435,9 @@ def cmd_build(args) -> int:
     for doc in docs:
         allg = list((m.doc(doc).get("groups") or {}).keys())
         want = args.group or [g for g in allg if not m.group_is_frozen(doc, g)]
+        for g in want:                                   # 道具がまだ追い付いていない決めごと (設定の build_notices) を先に出す
+            for line in CF.build_notices(m.doc(doc).get("form"), g):
+                print(f"   📌 {g}: {line}")
         frozen = [g for g in want if m.group_is_frozen(doc, g)]
         if frozen and not args.out_dir:
             print(f"🔴 {doc}: group {frozen} は凍結 = 作らない。 作り直すなら formcase.py reopen {args.case} {doc} <group> "
