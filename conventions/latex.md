@@ -893,6 +893,17 @@ JHEP.bst はフィールドから自動リンクを生成するので `\href` �
 - **タイトル確定時**: `title = "{...}"` を追加し、note を素の `"in preparation"` に戻す（title があれば bst が区切りを正しく出すので `{\unskip},` hack は不要になる）
 - 前提: note を render する版の JHEP.bst（[正本](#bibliography-style)）。stock JHEP.bst は note を落とすのでこの recipe 全体が silent no-op になる
 
+## <a id="doi-table-from-registry"></a>ノートの文献表は DOI の登録記録から作り、同じ記録で照合し直す
+
+md のノートに文献表 (著者・誌名・巻・頁・年 + DOI) を置くときも [#refs-bib-verification](#refs-bib-verification) と同じで、書誌を記憶から打たない。
+
+- **作る**: DOI の一覧だけを手で持ち、表の行は Crossref (`https://api.crossref.org/works/<DOI>`) の記録から script で組む。記憶から打った DOI は別の論文を指すことがある (Elsevier の旧形式 `10.1016/0030-4018(87)90275-6` のような括弧つきは特に)。
+- **照合し直す**: 表を直した後に、表の各行の DOI を引き直して巻・先頭頁 (または論文番号)・年を比べ、Crossref の第一著者と題を並べて出す検査を 1 本置く。数字が合うだけでは別論文を指していても通るので、著者と題は人が読む。
+- **DOI は link の表示文字列から読む**: 括弧を含む DOI は URL 側で `%28` `%29` に直してあるので、検査は `[10.xxxx/...](https://doi.org/...)` の角括弧の中を DOI として取る。
+- **Crossref に無い DOI がある**: 登録機関が別の DOI (国内学会誌の JaLC など) は Crossref が 404 を返す。「DOI が誤り」とは読まず、照合の外として別表に分ける。本・DOI の無い古い論文も同じ別表へ。
+- **要求の header に個人のメールアドレスを入れない**: Crossref の「polite pool」は `mailto:` を勧めるが、使う人のアドレスを外部へ送ることになる。数百件までなら無くても通る。入れるなら本人に聞いてから。
+- **読んだ深さを行ごとに書く**: 本文 / 要旨 / 二次資料 / 未読。書誌が合っていることと、中身を読んだことは別の主張。
+
 ## <a id="inspire-inbook-handbook-metadata"></a>INSPIRE の `@inbook` (Springer handbook の章) は booktitle・editor が空 — CrossRef の book 記録で補う (2026-09-13)
 
 **症状**: INSPIRE の bibtex で取った handbook の章 (例: *Handbook of Quantum Gravity* の章、 DOI `10.1007/978-981-19-3079-9_21-1`) は `@inbook` に author・title・eprint・doi・year しか無く、 bibtex が `Warning--empty booktitle` を出し、 JHEP.bst は収録本を印字しない。

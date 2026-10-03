@@ -160,6 +160,9 @@ sections:
   - id: jhep-future-citation
     level: 2
     title: "JHEP.bst で future citation（in preparation、タイトル未定）を引く"
+  - id: doi-table-from-registry
+    level: 2
+    title: "ノートの文献表は DOI の登録記録から作り、同じ記録で照合し直す"
   - id: inspire-inbook-handbook-metadata
     level: 2
     title: "INSPIRE の `@inbook` (Springer handbook の章) は booktitle・editor が空 — CrossRef の book 記録で補う (2026-09-13)"
