@@ -22,6 +22,7 @@ script の置き場所は「最初にどの案件で書いたか」ではなく�
 - **下層 config / shim**: owner/project 固有の root、repo、account、例外、通知先だけを注入する。既存 dashboard や hook の path を保つ必要があれば薄い shim を残し、`exec` または import で上層 engine を呼ぶ。
 - **私的な経路に依存する一部は callback にする**: 非公開の client でメールや API を読む部分は engine に入れず、呼び出し側から関数として渡す。engine は判定の純関数 (抽出・既知集合との照合・表示する 1 行) と「いつ呼ぶか」だけを持つ。判定の selftest は上層で合成データだけで回り、下層 shim の selftest は経路の形を真似た fake で継ぎ目だけを見る。
 - **下層入口の import 名を保つ**: 下層 script の関数を別の script や手順書が import しているなら、shim はその名前を同じ引数で残す (engine から再 export し、account 名などで選ぶ関数は下層で wrap)。CLI の引数だけ保っても import する呼び出し元は壊れる。移設前に下層 path を全 repo で grep し、CLI 以外の使われ方を拾う。
+- <a id="new-engine-name-push-order"></a>**下層が engine の新しい名前を使うときは engine を先に push する**: shim 越しに engine を読む下層の入口が、 engine に足した名前を import する (ES module の `import { 新しい名前 }`、 Python の `from engine import 新しい名前`) と、 engine をまだ pull していないマシンでは新しい機能だけでなく**入口全体**が起動しない (ES module は名前が無いと読み込みの時点で失敗する)。 push の順 = engine の repo → 下層の repo。 結果には「両方を pull するまで下層の既存の機能も止まる」 と書く。
 - **engine の読み込み方**: shim が engine を module として読むなら、`importlib` の `exec_module` ではなく source を毎回 compile して exec する (macOS の system python は bytecode cache を別の場所に書き、同じ秒・同じ size で書き戻された source では古い `.pyc` を読みうる)。`check-script-layering.py` はこの形も shim と認める。
 - **参照面**: 下層 README / instruction index は役割・発火面・個別値の所在と上層正本への pointer だけを持つ。上層の述語や閾値表を再 author しない。
 - **SESSION**: 「何を移したか + 正本 pointer + 残作業」だけ。実装史、判定表、件数、恒久的な配置判断は engine/doc/ledger に置く。
