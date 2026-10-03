@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""check-gitcrypt-readable.py — 暗号化 file が「このマシンで実際に読めるか」を必ず可視に報告する。
+"""check-gitcrypt-readable.py — 暗号化 file が「このマシンで実際に読めるか」 と「commit に入った版が暗号文か」 を必ず可視に報告する。
 
 ## なぜ要るか
 
@@ -22,6 +22,21 @@ READABLE / LOCKED / SKIP の 3 状態のどれかを毎回 1 行出す。
 
   「鍵が無い」 を FAIL にしない理由: CI の runner は clone するだけで鍵を持たない。
   このリポの既存契約 (= 各 test が自分で SKIP を宣言して exit 0) に合わせる。
+
+## 逆向きの穴: commit に入った版が平文
+
+  上は「読めるはずが読めない」 を見る。 逆に「暗号文のはずが平文で commit に入った」 も、 error 無しに起きる:
+    - filter の設定前 (unlock・init の前) に、 暗号化の path へ新しい file を add した
+    - repo の外に置いた file を `git hash-object -w` に `--path` なしで渡し、 その blob を index に入れた
+      (path の clean filter が掛からない。 conventions/multi-session-coordination.md#temp-index-commit)
+    - 平文の diff を index に直接当てた
+  どれも作業 tree では普通に読めるので、 上の検査は READABLE と言う。 平文は push されて remote に残る。
+  → HEAD の tree で、 `filter=git-crypt` の属性が付いた path の blob の先頭が magic かを見る (鍵は要らない)。
+
+    対象の blob が全部暗号文                 → 「commit 済みの版: N blob すべて暗号文」 (exit 0)
+    平文の blob が在る                       → PLAINTEXT-COMMITTED (exit 1。 dir の名前だけ出す)
+
+  空の file は git-crypt が暗号化しないので数えない。 見るのは HEAD の tree だけ (過去の commit に残った平文は見ない)。
 
 使い方: check-gitcrypt-readable.py [--selftest]
 """
@@ -72,20 +87,85 @@ def locked(path: Path):
         return None
 
 
+def committed_plaintext(root: Path):
+    """HEAD の tree で、 `filter=git-crypt` の属性が付いた path の blob のうち、 平文のまま入っているもの。
+
+    (対象の blob の数, [平文の path…])。 HEAD が無い (commit がまだ無い) なら (0, [])。 空の blob は数えない
+    (git-crypt は空の file を暗号化しない)。 属性は git 自身に解決させる (下の階層の .gitattributes と打ち消しも効く)。
+    """
+    ls = subprocess.run(["git", "-C", str(root), "ls-tree", "-r", "-z", "HEAD"], capture_output=True)
+    if ls.returncode != 0:
+        return 0, []
+    entries = []
+    for rec in ls.stdout.split(b"\x00"):
+        if not rec or b"\t" not in rec:
+            continue
+        meta, path = rec.split(b"\t", 1)
+        parts = meta.split()
+        if len(parts) == 3 and parts[1] == b"blob":
+            entries.append((parts[2].decode(), path))
+    if not entries:
+        return 0, []
+    at = subprocess.run(["git", "-C", str(root), "check-attr", "-z", "--stdin", "filter"],
+                        input=b"\x00".join(p for _, p in entries) + b"\x00", capture_output=True).stdout.split(b"\x00")
+    crypt = {at[i] for i in range(0, len(at) - 2, 3) if at[i + 2] == b"git-crypt"}
+    todo = [(sha, p) for sha, p in entries if p in crypt]
+    if not todo:
+        return 0, []
+    proc = subprocess.Popen(["git", "-C", str(root), "cat-file", "--batch"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+    n, plain = 0, []
+    try:
+        for sha, path in todo:
+            proc.stdin.write(sha.encode() + b"\n")
+            proc.stdin.flush()
+            head = proc.stdout.readline().split()
+            if len(head) < 3:
+                continue
+            size = int(head[2])
+            data = proc.stdout.read(size)
+            proc.stdout.read(1)
+            if size == 0:
+                continue
+            n += 1
+            if not data.startswith(MAGIC):
+                plain.append(path.decode("utf-8", "surrogateescape"))
+    finally:
+        proc.stdin.close()
+        proc.wait()
+    return n, plain
+
+
+def report_committed(root: Path) -> int:
+    """commit に入った版が暗号文かを 1 行で言う (鍵は要らない)。 平文が在れば 1。"""
+    n, plain = committed_plaintext(root)
+    if not plain:
+        print(f"   commit 済みの版: {n} blob すべて暗号文" if n else "   commit 済みの版: 対象の blob が無い")
+        return 0
+    dirs = sorted({str(Path(p).parent) for p in plain})
+    print(f"   🔴 PLAINTEXT-COMMITTED: {len(plain)}/{n} blob が平文のまま commit に入っている (暗号化の filter を通っていない)")
+    print("        dir: " + ", ".join(dirs[:6]) + (" …" if len(dirs) > 6 else ""))
+    print("   ※ 作業 tree では普通に読めるので気づかない。 push 済みなら平文が remote に残っている。")
+    print("      直し方: filter が効く状態 (unlock 済み) で `git add --renormalize <path>` → commit。")
+    print("      履歴に残った平文を消すのは別の作業 (docs/sensitive-repo-patterns.ja.md)。 原因の型 = 本 script の冒頭")
+    return 1
+
+
 def check(root: Path, key: Path = PERSONAL_KEY):
     pats = encrypted_patterns(root)
     print("── git-crypt で暗号化した file がこのマシンで読めるか")
     if not pats:
         print("   対象外: このリポに git-crypt 対象の宣言が無い")
         return 0
+    rc_commit = report_committed(root)
     files = targets(root, pats)
     if not files:
         print(f"   対象外: 宣言はあるが該当する追跡 file が無い ({', '.join(pats)})")
-        return 0
+        return rc_commit
     if not key.is_file():
         print(f"   SKIP: 鍵が無いマシン ({key}) — {len(files)} file は検査していない")
         print("         (= CI の runner 等。 検査しなかったと申告するだけで、 緑ではない)")
-        return 0
+        return rc_commit
     bad = [f for f in files if locked(f) is not False]
     if bad:
         print(f"   🔒 LOCKED: {len(bad)}/{len(files)} file が暗号文のまま読めない")
@@ -95,7 +175,7 @@ def check(root: Path, key: Path = PERSONAL_KEY):
         print("      復旧: cd " + str(root) + " && git-crypt unlock " + str(key))
         return 1
     print(f"   READABLE: {len(files)} file すべて平文で読める ({', '.join(pats)})")
-    return 0
+    return rc_commit
 
 
 def selftest():
@@ -141,12 +221,48 @@ def selftest():
         if check(root, key=key) != 0:
             fails.append("日本語 file 名を LOCKED と誤検知する")
 
+    # ---- 逆向き: commit に入った版が平文 (鍵は要らない)。 1 件ずつ [PASS] / [FAIL] を出す (foil の歯の spec が label で照合する)
+    def step(label, ok):
+        print(("[PASS] " if ok else "[FAIL] ") + label)
+        if not ok:
+            fails.append(label)
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        git = ["git", "-C", str(root), "-c", "user.email=t@example.invalid", "-c", "user.name=t"]
+        subprocess.run(["git", "init", "-q", "-b", "main", str(root)], capture_output=True)
+        nokey = root / "nokey"
+        (root / ".gitattributes").write_text("*.json filter=git-crypt diff=git-crypt\nsub/keep.json !filter\n",
+                                             encoding="utf-8")
+        (root / "sub").mkdir()
+        # filter を設定していない repo で add すると、 暗号化の path に平文の blob が入る (= 見つけたい状態)
+        (root / "plain.json").write_text('{"secret": 1}\n', encoding="utf-8")
+        (root / "enc.json").write_bytes(MAGIC + b"\x00ciphertext")          # 暗号文の形をした blob
+        (root / "empty.json").write_bytes(b"")                              # 空は暗号化されない = 数えない
+        (root / "sub" / "keep.json").write_text("{}\n", encoding="utf-8")   # 属性を打ち消した path = 対象外
+        (root / "note.txt").write_text("plain is fine here\n", encoding="utf-8")
+        subprocess.run(git + ["add", "-A"], capture_output=True)
+        step("commit がまだ無い repo は平文の判定をしない (HEAD が無い)", committed_plaintext(root) == (0, []))
+        subprocess.run(git + ["commit", "-q", "-m", "c1"], capture_output=True)
+        n, plain = committed_plaintext(root)
+        step("暗号化の path に平文の blob が commit されていれば拾う", plain == ["plain.json"])
+        step("暗号文の blob・空の blob・属性を打ち消した path・属性の無い path は拾わない", n == 2 and "enc.json" not in plain)
+        step("平文が commit に在れば、 鍵が無いマシンでも終了値 1 (readable の SKIP に隠れない)", check(root, key=nokey) == 1)
+        (root / "日本語.json").write_text("{}\n", encoding="utf-8")
+        subprocess.run(git + ["rm", "-q", "--cached", "plain.json"], capture_output=True)
+        subprocess.run(git + ["add", "日本語.json"], capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "c2"], capture_output=True)
+        step("非 ASCII の path も拾う", committed_plaintext(root)[1] == ["日本語.json"])
+        subprocess.run(git + ["rm", "-q", "--cached", "日本語.json"], capture_output=True)
+        subprocess.run(git + ["commit", "-q", "-m", "c3"], capture_output=True)
+        step("平文が無くなれば終了値 0 (commit 済みの版 = すべて暗号文)", check(root, key=nokey) == 0)
+
     if fails:
         print("SELFTEST FAIL:", file=sys.stderr)
         for f in fails:
             print("  -", f, file=sys.stderr)
         return 1
-    print("SELFTEST PASS (5 checks)")
+    print("SELFTEST PASS (11 checks)")
     return 0
 
 
