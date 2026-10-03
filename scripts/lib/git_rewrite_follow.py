@@ -55,11 +55,19 @@ repo ごとの事実を点呼の材料として載せる)。
 sha で取り出す鍵になる (host は、 どの ref からも届かない commit も sha を知っていれば見せる)。 公開 repo の網は、 clone 自身の
 reflog の記憶と、 それを書き留めた clone の中の記録 (I5 b)、 外から渡す対応表 (非公開の置き場。 `--map` / maps file / env) にする。
 
+push の検査が止める object の集合から、 中身を持たない object (空の blob・改行 1 つの blob・空の tree = TRIVIAL_OBJECTS) は外す
+(誰でも作れる = 「消した中身」 の印にならない。 記憶は期限なく残るので、 外さないと空 file を足す push が永久に止まる)。
+止まった object が、 消した中身でなく同じ中身の新しい file だった時の出口 = その object を名指しする (env GIT_REWRITE_FOLLOW_ALLOW に
+sha、 7 桁以上の前方一致)。 検査を丸ごと切らず、 名指しした object だけがその push で通り、 guard-allow として記録に残る
+(定期 job が machine ごとの記録に載せる)。 止めた文面に、 止まった object の sha とこの出口を書く。
+
 別の pre-push hook が在る clone (ensure_prepush / _prepush_plan): その hook を残したまま、 検査を先に通す。
   - pdf-publish の hook (templates/shared-project/pdf-publish) は、 自分の後に `pre-push.before-pdf-publish` を呼ぶ作り =
     その口に stub を置く (hook 自体は触らない。 hook の dir が track されていても置け、 clone の info/exclude に足す)
   - それ以外 (LFS・独自の hook) は、 元の hook を `pre-push.rewrite-follow-chained` に写してから stub に替える。 stub は検査が
     通った後に、 同じ引数と stdin で元の hook を呼び、 その終了値で push が決まる (検査が走らなかった時も元の hook は呼ぶ)
+  - 自分の path ($0 など) から隣の file を引く hook は包まない (包むと hook の名前が変わる)。 以前の版が包んでしまったものは元に戻す
+  - 包んだ stub が、 後から入った pdf-publish の installer に鎖の口へ移された時も、 stub は前の名前の退避を呼ぶ (次の回に口の名前へ付け替える)
   - 置けないのは、 hook の dir が repo に track されていて pre-push を持たない clone だけ (worktree に pre-push を書くと、
     repo が後で自分の pre-push を足した時に pull が止まる)。 包まない = env GIT_REWRITE_FOLLOW_CHAIN=0 /
     その clone で `git config rewritefollow.chain false`
@@ -555,7 +563,22 @@ def _log(line):
         pass
 
 
-EVENT_KINDS = ("guard-error", "ready-skip", "ready-override")
+EVENT_KINDS = ("guard-error", "ready-skip", "ready-override", "guard-allow")
+# 中身を持たない object (空の blob・改行 1 つの blob・空の tree)。 誰でも作れるので「消した中身」 の印にならない = 検査の集合から外す
+# (外さないと、 旧履歴にしか無かった空 file のせいで、 後で空 file を足す push が止まる。 記憶は期限なく残るので、 永久に)
+TRIVIAL_OBJECTS = frozenset({
+    "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+    "8b137891791fe96927ad78e64b0aad7bded08bdc",
+    "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+})
+ALLOW_ENV = "GIT_REWRITE_FOLLOW_ALLOW"   # 止まった object の sha (7 桁以上の前方一致、 空白か , 区切り) を、 その push に限って通す
+
+
+def _allowed(ids):
+    """ALLOW_ENV に書かれた sha に当たる ids の部分集合 (消した中身を戻すのでなく、 同じ中身の file を新しく足した push の出口。
+    object を名指しする = 検査を丸ごと切らない。 通した分は guard-allow として記録に残る)。"""
+    pats = [x for x in re.split(r"[\s,]+", os.environ.get(ALLOW_ENV, "").strip().lower()) if re.fullmatch(r"[0-9a-f]{7,40}", x)]
+    return {i for i in ids if any(i.startswith(q) for q in pats)} if pats else set()
 
 
 def log_event(kind, repo, detail=""):
@@ -563,7 +586,8 @@ def log_event(kind, repo, detail=""):
     誰も読まなければ無かったことになる = 無人の定期 job が recent_events で拾い、 machine ごとの記録に載せて他の machine から読む。
       guard-error     push の検査が例外で走らなかった (stub は通した)
       ready-skip      履歴を書き換える push の前の点呼が走らなかった (通した)
-      ready-override  備えの無い複製が在るまま、 履歴を書き換える push を通した (GIT_REWRITE_READY_OVERRIDE=1)"""
+      ready-override  備えの無い複製が在るまま、 履歴を書き換える push を通した (GIT_REWRITE_READY_OVERRIDE=1)
+      guard-allow     止まるはずの object を、 名指し (GIT_REWRITE_FOLLOW_ALLOW) で通した"""
     _log(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {kind} {Path(str(repo)).name} {detail}".rstrip())
 
 
@@ -824,7 +848,7 @@ def remembered_discarded(repo):
                         out.add(sha)
         except OSError:
             continue
-    return out
+    return out - TRIVIAL_OBJECTS
 
 
 # ---------------------------------------------------------------- push guard
@@ -861,6 +885,7 @@ def push_violations(repo, local_sha, exclude, gen, discarded=None, ids=None, rem
         exclude = [exclude] if exclude else []
     if ids is None:
         ids = _range_ids(repo, local_sha, exclude or ["--remotes"])
+    ids = set(ids) - TRIVIAL_OBJECTS
     hits = []
     olds = ids & gen.old_shas
     if olds:
@@ -1009,10 +1034,21 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
         exclude = [rsha] if (rsha != ZERO and _has(repo, rsha)) else base
         objs = _range_objects(repo, lsha, exclude or ["--remotes"])
         if rewritten:
-            hits = push_violations(repo, lsha, exclude, gen, discarded, ids={s for s, _p in objs}, remembered=remembered)
+            idset = {s for s, _p in objs} - TRIVIAL_OBJECTS
+            known = gen.old_shas | gen.forbidden | set(discarded[0]) | set(discarded[1]) | remembered
+            allow = _allowed(idset) & known
+            if allow:
+                log_event("guard-allow", repo, " ".join(sorted(x[:12] for x in allow))[:200])
+                notes.append(f"{repo.name}: 止まるはずの object {len(allow)} 個を、 {ALLOW_ENV} の名指しで通す ({rref})")
+            hits = push_violations(repo, lsha, exclude, gen, discarded, ids=idset - allow, remembered=remembered)
             if hits:
+                flagged = sorted((idset - allow) & known)
+                shown = " ".join(x[:12] for x in flagged[:5]) + (f" ほか {len(flagged) - 5} 個" if len(flagged) > 5 else "")
                 msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
-                            f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す")
+                            f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す。\n"
+                            f"  止まった object: {shown}\n"
+                            f"  消した中身を戻すのでなく、 同じ中身の file を新しく足しただけなら、 持ち主の判断を受けてから"
+                            f" {ALLOW_ENV}=<その sha> を付けて push する (名指しした object だけが通り、 記録に残る)")
         try:
             extra = content_violations(repo, lsha, exclude, objs)
         except (RuntimeError, subprocess.TimeoutExpired, OSError, UnicodeError):
@@ -1217,7 +1253,7 @@ def audit_repo(repo, cli_globs=(), use_cache=True):
     fb = ids & gen.forbidden
     if fb:
         findings.append(f"🔴 {name}: {upstream} に、 書き換えで消した版の object が {len(fb)} 個在る (例 {sorted(fb)[0][:7]}) = 戻っている")
-    rb = ids & remembered
+    rb = (ids & remembered) - TRIVIAL_OBJECTS
     if rb:
         findings.append(f"🔴 {name}: {upstream} に、 この clone が「remote から捨てられた」 と記録した履歴の commit / object が {len(rb)} 個在る"
                         f" (例 {sorted(rb)[0][:7]}) = 戻っている (意図して戻したのでなければ、 どの push で入ったかを見る:"
@@ -1280,7 +1316,7 @@ def stub_text(engine_path, repo):
     `<この file>.rewrite-follow-chained` が在れば (= 前からそこに在った別の hook)、 検査が通った後に同じ引数と stdin で呼び、
     その終了値で push が決まる。 検査が走らなかった時 (python3・engine・一時 file が無い) も、 元の hook は必ず呼ぶ。"""
     import shlex
-    chained = f'"$0{CHAIN_SUFFIX}"'
+    chained = '"$CH"'
     name = shlex.quote(Path(str(repo)).name)
     return (
         "#!/bin/sh\n"
@@ -1296,6 +1332,9 @@ def stub_text(engine_path, repo):
         f'{name} "$2" >> "$LOG"; }} 2>/dev/null\n'
         "  return 0\n"
         "}\n"
+        f'CH="$0{CHAIN_SUFFIX}"\n'
+        "# moved into another hook's chain slot after it wrapped a hook: the kept hook still carries the old name\n"
+        f'if [ ! -x "$CH" ]; then case "$0" in *{PDFPUB_SLOT}) CH="${{0%{PDFPUB_SLOT}}}{CHAIN_SUFFIX}" ;; esac; fi\n'
         'IN="$(mktemp 2>/dev/null || mktemp -t prepush 2>/dev/null)"\n'
         'if [ -z "$IN" ]; then\n'
         "  skipped '一時 file を作れないので検査せず通す' no-tmpfile\n"
@@ -1346,6 +1385,14 @@ def _read_text(p):
         return ""
 
 
+SELF_PATH_RE = re.compile(r"\$0|\$\{0|BASH_SOURCE|__file__|PROGRAM_NAME|argv\[0\]")
+
+
+def _uses_own_path(text):
+    """hook が自分の path ($0 など) から隣の file を引く書き方か。 包むと hook の名前が変わるので、 そういう hook は包まない。"""
+    return bool(SELF_PATH_RE.search(text))
+
+
 def _chain_allowed(repo):
     if os.environ.get(CHAIN_ENV, "1") == "0":
         return False
@@ -1376,11 +1423,15 @@ def _prepush_plan(repo):
             return "slot", slot, ""
         if tracked or not _chain_allowed(repo):
             return "blocked", None, "pdf-publish の hook の鎖の口に、 別の hook が既に在る"
+        if _uses_own_path(_read_text(slot)):
+            return "blocked", None, "鎖の口に在る hook が自分の path ($0 など) を使う = 包むと隣の file を引けなくなる"
         return "wrap", slot, ""
     if tracked:
         return "blocked", None, "track された hooks dir に別の pre-push hook が在る"
     if not _chain_allowed(repo):
         return "blocked", None, "既存の pre-push hook がある (鎖にしない設定)"
+    if _uses_own_path(cur):
+        return "blocked", None, "既存の pre-push hook が自分の path ($0 など) を使う = 包むと隣の file を引けなくなる"
     return "wrap", hook, ""
 
 
@@ -1446,6 +1497,13 @@ def ensure_prepush(repo, only_with_manifest=True, engine=None, quiet_foreign=Fal
     if only_with_manifest and not manifest_tree(repo, upstream):
         return ""
     engine = engine or engine_cli_path()
+    # 既に包んだ hook が自分の path を使う書き方だった時は、 元に戻す (包んだままだと、 その hook は隣の file を引けずに壊れている)
+    hd0 = hooks_dir(repo)
+    for base in ("pre-push", "pre-push" + PDFPUB_SLOT):
+        stubp, keptp = hd0 / base, hd0 / (base + CHAIN_SUFFIX)
+        if keptp.exists() and STUB_MARK in _read_text(stubp) and _uses_own_path(_read_text(keptp)):
+            os.replace(keptp, stubp)
+            return f"{repo.name}: 包んでいた pre-push hook は自分の path ($0 など) を使う = 包むのをやめて元に戻した ({stubp})"
     kind, dst, why = _prepush_plan(repo)
     if kind == "blocked":
         return "" if quiet_foreign else f"{repo.name}: rewrite-follow の stub を置けない ({why}。 {hooks_dir(repo)})"
@@ -2383,6 +2441,11 @@ def _selftest():
         foreign_hook(cl, llog)
         ensure_prepush(cl, only_with_manifest=False)                         # まず包む (LFS などの hook が先に在った clone)
         subprocess.run(["sh", str(pdf_installer)], cwd=str(cl), capture_output=True, env=_env())   # 後から pdf-publish が入る
+        commit(cl, {"l0.txt": "l\n"}, "work right after the second tool was installed (before the periodic job looks)")
+        pr0 = run_git(cl, "push", "origin", "main")
+        check("wrapped first, pdf-publish installed later: the original hook still runs at once (the moved stub finds the kept hook under its old name)",
+              pr0.returncode == 0 and llog.exists() and "args=origin " in llog.read_text(), pr0.stderr[-200:])
+        llog.unlink()
         line = ensure_prepush(cl, only_with_manifest=False)
         commit(cl, {"l.txt": "l\n"}, "work after both tools were installed")
         pr = run_git(cl, "push", "origin", "main")
@@ -2432,6 +2495,22 @@ def _selftest():
     ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {rev(mm_c, 'HEAD')} refs/heads/main {n3}"], fetch=False)
     check("memory: ordinary work on the new history passes", ok and not msgs, " ".join(msgs))
     git(mm_c, "reset", "-q", "--hard", "origin/main")
+    same = commit(mm_c, {"elsewhere.txt": "content the rewrite removes\n"}, "a new file whose content equals a removed one")
+    blob = git(mm_c, "rev-parse", f"{same}:elsewhere.txt")
+    row_mm = [f"refs/heads/main {same} refs/heads/main {rev(mm_c, 'origin/main')}"]
+    ok, msgs = guard_stdin(mm_c, row_mm, fetch=False)
+    check("allow: removed content coming back under a new path is refused, and the message names the object and the way out",
+          not ok and blob[:12] in " ".join(msgs) and ALLOW_ENV in " ".join(msgs), " ".join(msgs))
+    os.environ[ALLOW_ENV] = blob[:10]
+    ok, msgs = guard_stdin(mm_c, row_mm, fetch=False)
+    os.environ.pop(ALLOW_ENV)
+    check("allow: naming that object lets this push through, says so, and leaves a record",
+          ok and len(msgs) == 1 and ALLOW_ENV in msgs[0] and "mm-clone" in recent_events().get("guard-allow", []), " ".join(msgs))
+    os.environ[ALLOW_ENV] = "0000000"
+    ok, _m = guard_stdin(mm_c, row_mm, fetch=False)
+    os.environ.pop(ALLOW_ENV)
+    check("allow: naming some other object does not open the gate", not ok)
+    git(mm_c, "reset", "-q", "--hard", "origin/main")
     check("memory audit: a clean remote yields nothing", audit_repo(mm_c) == [], " | ".join(audit_repo(mm_c)))
     git(mm_o, "pull", "-q", "--no-rebase", "--no-edit", "origin", "main")     # 外の clone が古い履歴を merge して push する
     git(mm_o, "push", "-q", "origin", "main")
@@ -2443,6 +2522,35 @@ def _selftest():
     commit(mm_c, {"after.txt": "work on top of what is now on the remote\n"}, "work after the remote took the old history back")
     ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {rev(mm_c, 'HEAD')} refs/heads/main {rev(mm_c, 'origin/main')}"], fetch=False)
     check("memory: once the remote itself holds those objects again, a push on top is not refused for them", ok, " ".join(msgs))
+
+    # --- 検収で出た 3 点: 誰でも作れる object / 止まった object を名指しで通す道 / 自分の path を使う hook
+    cache_dir = _common_dir(mm_c) / REMOVED_CACHE
+    with open(sorted(cache_dir.iterdir())[0], "a", encoding="ascii") as f:
+        f.write("".join(x + "\n" for x in sorted(TRIVIAL_OBJECTS)))
+    git(mm_c, "reset", "-q", "--hard", "origin/main")
+    emp = commit(mm_c, {"empty.txt": "", "newline.txt": "\n"}, "an empty file and a one-newline file")
+    ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {emp} refs/heads/main {rev(mm_c, 'origin/main')}"], fetch=False)
+    check("trivial objects: an empty file or a single newline is never treated as removed content, even if the record lists them",
+          ok and not (remembered_discarded(mm_c) & TRIVIAL_OBJECTS), " ".join(msgs))
+
+    cs = clone_of(ch_remote, "c-selfpath")
+    sp = hooks_dir(cs) / "pre-push"
+    sp.parent.mkdir(parents=True, exist_ok=True)
+    sp.write_text('#!/bin/sh\n. "$(dirname "$0")/_/helper.sh"\nexit 0\n')
+    os.chmod(sp, 0o755)
+    line = ensure_prepush(cs, only_with_manifest=False)
+    check("self-path hook: a hook that finds its neighbours through $0 is not wrapped (wrapping would rename it)",
+          "置けない" in line and "$0" in line and 'dirname "$0"' in sp.read_text() and prepush_state(cs) == "foreign"
+          and not sp.with_name("pre-push" + CHAIN_SUFFIX).exists(), line)
+    cu = clone_of(ch_remote, "c-unwrap")
+    foreign_hook(cu, tmp / "unwrap.log")
+    ensure_prepush(cu, only_with_manifest=False)
+    kept_u = hooks_dir(cu) / ("pre-push" + CHAIN_SUFFIX)
+    kept_u.write_text('#!/bin/sh\n. "$(dirname "$0")/_/helper.sh"\nexit 0\n')     # 以前の版が、 そういう hook を包んでしまった状態
+    line = ensure_prepush(cu, only_with_manifest=False)
+    check("self-path hook: one that an earlier version had already wrapped is put back as it was",
+          "元に戻した" in line and 'dirname "$0"' in (hooks_dir(cu) / "pre-push").read_text() and not kept_u.exists()
+          and prepush_state(cu) == "foreign", line)
 
     print(f"selftest: {'PASS' if not fails else 'FAIL'} ({len(fails)} failing)")
     return 0 if not fails else 1
