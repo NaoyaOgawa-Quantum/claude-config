@@ -1,5 +1,5 @@
 {
-  "_comment": "drive-upload-share.py の selftest に歯があることを、 要所を 1 か所ずつ外した mutant で確かめる spec (check-foil-teeth.py が読む)。 上書きの検査 (共有相手の編集を消さない)・native の文書として置く・同名検索の種類の絞り・フォルダの権限を upload より先に付ける順序。",
+  "_comment": "drive-upload-share.py の selftest に歯があることを、 要所を 1 か所ずつ外した mutant で確かめる spec (check-foil-teeth.py が読む)。 上書きの検査 (共有相手の編集を消さない)・native の文書として置く・同名検索の種類の絞り・フォルダの権限を upload より先に付ける順序・検索 query の引用符のエスケープ。",
   "target": "drive-upload-share.py",
   "run": "python3 {} --selftest",
   "pass_marker": "  ✅ ",
@@ -70,6 +70,22 @@
       "expect_pass": [
         "find_by_name: mimeType で絞る",
         "--make-folder と --folder-id は排他"
+      ]
+    },
+    {
+      "name": "検索 query の名前をエスケープしない",
+      "pairs": [
+        [
+          "    return value.replace(\"\\\\\", \"\\\\\\\\\").replace(\"'\", \"\\\\'\")\n",
+          "    return value\n"
+        ]
+      ],
+      "expect_fail": [
+        "query の引用符: 名前の ' と \\ をエスケープ (file・フォルダ)"
+      ],
+      "expect_pass": [
+        "find_by_name: mimeType で絞る",
+        "上書きの検査: 他人が最後に編集 → 止まる"
       ]
     }
   ]

@@ -86,14 +86,20 @@ def build_service_from(cred_path, client_path, setup_hint: str = ""):
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
+def _q(value: str) -> str:
+    """Drive の検索 query の文字列リテラルに入れる値をエスケープする (\\ と ' )。
+    エスケープしないと名前に ' がある file で query が 400 になり、 同名なし扱いで重複を作る。"""
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
 def find_by_name(drive, name: str, folder_id: str | None, mime: str | None = None) -> dict | None:
     """同名 file を find (= app-created に限定、 drive.file scope の制約)。
     folder_id 指定があれば、 その folder 内に絞る。 mime 指定があればその種類に絞る。"""
-    q_parts = [f"name = '{name}'", "trashed = false"]
+    q_parts = [f"name = '{_q(name)}'", "trashed = false"]
     if mime:
         q_parts.append(f"mimeType = '{mime}'")
     if folder_id:
-        q_parts.append(f"'{folder_id}' in parents")
+        q_parts.append(f"'{_q(folder_id)}' in parents")
     q = " and ".join(q_parts)
     try:
         resp = drive.files().list(
@@ -109,7 +115,7 @@ def find_by_name(drive, name: str, folder_id: str | None, mime: str | None = Non
 
 def ensure_folder(drive, name: str) -> dict:
     """app-created の同名 folder を reuse、 なければ My Drive 直下に作成。"""
-    q = f"name = '{name}' and mimeType = '{FOLDER_MIME}' and trashed = false"
+    q = f"name = '{_q(name)}' and mimeType = '{FOLDER_MIME}' and trashed = false"
     try:
         resp = drive.files().list(
             q=q, fields="files(id, name, webViewLink)", pageSize=5).execute()
@@ -432,6 +438,12 @@ def _selftest() -> int:
     fd = _FakeDrive()
     quiet(find_by_name, fd, "matome", None, GDOC_MIME)
     check("find_by_name: mimeType で絞る", f"mimeType = '{GDOC_MIME}'" in fd.calls[0][1])
+    fd = _FakeDrive()
+    quiet(find_by_name, fd, "O'Neil \\ memo", None)
+    quiet(ensure_folder, fd, "Lee's 資料")
+    check("query の引用符: 名前の ' と \\ をエスケープ (file・フォルダ)",
+          fd.calls[0][1].startswith("name = 'O\\'Neil \\\\ memo'")
+          and fd.calls[1][1].startswith("name = 'Lee\\'s 資料'"))
 
     # 4. フォルダ共有は upload より先に権限を付ける
     fd = _FakeDrive()
