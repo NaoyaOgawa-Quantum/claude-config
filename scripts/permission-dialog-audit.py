@@ -10,19 +10,39 @@ dialog が何件か・誰 (main session か sub-agent か) の tool call かを�
 
 入力
 ----
-desktop app の log (既定 `~/Library/Logs/Claude/main*.log`) の 2 形式の行:
+desktop app の log (既定 `~/Library/Logs/Claude/main*.log`) の 3 形式の行:
   <YYYY-MM-DD HH:MM:SS> [info] Emitted tool permission request <id> for <tool> in session <local_id>
   <YYYY-MM-DD HH:MM:SS> [info] Received permission response for <id>: <decision> (tool: <tool>)
+  <YYYY-MM-DD HH:MM:SS> [info] Mapping internal session <local_id> to CLI session <session_id>
 同じ行が 2 回ずつ書かれることがあるので request id で dedupe する。 log の時刻は local time。
+3 行目が desktop 側の session id (local_…) と transcript 側の session id (= `~/.claude/projects/` の
+file 名・各 record の `sessionId`) を結ぶ唯一の鍵。 同じ local_id の Mapping 行は繰り返し書かれ、
+再開で別の CLI session に付け替わることがあるので、 時刻つきで持ち dialog の時刻で引く。
+
+dialog と tool 呼び出しの突合 (--attribute / --diagnose 共通、 match_dialogs)
+--------------------------------------------------------------------------
+時刻が近いだけで選ぶと、 並列に動く別 session の同名 tool (Bash が大半) に付く (実測: 送信 guard の
+dialog が別 session の無関係な command に付き、 guard 別の件数が狂った)。 3 つの制約で絞る:
+  1. 同じ session — Mapping 行で dialog の local_id を CLI session に解き、 その session の transcript
+     (sub-agent の transcript も同じ session id を持つ) の tool_use だけを候補にする。 Mapping 行が無い
+     dialog は旧来どおり時刻の窓だけで選び、 その旨を出す (別 session への fallback はしない)
+  2. 応答より後に終わった呼び出し — dialog を出した tool は user が答えるまで走らないので、 その
+     tool_result は応答の時刻より後にある。 応答より前に tool_result が出ている呼び出しは別物として除く
+     (tool_result が transcript に無い呼び出しは除かない)
+  3. 待ち行列の順 — 1 つの assistant message が複数の tool を並べて呼ぶと、 dialog は 1 つずつ順に出て
+     2 つ目以降は tool_use の時刻から大きく遅れる。 窓の中に候補が無いときは、 同じ session で既に
+     dialog を割り当てた message の兄弟 (= 同じ record の tool_use) を tool_use の順に割り当て、 それも
+     無ければ --queue-window 秒まで遡って最も古い未割り当ての候補を取る。 1 つの tool_use に 2 つの dialog
+     は付けない (割り当て済みは候補から外す)
 
 mode
 ----
   (既定)              tool 別件数 / decision 内訳 / 応答待ち秒 (中央値・最大)
   --latest N          直近 N 件を 1 行ずつ
   --attribute         transcript (`~/.claude/projects/**.jsonl`、 sub-agent の transcript を含む) の
-                      tool_use と時刻突合 (dialog 発行の --before 秒前 〜 --after 秒後、 既定 8 / 2)。
-                      main / sub-agent / unmatched に振り分け、 Edit/Read/Write は path の上位 2 階層、
-                      Bash は先頭語で bucket する
+                      tool_use と突合 (上の 3 制約。 窓 = dialog 発行の --before 秒前 〜 --after 秒後、
+                      既定 8 / 2)。 main / sub-agent / unmatched に振り分け、 Edit/Read/Write は path の
+                      上位 2 階層、 Bash は先頭語で bucket する。 direct / queue / unmapped の内訳も出す
   --from-transcripts  desktop log が無い環境 (CLI 等) 向け。 通常すぐ返る tool (Read/Edit/Write/Glob/
                       Grep/Monitor 等) の tool_use → tool_result が --wait 秒 (既定 15) 超かかった
                       ものを「dialog 候補」 として列挙 (= 承認待ちで止まった可能性。 断定はしない)
@@ -67,6 +87,12 @@ EMIT_RE = re.compile(
 RESP_RE = re.compile(
     r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:[.,]\d+)?\s+\[\w+\]\s+Received permission response for (\S+): (\S+) \(tool: ([^)]*)\)"
 )
+MAP_RE = re.compile(
+    r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)(?:[.,]\d+)?\s+\[\w+\]\s+Mapping internal session (\S+) to CLI session (\S+)"
+)
+# 待ち行列の候補を遡る上限 (秒)。 並列の dialog は前の dialog が答えられるまで出ないので、 tool_use から
+# dialog までの遅れは user が前の dialog を放置した時間に等しく、 数十分になりうる
+QUEUE_WINDOW = 3600.0
 FAST_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep", "Monitor",
               "Skill", "TodoWrite", "ToolSearch")
 PATH_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "NotebookEdit")
@@ -87,15 +113,29 @@ def since_epoch(since):
     return local_epoch(since + " 00:00:00") if since else 0.0
 
 
-def parse_logs(log_dir, since):
-    """request id → {emit, tool, session, resp, decision}。 dedupe 済。"""
+def scan_logs(log_dir, since):
+    """log を 1 回読んで (dialog の dict, session の対応表) を返す。
+
+    dialog = request id → {emit, tool, session, resp, decision} (dedupe 済、 --since で切る)。
+    対応表 = local_id → [(時刻, CLI session id), ...] (時刻順。 --since で切らない = session は
+    期間の前に始まっていることが多い)。
+    """
     lo = since_epoch(since)
     reqs = {}
     resps = {}
+    smap = {}
     for p in sorted(Path(log_dir).glob("main*.log")):
         try:
             with open(p, encoding="utf-8", errors="replace") as f:
                 for line in f:
+                    if "Mapping internal session" in line:
+                        m = MAP_RE.match(line)
+                        if m:
+                            pair = (local_epoch(m.group(1)), m.group(3))
+                            lst = smap.setdefault(m.group(2), [])
+                            if not lst or lst[-1][1] != pair[1]:
+                                lst.append(pair)
+                        continue
                     if "permission" not in line:
                         continue
                     m = EMIT_RE.match(line)
@@ -122,7 +162,33 @@ def parse_logs(log_dir, since):
         r["resp"] = rs[0] if rs else None
         r["decision"] = rs[1] if rs else "(no response)"
         out[rid] = r
-    return out
+    for lst in smap.values():
+        lst.sort()
+    return out, smap
+
+
+def parse_logs(log_dir, since):
+    """request id → {emit, tool, session, resp, decision}。 dedupe 済。"""
+    return scan_logs(log_dir, since)[0]
+
+
+def parse_session_map(log_dir):
+    """local_id → [(時刻, CLI session id), ...]。"""
+    return scan_logs(log_dir, None)[1]
+
+
+def cli_session_for(session_map, local_id, at):
+    """dialog の時刻 at で有効な CLI session id (無ければ None)。 at より前の最後の Mapping、 それも無ければ最初。"""
+    lst = (session_map or {}).get(local_id) or []
+    if not lst:
+        return None
+    cur = None
+    for t, cli in lst:
+        if t <= at + 1.0:
+            cur = cli
+        else:
+            break
+    return cur if cur is not None else lst[0][1]
 
 
 def fmt_t(epoch):
@@ -182,16 +248,31 @@ def iter_transcripts(projects_dir, since):
             yield p
 
 
+def transcript_session_id(p):
+    """transcript の path から CLI session id を導く (record に sessionId が無いときの fallback)。
+    `<dir>/<session>.jsonl` → session、 `<dir>/<session>/subagents/<agent>.jsonl` → session。"""
+    parts = str(p).replace(os.sep, "/").split("/")
+    if len(parts) >= 3 and parts[-2] == "subagents":
+        return parts[-3]
+    return Path(p).stem
+
+
 def load_tool_events(projects_dir, since, want_results=False):
-    """tool_use の list と (want_results なら) tool_use_id → result 時刻。"""
+    """tool_use の list と (want_results なら) tool_use_id → result 時刻。
+
+    各 tool_use に突合用の鍵を持たせる: cli = CLI session id (record の sessionId、 無ければ path から)、
+    msg = それを含む assistant record の uuid (= 同じ message の兄弟 tool_use は同じ msg)、
+    seq = 時刻順の通し番号 (同時刻は transcript の並び順)。
+    """
     uses = []
     results = {}
     lo = since_epoch(since)
     for p in iter_transcripts(projects_dir, since):
         sub_path = "/subagents/" in str(p).replace(os.sep, "/")
+        path_sid = transcript_session_id(p)
         try:
             with open(p, encoding="utf-8", errors="replace") as f:
-                for line in f:
+                for lineno, line in enumerate(f):
                     has_use = '"tool_use"' in line
                     has_res = want_results and '"tool_result"' in line
                     if not (has_use or has_res):
@@ -209,17 +290,21 @@ def load_tool_events(projects_dir, since, want_results=False):
                     if not isinstance(content, list):
                         continue
                     side = bool(rec.get("isSidechain")) or sub_path
+                    cli = rec.get("sessionId") or path_sid
+                    msg = rec.get("uuid") or f"{p}:{lineno}"
                     for c in content:
                         if not isinstance(c, dict):
                             continue
                         if c.get("type") == "tool_use":
                             uses.append({"t": ts, "name": c.get("name", ""), "input": c.get("input") or {},
-                                         "id": c.get("id"), "sub": side, "path": p})
+                                         "id": c.get("id"), "sub": side, "path": p, "cli": cli, "msg": msg})
                         elif want_results and c.get("type") == "tool_result" and c.get("tool_use_id"):
                             results.setdefault(c["tool_use_id"], ts)
         except OSError:
             continue
     uses.sort(key=lambda u: u["t"])
+    for i, u in enumerate(uses):
+        u["seq"] = i
     return uses, results
 
 
@@ -254,29 +339,84 @@ def bucket(use, home):
     return name
 
 
-def attribute(reqs, uses, before, after, home):
+def _rid(r):
+    """request の鍵 (log 由来は request id。 無ければ object identity)。"""
+    return r["id"] if r.get("id") is not None else id(r)
+
+
+def match_dialogs(reqs, uses, results, before, after, session_map=None, queue_window=QUEUE_WINDOW):
+    """dialog → tool_use の 1 対 1 突合。 _rid(request) → (use | None, how, cli)。
+
+    how = "direct" (同じ session、 窓の中) / "queue" (同じ session、 窓の外から待ち行列の順で) /
+    "unmapped" (Mapping 行が無く session を解けない → 窓だけで選んだ) / None (突合できず)。
+    制約 (docstring 冒頭): 同じ session / tool_result が応答より後 / 1 tool_use に 1 dialog。
+    """
+    out = {}
+    used = set()
+    matched_msgs = {}  # cli → set(msg) = dialog を割り当て済みの message (並列の兄弟を引くため)
+    results = results or {}
+    for r in sorted(reqs, key=lambda x: x["emit"]):
+        emit = r["emit"]
+        cli = cli_session_for(session_map, r.get("session"), emit)
+        floor = (r["resp"] if r["resp"] is not None else emit) - 1.0  # 1 秒 = log の秒切り捨て分
+
+        def result_after_response(u):
+            rt = results.get(u["id"])
+            return rt is None or rt >= floor
+
+        pool = [u for u in uses
+                if u["id"] not in used
+                and names_match(r["tool"], u["name"])
+                and (cli is None or u.get("cli") == cli)
+                and u["t"] <= emit + after
+                and result_after_response(u)]
+        pick, how = None, None
+        window = [u for u in pool if u["t"] >= emit - before]
+        if window:
+            pick = min(window, key=lambda u: (abs(u["t"] - emit), u.get("seq", 0)))
+            how = "direct" if cli is not None else "unmapped"
+        elif cli is not None:
+            siblings = [u for u in pool if u.get("msg") in matched_msgs.get(cli, set())]
+            if not siblings:
+                siblings = [u for u in pool if u["t"] >= emit - queue_window]
+            if siblings:
+                pick = min(siblings, key=lambda u: u.get("seq", 0))
+                how = "queue"
+        if pick is not None:
+            used.add(pick["id"])
+            if cli is not None:
+                matched_msgs.setdefault(cli, set()).add(pick.get("msg"))
+        out[_rid(r)] = (pick, how, cli)
+    return out
+
+
+def attribute(reqs, uses, before, after, home, results=None, session_map=None, queue_window=QUEUE_WINDOW):
+    """[(req, who, bucket, how)]。 who = main / sub-agent / unmatched。"""
+    matched = match_dialogs(list(reqs.values()), uses, results, before, after, session_map, queue_window)
     rows = []
     for r in sorted(reqs.values(), key=lambda x: x["emit"]):
-        lo = r["emit"] - before
-        hi = r["emit"] + after
-        cands = [u for u in uses if lo <= u["t"] <= hi and names_match(r["tool"], u["name"])]
-        if not cands:
-            rows.append((r, "unmatched", r["tool"]))
+        u, how, _cli = matched[_rid(r)]
+        if u is None:
+            rows.append((r, "unmatched", r["tool"], None))
             continue
-        u = min(cands, key=lambda u: abs(u["t"] - r["emit"]))
-        rows.append((r, "sub-agent" if u["sub"] else "main", bucket(u, home)))
+        rows.append((r, "sub-agent" if u["sub"] else "main", bucket(u, home), how))
     return rows
 
 
 def print_attribution(rows):
     total = len(rows)
     by_who = {}
-    for _r, who, _b in rows:
+    by_how = {}
+    for _r, who, _b, how in rows:
         by_who[who] = by_who.get(who, 0) + 1
+        if how:
+            by_how[how] = by_how.get(how, 0) + 1
     print(f"attribution: {total} dialogs → " + ", ".join(f"{k} {v}" for k, v in sorted(by_who.items())))
+    print("  突合の内訳: " + (", ".join(f"{k} {v}" for k, v in sorted(by_how.items())) or "-")
+          + "  (direct = 同じ session・窓内 / queue = 同じ session・待ち行列 / unmapped = Mapping 行なし・窓だけ)")
     print("")
     agg = {}
-    for _r, who, b in rows:
+    for _r, who, b, _how in rows:
         agg[(who, b)] = agg.get((who, b), 0) + 1
     hdr = f"{'who':<10} {'n':>5}  bucket"
     print(hdr)
@@ -334,7 +474,8 @@ FIXES = {
                    " 「常に許可」 は literal 保存なので**二度と一致しない**。 押しても減らない。"
                    " → Bash でなく Read tool で読み、 glob の path rule を 1 本置く"
                    " (claude-code-permissions.md#always-allow-never-matches-again)",
-    "unmatched": "transcript に該当 tool 呼び出しが無い (別 session / 窓の外)。 --before/--after を広げる",
+    "unmatched": "同じ session の transcript に該当 tool 呼び出しが無い (transcript 欠落 / --since の外 /"
+                 " 応答より前に終わった呼び出ししか無い)。 --since を広げる。 別 session の呼び出しには付けない",
 }
 
 
@@ -406,19 +547,26 @@ def brief_input(tool, inp):
     return ""
 
 
-def diagnose(reqs_list, uses, before, after, hooks, long_limit, run_hooks=True, cwd=None):
-    """dialog ごとに (req, 種別, 理由, 詳細) を返す。 種別 = hook / length / rule / unmatched。"""
+def diagnose(reqs_list, uses, before, after, hooks, long_limit, run_hooks=True, cwd=None,
+             results=None, session_map=None, queue_window=QUEUE_WINDOW):
+    """dialog ごとに (req, 種別, 理由, 詳細) を返す。 種別 = hook / fixed / length / rule / rule_unique / unmatched。
+    突合は match_dialogs (同じ session / 応答より後の tool_result / 待ち行列の順)。"""
     rows = []
+    matched = match_dialogs(reqs_list, uses, results, before, after, session_map, queue_window)
     for r in reqs_list:
-        lo, hi = r["emit"] - before, r["emit"] + after
-        cands = [u for u in uses if lo <= u["t"] <= hi and names_match(r["tool"], u["name"])]
-        if not cands:
-            rows.append((r, "unmatched", "対応する tool 呼び出しを transcript で見つけられない", ""))
+        u, how, cli = matched[_rid(r)]
+        if u is None:
+            why = ("同じ session に対応する tool 呼び出しが無い (transcript 欠落 / 期間の外)" if cli
+                   else "session の対応づけ (Mapping 行) が log に無く、 窓の中にも候補が無い")
+            rows.append((r, "unmatched", why, ""))
             continue
-        u = min(cands, key=lambda x: abs(x["t"] - r["emit"]))
         tool = u["name"]
         inp = u["input"] if isinstance(u["input"], dict) else {}
         detail = brief_input(tool, inp)
+        if how == "queue":
+            detail = (detail + "  " if detail else "") + "(待ち行列: tool_use は dialog より前)"
+        elif how == "unmapped":
+            detail = (detail + "  " if detail else "") + "(session 不明: 時刻の窓だけで突合)"
         hit = None
         if run_hooks:
             payload = {"session_id": "permission-dialog-audit", "transcript_path": "/dev/null",
@@ -550,10 +698,80 @@ def selftest():
 
         uses, results = load_tool_events(tmp / "projects", "2026-09-11", want_results=True)
         rows = attribute(parse_logs(logs, "2026-09-11"), uses, 8, 2, home)
-        who = {r["id"]: (w, b) for r, w, b in rows}
+        who = {row[0]["id"]: (row[1], row[2]) for row in rows}
         check(who["bbb"] == ("main", "Bash python3"), f"main の Bash を先頭語 bucket (got {who['bbb']})")
         check(who["ccc"] == ("sub-agent", "Edit ~/work/repo"), f"sub-agent の Edit を path 上位 2 階層 (got {who['ccc']})")
         check(who["aaa"][0] == "unmatched", "突合できない dialog は unmatched")
+
+        # --- 突合の 3 制約: 同じ session / 応答より後の tool_result / 待ち行列の順 ---
+        # (旧版 = 時刻が最も近い同名 tool を session を問わず選ぶ、 はこの block 全体が赤になる)
+        try:
+            T = local_epoch("2026-09-11 16:00:00")
+            smap = {"local_1": [(T - 600, "S1")], "local_2": [(T - 600, "S2")]}
+
+            def use(i, t, cli, msg, name="Bash"):
+                return {"t": t, "name": name, "input": {"command": f"cmd{i}"}, "id": f"id{i}", "sub": False,
+                        "path": tmp, "cli": cli, "msg": msg, "seq": i}
+
+            def rq(rid, local, emit, resp=None, tool="Bash"):
+                return {"id": rid, "emit": emit, "resp": resp, "tool": tool, "decision": "once", "session": local}
+
+            us = [use(1, T - 1, "S1", "m1"), use(2, T - 5, "S2", "m2")]
+            m = match_dialogs([rq("d1", "local_2", T, T + 3)], us, {}, 8, 2, smap)
+            check(m["d1"][0]["id"] == "id2" and m["d1"][1] == "direct",
+                  "同じ session の呼び出しを選ぶ (時刻がより近い別 session の同名 tool には付けない)")
+            m = match_dialogs([rq("d1", "local_2", T, T + 3)], [use(1, T - 1, "S1", "m1")], {}, 8, 2, smap)
+            check(m["d1"][0] is None and m["d1"][2] == "S2", "同じ session に候補が無ければ unmatched (別 session へ fallback しない)")
+            m = match_dialogs([rq("d1", "local_9", T, T + 3)], [use(1, T - 1, "S1", "m1")], {}, 8, 2, smap)
+            check(m["d1"][0] is not None and m["d1"][1] == "unmapped", "Mapping 行が無い dialog は窓だけで選び unmapped と出す")
+            us = [use(1, T - 2, "S1", "m1"), use(2, T - 6, "S1", "m2")]
+            m = match_dialogs([rq("d1", "local_1", T, T + 3)], us, {"id1": T - 1, "id2": T + 4}, 8, 2, smap)
+            check(m["d1"][0]["id"] == "id2", "応答より前に tool_result が出た呼び出しは候補から外す")
+            us = [use(1, T, "S1", "mm"), use(2, T, "S1", "mm"), use(3, T, "S1", "mm")]
+            res = {"id1": T + 4.5, "id2": T + 8.5, "id3": T + 33.5}
+            rs = [rq("d1", "local_1", T + 0.1, T + 4), rq("d2", "local_1", T + 4.1, T + 8),
+                  rq("d3", "local_1", T + 30, T + 33)]
+            m = match_dialogs(rs, us, res, 8, 2, smap)
+            got = [(m[k][0]["id"] if m[k][0] else None, m[k][1]) for k in ("d1", "d2", "d3")]
+            check(got == [("id1", "direct"), ("id2", "direct"), ("id3", "queue")],
+                  f"並列の 3 呼び出しに順に出る 3 dialog を待ち行列の順で 1 対 1 (窓の外の 3 つ目は queue) (got {got})")
+            m = match_dialogs([rq("d1", "local_1", T + 0.1, T + 4), rq("d2", "local_1", T + 1, T + 6)],
+                              [use(1, T, "S1", "mm")], {}, 8, 2, smap)
+            check(m["d1"][0] is not None and m["d2"][0] is None, "割り当て済みの tool_use は 2 つ目の dialog の候補にしない")
+            m = match_dialogs([rq("d1", "local_1", T + 600, T + 603)], [use(1, T, "S1", "m1")], {}, 8, 2, smap,
+                              queue_window=300)
+            check(m["d1"][0] is None, "--queue-window より古い候補は待ち行列でも拾わない")
+
+            (logs / "main5.log").write_text(
+                "2026-09-11 15:50:00 [info] Mapping internal session local_7 to CLI session S7a\n"
+                "2026-09-11 15:50:00 [info] Mapping internal session local_7 to CLI session S7a\n"
+                "2026-09-11 16:10:00 [info] Mapping internal session local_7 to CLI session S7b\n"
+                "2026-09-11 11:00:00 [info] Mapping internal session local_1 to CLI session sess\n"
+                "2026-09-11 11:00:00 [info] Mapping internal session local_2 to CLI session sess\n"
+                "2026-09-11 11:00:00 [info] Mapping internal session local_3 to CLI session other\n"
+                "2026-09-11 12:59:59 [info] Emitted tool permission request eee for Bash in session local_3\n",
+                encoding="utf-8")
+            sm = parse_session_map(logs)
+            check([c for _t, c in sm.get("local_7", [])] == ["S7a", "S7b"],
+                  f"Mapping 行を dedupe して時刻順に持つ (got {sm.get('local_7')})")
+            check(cli_session_for(sm, "local_7", T) == "S7a" and cli_session_for(sm, "local_7", T + 1200) == "S7b",
+                  "再開で付け替わった session は dialog の時刻で引く")
+            check(cli_session_for(sm, "local_7", T - 7200) == "S7a", "最初の Mapping より前の dialog は最初の session に寄せる")
+            check(transcript_session_id(Path("/p/-x/abc.jsonl")) == "abc"
+                  and transcript_session_id(Path("/p/-x/abc/subagents/agent-1.jsonl")) == "abc",
+                  "transcript の path から session id (sub-agent は親 dir の名前)")
+            check(all("cli" in u and "msg" in u and "seq" in u for u in uses) and {u["cli"] for u in uses} == {"sess"},
+                  "load_tool_events が cli / msg / seq を付ける (sessionId が無ければ path から)")
+            rows2 = attribute(parse_logs(logs, "2026-09-11"), uses, 8, 2, home, results=results, session_map=sm)
+            who2 = {r["id"]: (w, h) for r, w, _b, h in rows2}
+            check(who2["bbb"] == ("main", "direct") and who2["eee"] == ("unmatched", None),
+                  f"attribute: 1 秒前に出た別 session の dialog は同じ Bash を横取りせず unmatched (got {who2['bbb']}, {who2['eee']})")
+            rows3 = diagnose([parse_logs(logs, "2026-09-11")["eee"]], uses, 8, 2, [], 3000,
+                             run_hooks=False, cwd=tmp, results=results, session_map=sm)
+            check(rows3[0][1] == "unmatched" and "同じ session" in rows3[0][2],
+                  f"diagnose: 別 session の dialog は unmatched と理由を出す (got {rows3[0][1]}: {rows3[0][2]})")
+        except Exception as e:  # 突合が session を見ない版ではここに落ちる
+            check(False, f"session / tool_result / 待ち行列の突合: {type(e).__name__}: {e}")
 
         c = from_transcripts(uses, results, 15, FAST_TOOLS)
         check(len(c) == 1 and c[0][0]["name"] == "Read" and c[0][1] >= 59,
@@ -644,6 +862,8 @@ def main():
     ap.add_argument("--attribute", action="store_true", help="transcript と時刻突合して main / sub-agent に振り分け")
     ap.add_argument("--before", type=float, default=8.0, help="突合窓: dialog 発行の何秒前まで (既定 8)")
     ap.add_argument("--after", type=float, default=2.0, help="突合窓: dialog 発行の何秒後まで (既定 2)")
+    ap.add_argument("--queue-window", type=float, default=QUEUE_WINDOW,
+                    help="並列の待ち行列で tool_use を遡る上限秒 (既定 3600。 同じ session の中だけ)")
     ap.add_argument("--from-transcripts", action="store_true", help="desktop log 無しで待ち時間から dialog 候補を推定")
     ap.add_argument("--wait", type=float, default=15.0, help="--from-transcripts の閾値秒 (既定 15)")
     ap.add_argument("--tools", default=",".join(FAST_TOOLS), help="--from-transcripts の対象 tool (カンマ区切り)")
@@ -670,15 +890,16 @@ def main():
     if not log_dir.is_dir():
         print(f"desktop log dir が無い: {log_dir} — CLI 等なら --from-transcripts を使う", file=sys.stderr)
         return 2
-    reqs = parse_logs(log_dir, a.since)
+    reqs, session_map = scan_logs(log_dir, a.since)
     if a.diagnose:
         sel = sorted(reqs.values(), key=lambda x: x["emit"])
         if a.latest:
             sel = sel[-a.latest:]
-        uses, _ = load_tool_events(projects, a.since)
+        uses, results = load_tool_events(projects, a.since, want_results=True)
         hooks = load_pretooluse_hooks([s.strip() for s in a.settings.split(",") if s.strip()])
         rows = diagnose(sel, uses, a.before, a.after, hooks, a.long_limit,
-                        run_hooks=not a.no_run_hooks, cwd=home / "Claude")
+                        run_hooks=not a.no_run_hooks, cwd=home / "Claude",
+                        results=results, session_map=session_map, queue_window=a.queue_window)
         print_diagnosis(rows, not a.no_run_hooks, len(hooks))
         return 0
     if a.latest:
@@ -687,8 +908,9 @@ def main():
     print_summary(reqs, log_dir, a.since)
     if a.attribute:
         print("")
-        uses, _ = load_tool_events(projects, a.since)
-        print_attribution(attribute(reqs, uses, a.before, a.after, home))
+        uses, results = load_tool_events(projects, a.since, want_results=True)
+        print_attribution(attribute(reqs, uses, a.before, a.after, home,
+                                    results=results, session_map=session_map, queue_window=a.queue_window))
     return 0
 
 
