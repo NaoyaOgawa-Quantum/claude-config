@@ -486,7 +486,7 @@ def _selftest() -> int:
           and dl("The offer is open until 31st December 2031. Please register.", horizon=200) == [],
           "年つき: 書かれた年を無視して今年の日付に解かない (窓の外の年は取らない)")
     check(dl("今日まで気づいていませんでした。確認します。", action=False) == []
-          and dl("明日までは出張です。", action=False) == [] and dl("これは本日までにご提出ください。") == ["2030-07-20"],
+          and dl("明日までは不在です。", action=False) == [] and dl("これは本日までにご提出ください。") == ["2030-07-20"],
           "相対: 「まで」 は「までに」 か文末の形だけ (経過の「今日まで」 は取らない)")
     check(urgency_signals("これまでに頂いた資料です") == [] and urgency_signals("来週前半までにお願いします") == ["までに"],
           "急ぎの語: 「これまでに」 は拾わず、 日付の読めない「〜までに」 は拾う")
