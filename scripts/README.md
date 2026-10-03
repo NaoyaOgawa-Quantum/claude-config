@@ -212,6 +212,7 @@
 - **[pack-pii-dirs.sh](pack-pii-dirs.sh)** — 個人情報が file 名に出る dir を、1 個の暗号化 tar に畳む (汎用)。
 - **[pdf-cleaner.html](pdf-cleaner.html)** — clipboard-cleaner.py のブラウザ版 fallback（非 macOS / pbcopy なし環境用、整形ロジックの正本は clipboard-cleaner.py で両実装を同期）
 - **[pdf-grayscale-copy.py](pdf-grayscale-copy.py)** — PDF の頁を「複写機で写したもの」 相当の白黒の写しにする (raster・圧縮・紙専用の印を引き継ぐ)。
+- **[pdf-print-preflight.mutants.json](pdf-print-preflight.mutants.json)** — pdf-print-preflight.py の「様式の案件の出力の受け入れ」 (7 段目) と派生物の origin の selftest に歯があることを、 判定の一部を外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[pdf-print-preflight.py](pdf-print-preflight.py)** — 印刷直前の PDF preflight — 「画面で見えた」 を印刷の保証にしない機械 gate (office-automation.md#print-preflight)。
 - **[pdf-redact-text.py](pdf-redact-text.py)** — PDF の中の指定文字列 (暗証番号・口座番号など) を黒塗りし、 消えたことを文字層と画像で確かめる。
 - **[pdf-side-by-side.py](pdf-side-by-side.py)** — 2 つの PDF の同じ箇所を左右に並べた比較頁を作る: 案を決めるのは source でなく組版された姿。
