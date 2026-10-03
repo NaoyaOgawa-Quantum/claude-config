@@ -588,7 +588,7 @@ def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False,
 
 # ---------------------------------------------------------------- discarded history (この clone 自身の記憶)
 
-REMOVED_CACHE = "rewrite-follow-removed"      # <git common dir>/ の下。 捨てられた履歴にしか無い object の一覧の cache
+REMOVED_CACHE = "rewrite-follow-discarded"    # <git common dir>/ の下。 捨てられた履歴にしか無い object の一覧の cache
 REMOVED_CACHE_KEEP = 4
 AUDIT_CACHE = "rewrite-follow-audit.json"     # <git common dir>/ の下。 audit_repo が最後に見た ref の状態と結果
 GUARD_HEADLINE = "push を止めた"               # pre-push stub がこの見出しで「違反」 と「検査の故障」 を見分ける
@@ -669,6 +669,38 @@ def discarded_commits(repo, refs):
     return [l for l in out.splitlines() if _SHA_RE.match(l)], cur
 
 
+def _all_objects(repo, tips, timeout=900):
+    """tips (commit の sha の list) から届く全 object (commit・tree・blob) の sha の set。 否定の rev を渡さない全 walk。"""
+    if not tips:
+        return set()
+    out = git(repo, "rev-list", "--objects", "--stdin", input="\n".join(tips) + "\n", check=False, timeout=timeout)
+    return {l.split(" ", 1)[0] for l in out.splitlines() if l and _SHA_RE.match(l.split(" ", 1)[0])}
+
+
+def _objects_only_in(repo, old_tips, new_tips):
+    """old_tips から届き、 new_tips からは **どの commit を通っても** 届かない object の set (厳密な差集合)。
+    `rev-list --objects OLD ^NEW` で済ませない: 否定側の tree / blob は境界の commit の分しか除かれないので、 新しい履歴の
+    途中の版にだけ在る object (後で変わった・消えた file の版) が「旧にしか無い」 側に混ざる (実測: この形で作った一覧の
+    3〜8 割が今の履歴にも在る object で、 file を以前の版に戻す正当な push を止め、 remote 側の検出が偽の「戻っている」 を
+    出した)。 2 回の全 walk の差を取る。"""
+    return _all_objects(repo, old_tips) - _all_objects(repo, new_tips)
+
+
+def _clean_remote_tips(repo, remote, removed_commits, base):
+    """「今の履歴」 として数える commit の list = base (既定 branch の今の値) + remote の他の branch のうち、 removed_commits
+    (捨てられた / 旧世代の commit) を 1 つも抱えていないもの。 旧履歴を抱えたままの branch を今の履歴に数えると、
+    消した object が「今も在る」 ことになって網から外れる。"""
+    tips = list(base)
+    out = git(repo, "for-each-ref", "--format=%(objectname) %(objecttype) %(symref)", f"refs/remotes/{remote}/", check=False)
+    for line in out.splitlines():
+        a = line.split()
+        if len(a) != 2 or a[1] != "commit" or a[0] in tips:      # symref (<remote>/HEAD) は 3 欄
+            continue
+        if not (_range_ids(repo, a[0], base, objects=False, timeout=120) & removed_commits):
+            tips.append(a[0])
+    return tips
+
+
 def discarded_objects(repo, refs):
     """(捨てられた履歴の commit の set, そこにしか無い object 〔commit・tree・blob〕 の sha の set)。 object の一覧は、 捨てられた
     commit の集合を鍵に cache する (集合が変わらない間は walk し直さない。 今の履歴が進んでも「捨てられた履歴にしか無い」
@@ -688,12 +720,8 @@ def discarded_objects(repo, refs):
                 if _SHA_RE.match(sha):
                     objs.add(sha)
     except OSError:
-        out = git(repo, "rev-list", "--objects", "--stdin", input="\n".join(commits + ["^" + c for c in cur]) + "\n",
-                  check=False, timeout=600)
-        for line in out.splitlines():
-            sha = line.split(" ", 1)[0]
-            if _SHA_RE.match(sha):
-                objs.add(sha)
+        remote = refs[0][len("refs/remotes/"):].split("/", 1)[0] if refs and refs[0].startswith("refs/remotes/") else ""
+        objs = _objects_only_in(repo, commits, _clean_remote_tips(repo, remote, set(commits), cur) if remote else cur)
         try:
             cdir.mkdir(parents=True, exist_ok=True)
             tmp = cdir / (key + ".tmp")
@@ -912,10 +940,10 @@ def forbidden_from_local(repo, cli_globs=()):
     have = _existing_commits(repo, olds)
     if not have:
         return [], 0, len(olds)
-    inp = "\n".join(have + ["^" + up_sha]) + "\n"
-    out = git(repo, "rev-list", "--objects", "--stdin", input=inp, check=False, timeout=900)
-    commits = set(git(repo, "rev-list", "--stdin", input=inp, check=False, timeout=300).split())
-    objs = sorted({l.split(" ", 1)[0] for l in out.splitlines() if l} - commits)
+    # 厳密な差集合 (_objects_only_in の注記)。 remote の他の branch に在る object も除く (そこから正当に届く object を禁じない)
+    only_old = _objects_only_in(repo, have, _clean_remote_tips(repo, upstream.split("/", 1)[0], set(olds), [up_sha]))
+    commits = set(git(repo, "rev-list", "--stdin", input="\n".join(have) + "\n", check=False, timeout=300).split())
+    objs = sorted(only_old - commits)
     return objs, len(have), len(olds)
 
 
@@ -1464,6 +1492,36 @@ def _selftest():
     check("the suggested rebase carries only the local commit and the push passes the guard",
           pr.returncode == 0 and git(s_local, "rev-list", "--count", "origin/main..HEAD") == "1"
           and guard_stdin(s_local, [f"refs/heads/main {lh} refs/heads/main {rev(s_local, 'origin/main')}"], fetch=False)[0], pr.stderr[-200:])
+
+    # --- 「捨てられた履歴にしか無い」 は厳密な差集合: 新しい履歴の途中の版にだけ在る object を含めない
+    #     (旧 x2・x3 と新 y2・y3 が同じ blob を持ち、 新の先頭 y4 でその file が変わる = 境界の tree には無い)
+    ex_remote = bare("ex.git")
+    ex = tmp / "ex-src"
+    init(ex)
+    x1 = commit(ex, {"a.txt": "one\n"}, "x1")
+    commit(ex, {"shared.txt": "kept by the rewrite\n", "secret.txt": "dropped by the rewrite\n"}, "x2")
+    x3 = commit(ex, {"c.txt": "c\n"}, "x3")
+    git(ex, "remote", "add", "origin", str(ex_remote))
+    git(ex, "push", "-q", "-u", "origin", "main")
+    shared_blob, secret_blob = git(ex, "rev-parse", f"{x3}:shared.txt"), git(ex, "rev-parse", f"{x3}:secret.txt")
+    s_ex = clone_of(ex_remote, "s-ex")
+    git(ex, "reset", "-q", "--hard", x1)
+    commit(ex, {"shared.txt": "kept by the rewrite\n"}, "y2")
+    commit(ex, {"c.txt": "c\n"}, "y3")
+    y4 = commit(ex, {"shared.txt": "changed later\n"}, "y4")
+    git(ex, "push", "-q", "--force", "origin", "main")
+    git(s_ex, "fetch", "-q")
+    naive = {l.split(" ", 1)[0] for l in git(s_ex, "rev-list", "--objects", x3, "^" + y4).splitlines()}
+    check("fixture: `rev-list --objects OLD ^NEW` over-reports (a blob that lives in an inner commit of the new history)", shared_blob in naive)
+    only = _objects_only_in(s_ex, [x3], [y4])
+    check("objects only in the old history: exact difference (inner-commit blob excluded, dropped blob included)",
+          shared_blob not in only and secret_blob in only)
+    _dc, dobjs = discarded_objects(s_ex, tracked_refs(s_ex, "origin"))
+    check("discarded objects exclude what the new history also holds", shared_blob not in dobjs and secret_blob in dobjs)
+    git(s_ex, "reset", "-q", "--hard", "origin/main")
+    commit(s_ex, {"shared.txt": "kept by the rewrite\n"}, "put the file back to an earlier version of the new history")
+    ok, msgs = guard_stdin(s_ex, [f"refs/heads/main {rev(s_ex, 'HEAD')} refs/heads/main {y4}"], fetch=False)
+    check("guard: restoring a version that the new history also holds is not refused", ok and not msgs, " ".join(msgs))
 
     # --- sweep: manifest の無い repo にも stub (まとめて 1 行)、 track された hooks dir と foreign は触らない、 kill switch
     root2 = tmp / "root2"
