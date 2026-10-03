@@ -1,0 +1,59 @@
+{
+  "_comment": "check-gitcrypt-readable.py の「commit に入った版が平文」 の判定の selftest に歯があることを、 判定の一部を外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。",
+  "target": "check-gitcrypt-readable.py",
+  "run": "python3 {} --selftest",
+  "mutants": [
+    {
+      "name": "blob の先頭を見ない (何でも暗号文と言う)",
+      "pairs": [
+        ["            if not data.startswith(MAGIC):\n", "            if False:\n"]
+      ],
+      "expect_fail": [
+        "暗号化の path に平文の blob が commit されていれば拾う",
+        "平文が commit に在れば、 鍵が無いマシンでも終了値 1",
+        "非 ASCII の path も拾う"
+      ],
+      "expect_pass": [
+        "commit がまだ無い repo は平文の判定をしない"
+      ]
+    },
+    {
+      "name": "鍵が無いマシンでは平文の判定を終了値に入れない (readable の SKIP に隠れる)",
+      "pairs": [
+        ["        print(\"         (= CI の runner 等。 検査しなかったと申告するだけで、 緑ではない)\")\n        return rc_commit\n",
+         "        print(\"         (= CI の runner 等。 検査しなかったと申告するだけで、 緑ではない)\")\n        return 0\n"]
+      ],
+      "expect_fail": [
+        "平文が commit に在れば、 鍵が無いマシンでも終了値 1"
+      ],
+      "expect_pass": [
+        "暗号化の path に平文の blob が commit されていれば拾う",
+        "非 ASCII の path も拾う"
+      ]
+    },
+    {
+      "name": "空の blob を数える (git-crypt が暗号化しない空の file を平文と言う)",
+      "pairs": [
+        ["            if size == 0:\n                continue\n", ""]
+      ],
+      "expect_fail": [
+        "暗号化の path に平文の blob が commit されていれば拾う",
+        "暗号文の blob・空の blob・属性を打ち消した path・属性の無い path は拾わない"
+      ]
+    },
+    {
+      "name": "属性を見ない (全部の blob を暗号化の対象と言う)",
+      "pairs": [
+        ["    crypt = {at[i] for i in range(0, len(at) - 2, 3) if at[i + 2] == b\"git-crypt\"}\n",
+         "    crypt = {p for _, p in entries}\n"]
+      ],
+      "expect_fail": [
+        "暗号化の path に平文の blob が commit されていれば拾う",
+        "暗号文の blob・空の blob・属性を打ち消した path・属性の無い path は拾わない"
+      ],
+      "expect_pass": [
+        "commit がまだ無い repo は平文の判定をしない"
+      ]
+    }
+  ]
+}
