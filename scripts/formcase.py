@@ -34,7 +34,10 @@ instance (どの repo の / どの様式の案件か) は設定 file (formcase.c
     python3 formcase.py lint [--staged]                    process doc の規則の書き写し + 案件 README の状態の書き写しを検出
                                                           (--staged = pre-commit 用: stage した案件 README / submission.yaml の案件だけ、
                                                            README の generated view の鮮度も見る。 exit 1 = BLOCK)
-    python3 formcase.py audit                              check --all --quiet + views --check + lint + regate (発火面用)
+    python3 formcase.py audit                              check --all --quiet + views --check + lint + regate (発火面用)。
+                                                          exit 0 = 問題なし / 1 = 🔴 (記録の不変条件・view・lint・spec) /
+                                                          4 = 記録は無事で、 窓口より手前の出力が今の関門に落ちるだけ (案件の状態 =
+                                                          検査 suite の失敗と区別する値。 両方あれば 1)
     python3 formcase.py --selftest
 
 CASE = submission.yaml のある dir。 --all = 設定の case_roots の下の全 manifest。
@@ -578,10 +581,21 @@ def cmd_audit(args) -> int:
         print(f"🔴 {p}")
     rc |= 1 if probs else 0
     print("── formcase regate (窓口より手前の出力を今の関門に通す、 form-case-pipeline.md #regate)")
-    rc |= _audit_regate()
-    if rc == 0:
+    rg = _audit_regate()
+    if rc == 0 and rg == 0:
         print("✅ formcase audit: 問題なし")
-    return rc
+    return audit_exit(rc, rg)
+
+
+AUDIT_REGATE_ONLY = 4
+
+
+def audit_exit(integrity_rc: int, regate_rc: int) -> int:
+    """audit の終了値。 記録の不変条件・view・lint・spec の 🔴 = 1。 それが無く、 窓口より手前の出力が今の関門に落ちるだけなら 4
+    (= 案件の状態で、 code や記録の故障ではない。 呼び元が検査 suite を赤くするかを選べるように値を分ける)。"""
+    if integrity_rc:
+        return 1
+    return AUDIT_REGATE_ONLY if regate_rc else 0
 
 
 def _audit_regate() -> int:

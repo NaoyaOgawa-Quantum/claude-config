@@ -437,7 +437,7 @@ label の組に挟まれた帯の中の水平の罫線・同じ label の二重�
 | 段 | 何をする | 入口 |
 |---|---|---|
 | regate | 出力 PDF を build と同じ関数 (雛形との照合 = [§14](#fidelity)) で、 **見る時点の** engine・spec・雛形に通す。 押印を紙に押す運用 ([`seal_mode: physical`](#seal-mode)) では印影の画像入りの出力も落とす。 窓口より手前の今の issue には、 今の spec の記入内容 gate も当てる (凍結した issue も裁く) | `formcase.py regate [CASE…\|--all] [--scope pre\|current\|all]` |
-| 発火面 | 窓口より手前の出力が落ちる = 🔴 (件数に数える)。 提出済みの出力が落ちるのは一覧だけ (出し直すかは人が決める)。 どの出力も照合できない issue は 🟡 (見ていないことを黙らない) | `formcase.py audit` の最後の段 (呼び元の dashboard・定期検査がそのまま拾う) |
+| 発火面 | 窓口より手前の出力が落ちる = 🔴 (件数に数える)。 提出済みの出力が落ちるのは一覧だけ (出し直すかは人が決める)。 どの出力も照合できない issue は 🟡 (見ていないことを黙らない) | `formcase.py audit` の最後の段 (呼び元の dashboard・定期検査がそのまま拾う)。 audit の終了値は、 記録の不変条件の 🔴 = 1、 落ちる出力が在るだけ = 4 (案件の状態と、 code・記録の故障を呼び元が見分ける値) |
 | admit | 刷る・添付する直前の 1 file の受け入れ。 file (と、 その宣言の `origin` が指す元の file) から案件を辿り、 ① 前の issue の出力 (reopen で置き換え済み) = 止めて今の版の名前を言う ② 今の issue の出力 = regate の判定 ③ 派生物を作った後に元が作り直されている = 止める。 formcase の出力でない PDF には何も言わない | `formcase.py admit FILE.pdf` (exit 0 = 通す / 1 = 止める / 3 = 照合できない)。 印刷の gate が呼ぶ = [`office-automation.md#print-preflight-admission`](office-automation.md#print-preflight-admission) |
 | 記録の時 | `freeze` は刷った・送った事実の記録なので止めない。 凍結した出力が今の関門に落ちるなら、 その場で 🔴 の行を出す | `formcase.py freeze` |
 | 出口 | 落ちる出力をそのまま出すと人が決めたら、 その人の言葉を issue に書く (`gate_waiver`、 日付つき)。 🔴 は 📄 になり、 admit は通す。 reopen した新しい issue には持ち越さない。 環境変数や flag で黙らせない (= 次に見た人にも同じ判断が見える) | `formcase.py annotate CASE DOC GROUP --gate-waiver '<言葉>'` |
