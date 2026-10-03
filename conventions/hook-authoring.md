@@ -1041,6 +1041,18 @@ Stop hook が「この行が無い → 返事の全文を出し直す」 と止�
 - **照合の順序**: 印字した行そのものを持つ返事の行を、 先にその記録へ当てる。 残りを緩い条件 (引用の冒頭の一致など) で当てる
   (冒頭が同じ別の記録に行を取られない)。 前の返事を出し直した再送の中の同じ行は 1 本に数える (再送で別の記録を処理済みに
   しない)。 表示がまったく同じになる記録は 1 行 (×N) で全部 (本人にとって同じ情報を何度も読ませない)。
+- **文面の点検は「出し直す」 の語だけで探さない**: 「最終メッセージに〜を書いて」「最終メッセージの先頭に〜」「同じ内容で
+  終了」 を促す文、「〜に書き直してから終了」 も全文の再送を招く (実測: 「出し直」 で grep して文面を揃えた後も、 これらの
+  文面の Stop hook で同じ返事が 2 通並んだ)。 求める形は「短い追記に〜を書く」 と明示する。 受理の判定が session (か turn) の
+  assistant の文の全部を読む形なら、 追記でそのまま受理される。
+- <a id="stop-block-reason-delivered-twice"></a>**block の理由は model に 2 通届く (harness 側の挙動、 hook では消せない)**:
+  1 回の block につき transcript に meta の user 行 `Stop hook feedback:\n<reason>` と attachment `hook_blocking_error`
+  (`rendered` = `Stop hook blocking error from command: "<command>": <reason>`) が 1 組ずつ残り、 継続の request に両方が入る
+  (実測: 2.1.266〜2.1.286、 desktop と `claude -p` の両方。 Stop の処理が attachment を継続の messages に積み、 同じ理由から
+  作った meta の行も積む。 TaskCompleted / TeammateIdle の hook も同じ形)。 hook の二重実行と取り違えない =
+  `stop_hook_summary` の `hookInfos` に同じ command が 1 回・`hookErrors` が 1 件なら hook は 1 回しか走っていない
+  (配線の重複を疑う前にここを数える)。 帰結: 理由文は 2 倍の context を食う前提で短く書く。 user の画面に同じ返事が
+  2 通並ぶのはこれとは別の原因で、 全文の出し直しを求める文面から来る (上の 2 項)。
 - **挙動は transcript で実測する**: `hook_blocking_error` と meta の `Stop hook feedback` 行 → 書き直した返事 → `stop_hook_summary`
   の並びを、 hook が書く state の時刻と突き合わせる (実測: 処理済みの記録時刻が「差し戻しの後の Stop」 でなく、 その後に別の通知で
   走った Stop に揃っていたことで、 差し戻しの後の照合の抜けが分かった)。
