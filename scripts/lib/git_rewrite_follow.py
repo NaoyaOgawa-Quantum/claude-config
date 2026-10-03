@@ -602,8 +602,8 @@ def ensure_prepush_all(root):
         try:
             if ensure_prepush(repo, only_with_manifest=False, quiet_foreign=True):
                 placed.append(repo.name)
-        except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
-            failed.append(f"{repo.name}: pre-push stub を置けなかった ({str(exc)[:100]})")
+        except Exception as exc:  # 1 つの repo の失敗で、 残りの repo を止めない
+            failed.append(f"{repo.name}: pre-push stub を置けなかった ({type(exc).__name__}: {str(exc)[:100]})")
     return placed, failed
 
 
@@ -1534,7 +1534,7 @@ def repo_facts(root):
                     bu = {}
                 if bu:
                     out[repo.name]["old_branch_unique"] = bu
-        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+        except Exception:   # 1 つの repo の失敗で、 残りの repo の事実を落とさない
             continue
     return out
 
