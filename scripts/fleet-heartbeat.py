@@ -87,7 +87,7 @@ repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_re
     書き換えをまだ fetch していない machine は自分を「最新」 と思っている = 自己申告は当てにならない。 最新を fetch した
     machine の reader (lib.judge_fact) が、 各 machine の事実を自分の知識で判定する
   - stale = この machine 自身が「HEAD は捨てられた履歴の上」 と分かっている repo (fetch 済み・未追従)。 変化は即 commit
-  - no_stub = stub が無い repo (別の pre-push hook がある / hook が repo に track されている)。 変化は即 commit
+  - no_stub = push の検査が通らない repo (hook の dir が repo に track されていて pre-push を持たない / 鎖にしない設定)。 変化は即 commit
   - heads の各 repo の old_branches = 捨てられた履歴の commit を抱えた手元の branch (今の branch を除く。 在る時だけ載る)
   heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
   --repos-follow (opt-in): 毎 beat、 全 repo を fetch し、 書き換えられた履歴に揃えられる clone を揃える (lib.follow_repo =

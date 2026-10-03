@@ -53,6 +53,15 @@ repo ごとの事実を点呼の材料として載せる)。
 sha で取り出す鍵になる (host は、 どの ref からも届かない commit も sha を知っていれば見せる)。 公開 repo の網は、 clone 自身の
 reflog の記憶 (I5 b) と、 外から渡す対応表 (非公開の置き場。 `--map` / maps file / env) にする。
 
+別の pre-push hook が在る clone (ensure_prepush / _prepush_plan): その hook を残したまま、 検査を先に通す。
+  - pdf-publish の hook (templates/shared-project/pdf-publish) は、 自分の後に `pre-push.before-pdf-publish` を呼ぶ作り =
+    その口に stub を置く (hook 自体は触らない。 hook の dir が track されていても置け、 clone の info/exclude に足す)
+  - それ以外 (LFS・独自の hook) は、 元の hook を `pre-push.rewrite-follow-chained` に写してから stub に替える。 stub は検査が
+    通った後に、 同じ引数と stdin で元の hook を呼び、 その終了値で push が決まる (検査が走らなかった時も元の hook は呼ぶ)
+  - 置けないのは、 hook の dir が repo に track されていて pre-push を持たない clone だけ (worktree に pre-push を書くと、
+    repo が後で自分の pre-push を足した時に pull が止まる)。 包まない = env GIT_REWRITE_FOLLOW_CHAIN=0 /
+    その clone で `git config rewritefollow.chain false`
+
 追従の判定 (follow_repo):
   0. upstream が無い / detached / merge・rebase 進行中 → 触らない。 HEAD が upstream の祖先 (= behind か同じ) →
      無音 (通常の同期の仕事)。 upstream が HEAD の祖先 (= ahead だけ) → 無音 (push の仕事)。 それ以外 = diverged。
@@ -549,7 +558,8 @@ STUB_ALL_ENV = "GIT_REWRITE_FOLLOW_STUB_ALL"   # "1" = sweep が manifest の無
 
 def ensure_prepush_all(root):
     """root/*/ の upstream のある全 repo に pre-push stub を置く / 更新する (書き換えの **前から** 全 clone に在る状態にする)。
-    foreign な pre-push と、 hook が track されている repo は触らない。 (置いた・更新した repo 名の list, 置けなかった行の list)。
+    別の pre-push hook が在る clone では、 その hook を残したまま検査を先に通す (ensure_prepush)。 置けないのは、 hook の dir が
+    repo に track されている clone だけ。 (置いた・更新した repo 名の list, 置けなかった行の list)。
     無人の定期 job が毎回呼ぶ = session を開かない machine にも届く。"""
     placed, failed = [], []
     for gd in sorted(globmod.glob(os.path.join(str(root), "*", ".git"))):
@@ -1175,21 +1185,49 @@ def forbidden_from_local(repo, cli_globs=()):
     return objs, len(have), len(olds)
 
 
+CHAIN_SUFFIX = ".rewrite-follow-chained"        # 包んだ元の hook の退避先 (<stub の file 名> + これ)
+CHAIN_ENV = "GIT_REWRITE_FOLLOW_CHAIN"          # "0" = 別の pre-push hook を包まない (従来どおり触らない)
+CHAIN_CONFIG = "rewritefollow.chain"            # clone ごとの opt-out: git config rewritefollow.chain false
+PDFPUB_MARK = "# pdf-publish pre-push hook"     # templates/shared-project/pdf-publish/install-hook.sh が置く hook の印
+PDFPUB_SLOT = ".before-pdf-publish"             # その hook が、 在れば自分の後に呼ぶ「前から在った hook」 の置き場
+PDFPUB_SLOT_CALL = '"$0.before-pdf-publish" "$@"'
+
+
 def stub_text(engine_path, repo):
     """pre-push stub。 止めるのは「engine が exit 1 かつ違反の見出しを出した」 時だけ = engine の故障 (python の異常終了も
-    exit 1) を違反と読んで全 push を止めない。 検査が走らなかった時は 1 行出して通す (黙って通さない)。"""
+    exit 1) を違反と読んで全 push を止めない。 検査が走らなかった時は 1 行出して通す (黙って通さない)。
+    `<この file>.rewrite-follow-chained` が在れば (= 前からそこに在った別の hook)、 検査が通った後に同じ引数と stdin で呼び、
+    その終了値で push が決まる。 検査が走らなかった時 (python3・engine・一時 file が無い) も、 元の hook は必ず呼ぶ。"""
+    chained = f'"$0{CHAIN_SUFFIX}"'
     return (
         "#!/bin/sh\n"
         f"# {STUB_MARK} — installed by git-rewrite-follow.py ensure-prepush (do not edit; re-run ensure-prepush)\n"
         "# Refuses a push that carries commits / objects of a rewritten-away generation "
         "(conventions/multi-machine-state.md#history-rewrite-follow).\n"
-        "command -v python3 >/dev/null 2>&1 || { echo 'rewrite-follow pre-push: python3 が無いので検査せず通す' >&2; exit 0; }\n"
-        f"[ -f \"{engine_path}\" ] || {{ echo 'rewrite-follow pre-push: engine が無いので検査せず通す' >&2; exit 0; }}\n"
-        f"out=\"$(python3 \"{engine_path}\" guard --repo \"{repo}\" --hook \"$@\" 2>&1)\"\n"
-        "rc=$?\n"
-        "[ -n \"$out\" ] && printf '%s\\n' \"$out\" >&2\n"
-        f"if [ \"$rc\" -eq 1 ]; then case \"$out\" in *'{GUARD_HEADLINE}'*) exit 1 ;; esac; fi\n"
-        "[ \"$rc\" -eq 0 ] || echo \"rewrite-follow pre-push: 検査が走らなかった (rc=$rc) ので通す\" >&2\n"
+        f"# A pre-push hook that was here before lives on as <this file>{CHAIN_SUFFIX}: it runs after the check passes,\n"
+        "# with the same arguments and stdin, and its exit status decides the push.\n"
+        'IN="$(mktemp 2>/dev/null || mktemp -t prepush 2>/dev/null)"\n'
+        'if [ -z "$IN" ]; then\n'
+        "  echo 'rewrite-follow pre-push: 一時 file を作れないので検査せず通す' >&2\n"
+        f'  if [ -x {chained} ]; then exec {chained} "$@"; fi\n'
+        "  exit 0\n"
+        "fi\n"
+        'cat > "$IN"\n'
+        "if ! command -v python3 >/dev/null 2>&1; then\n"
+        "  echo 'rewrite-follow pre-push: python3 が無いので検査せず通す' >&2\n"
+        f'elif [ ! -f "{engine_path}" ]; then\n'
+        "  echo 'rewrite-follow pre-push: engine が無いので検査せず通す' >&2\n"
+        "else\n"
+        f'  out="$(python3 "{engine_path}" guard --repo "{repo}" --hook "$@" < "$IN" 2>&1)"\n'
+        "  rc=$?\n"
+        "  [ -n \"$out\" ] && printf '%s\\n' \"$out\" >&2\n"
+        f"  if [ \"$rc\" -eq 1 ]; then case \"$out\" in *'{GUARD_HEADLINE}'*) rm -f \"$IN\"; exit 1 ;; esac; fi\n"
+        "  [ \"$rc\" -eq 0 ] || echo \"rewrite-follow pre-push: 検査が走らなかった (rc=$rc) ので通す\" >&2\n"
+        "fi\n"
+        f'if [ -x {chained} ]; then\n'
+        f'  {chained} "$@" < "$IN"; rc=$?; rm -f "$IN"; exit $rc\n'
+        "fi\n"
+        'rm -f "$IN"\n'
         "exit 0\n"
     )
 
@@ -1205,27 +1243,110 @@ def engine_cli_path():
 
 def _hooks_tracked_in_worktree(repo):
     """core.hooksPath が repo の中 (相対 path) を指すか = hook が git に track されている repo。 そこへ機械ごとの絶対 path を
-    持つ stub を書くと worktree を汚す (commit されれば他の clone で壊れる) = 置かない。"""
+    持つ stub を pre-push として書くと worktree を汚す (commit されれば他の clone で壊れる。 repo が後で自分の pre-push を
+    足せば pull が止まる) = 置かない。"""
     hp = git(repo, "config", "--get", "core.hooksPath", check=False).strip()
     return bool(hp) and not os.path.isabs(os.path.expanduser(hp))
 
 
-def prepush_state(repo):
-    """'stub' (本部品の stub) / 'foreign' (別の pre-push か、 track された hooks dir) / 'none'。"""
+def _read_text(p):
     try:
-        p = hooks_dir(repo) / "pre-push"
+        return p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def _chain_allowed(repo):
+    if os.environ.get(CHAIN_ENV, "1") == "0":
+        return False
+    return git(repo, "config", "--get", CHAIN_CONFIG, check=False).strip().lower() not in ("false", "0", "no", "off")
+
+
+def _prepush_plan(repo):
+    """stub の置き場を決める。 (kind, dst, 理由)。
+      'direct'  hooks/pre-push に stub (hook が無い / 既に本部品の stub)
+      'slot'    pdf-publish の hook が在る → その hook が自分の後に呼ぶ口 (pre-push.before-pdf-publish) に stub。 元の hook は
+                触らない (その hook 自身の鎖の仕組みに載る)。 hook の dir が track されていても置ける (口の名前は repo の file と
+                衝突しない。 clone の .git/info/exclude に足して status に出さない)
+      'wrap'    別の hook が在る → dst の今の中身を dst + CHAIN_SUFFIX に写し、 dst を stub に替える (stub が検査の後に呼ぶ)
+      'blocked' 置けない (dst = None、 理由つき): track された hooks dir の pre-push / 鎖を切った clone"""
+    hd = hooks_dir(repo)
+    hook = hd / "pre-push"
+    tracked = _hooks_tracked_in_worktree(repo)
+    if not hook.exists():
+        if tracked:
+            return "blocked", None, "hook が repo に track されている (core.hooksPath)"
+        return "direct", hook, ""
+    cur = _read_text(hook)
+    if STUB_MARK in cur:
+        return "direct", hook, ""
+    if PDFPUB_MARK in cur and PDFPUB_SLOT_CALL in cur:
+        slot = hd / ("pre-push" + PDFPUB_SLOT)
+        if not slot.exists() or STUB_MARK in _read_text(slot):
+            return "slot", slot, ""
+        if tracked or not _chain_allowed(repo):
+            return "blocked", None, "pdf-publish の hook の鎖の口に、 別の hook が既に在る"
+        return "wrap", slot, ""
+    if tracked:
+        return "blocked", None, "track された hooks dir に別の pre-push hook が在る"
+    if not _chain_allowed(repo):
+        return "blocked", None, "既存の pre-push hook がある (鎖にしない設定)"
+    return "wrap", hook, ""
+
+
+def prepush_state(repo):
+    """'stub' (push の検査が通る: 本部品の stub、 または pdf-publish の hook の鎖の口に置いた stub) /
+    'foreign' (別の pre-push か、 track された hooks dir で、 検査が通らない) / 'none'。"""
+    try:
+        hd = hooks_dir(repo)
+        p = hd / "pre-push"
         if p.exists():
-            return "stub" if STUB_MARK in p.read_text(encoding="utf-8", errors="replace") else "foreign"
+            cur = _read_text(p)
+            if STUB_MARK in cur:
+                return "stub"
+            if PDFPUB_MARK in cur and PDFPUB_SLOT_CALL in cur and STUB_MARK in _read_text(hd / ("pre-push" + PDFPUB_SLOT)):
+                return "stub"
+            return "foreign"
         return "foreign" if _hooks_tracked_in_worktree(repo) else "none"
     except (OSError, RuntimeError):
         return "none"
 
 
+def _place_executable(dst, text):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".rewrite-follow.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.chmod(tmp, 0o755)
+    os.replace(tmp, dst)
+
+
+def _exclude_local(repo, path):
+    """worktree の中に置いた clone だけの file を、 その clone の info/exclude に足す (status に出さない・add されない)。"""
+    try:
+        top = Path(git(repo, "rev-parse", "--show-toplevel")).resolve()
+        rel = "/" + path.resolve().relative_to(top).as_posix()
+    except (ValueError, RuntimeError, OSError):
+        return
+    ex = _common_dir(repo) / "info" / "exclude"
+    cur = _read_text(ex)
+    if rel in cur.splitlines():
+        return
+    ex.parent.mkdir(parents=True, exist_ok=True)
+    with open(ex, "a", encoding="utf-8") as f:
+        f.write(("" if (not cur or cur.endswith("\n")) else "\n") + rel + "\n")
+
+
 def ensure_prepush(repo, only_with_manifest=True, engine=None, quiet_foreign=False):
-    """pre-push stub を置く / 更新する。 置いた・更新した時だけ 1 行、 それ以外は ''。 foreign な pre-push (と、 hook が
-    track されている repo) は触らず 1 行 (quiet_foreign=True なら無音 = manifest の無い repo を毎回名指ししない)。
+    """pre-push stub を置く / 更新する。 置いた・更新した時だけ 1 行、 それ以外は ''。 置けない clone は 1 行
+    (quiet_foreign=True なら無音 = 毎回名指ししない)。
     only_with_manifest=False = manifest の無い repo にも置く (書き換えの **前から** 全 clone に在る = 書き換えてから配る
-    のでは、 届く前の clone が無防備になる)。 upstream の無い repo には置かない (push 先が無い)。"""
+    のでは、 届く前の clone が無防備になる)。 upstream の無い repo には置かない (push 先が無い)。
+    別の pre-push hook が在る clone (LFS・独自の確認・PDF の公開など) にも検査を通す (_prepush_plan): その hook は消さず、
+    検査の後に同じ引数と stdin で呼ぶ。 元の hook を写してから stub に替えるので、 途中で hook が無い瞬間は無い。
+    戻し方 = `mv pre-push.rewrite-follow-chained pre-push`。 包まない = env GIT_REWRITE_FOLLOW_CHAIN=0 か、 その clone で
+    `git config rewritefollow.chain false`。 hook の管理道具 (`git lfs install --force` など) が stub を上書きしたら、 次の回に
+    包み直す (退避は今の hook で置き換える)。"""
+    import shutil
     repo = Path(repo)
     if not (repo / ".git").exists():
         return ""
@@ -1235,25 +1356,26 @@ def ensure_prepush(repo, only_with_manifest=True, engine=None, quiet_foreign=Fal
     if only_with_manifest and not manifest_tree(repo, upstream):
         return ""
     engine = engine or engine_cli_path()
-    hd = hooks_dir(repo)
-    dst = hd / "pre-push"
+    kind, dst, why = _prepush_plan(repo)
+    if kind == "blocked":
+        return "" if quiet_foreign else f"{repo.name}: rewrite-follow の stub を置けない ({why}。 {hooks_dir(repo)})"
     want = stub_text(engine, str(repo))
-    if dst.exists():
-        try:
-            cur = dst.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            cur = ""
-        if STUB_MARK not in cur:
-            return "" if quiet_foreign else f"{repo.name}: 既存の pre-push hook があるので rewrite-follow の stub を置かない ({dst})"
-        if cur == want:
-            return ""
-    elif _hooks_tracked_in_worktree(repo):
-        return "" if quiet_foreign else f"{repo.name}: hook が repo に track されている (core.hooksPath) ので rewrite-follow の stub を置かない ({hd})"
-    hd.mkdir(parents=True, exist_ok=True)
-    tmp = dst.with_name("pre-push.rewrite-follow.tmp")
-    tmp.write_text(want, encoding="utf-8")
-    os.chmod(tmp, 0o755)
-    os.replace(tmp, dst)
+    if kind == "wrap":
+        chained = dst.with_name(dst.name + CHAIN_SUFFIX)
+        tmp = chained.with_name(chained.name + ".tmp")
+        if tmp.exists() or tmp.is_symlink():
+            tmp.unlink()
+        shutil.copy2(dst, tmp, follow_symlinks=False)       # 中身と mode を保つ (symlink は link のまま。 実行の印が無かった hook は無いまま)
+        os.replace(tmp, chained)
+        _place_executable(dst, want)
+        return f"{repo.name}: 既存の pre-push hook を残し ({chained.name})、 push の検査を先に通す stub を置いた ({dst})"
+    if dst.exists() and _read_text(dst) == want:
+        return ""
+    _place_executable(dst, want)
+    if kind == "slot":
+        if _hooks_tracked_in_worktree(repo):
+            _exclude_local(repo, dst)
+        return f"{repo.name}: pdf-publish の hook の鎖の口に、 古い世代の push を止める stub を置いた ({dst})"
     return f"{repo.name}: 古い世代の push を止める pre-push stub を置いた ({dst})"
 
 
@@ -1648,8 +1770,11 @@ def _selftest():
     hd = hooks_dir(plain)
     hd.mkdir(parents=True, exist_ok=True)
     (hd / "pre-push").write_text("#!/bin/sh\nexit 0\n")
+    os.environ[CHAIN_ENV] = "0"
     line = ensure_prepush(plain, only_with_manifest=False, engine="/x/engine.py")
-    check("ensure-prepush: leaves a foreign pre-push alone", "置かない" in line and "exit 0" in (hd / "pre-push").read_text())
+    check("ensure-prepush: with chaining switched off, a foreign pre-push is left alone", "置けない" in line and "exit 0" in (hd / "pre-push").read_text())
+    os.environ.pop(CHAIN_ENV)
+    (hd / "pre-push").unlink()
     st = status(a_ok)
     check("status: manifest + stub + relation", st["manifest"] and st["prepush_stub"] and st["relation"] == "ahead", json.dumps(st))
 
@@ -1856,6 +1981,7 @@ def _selftest():
     git(root2 / "p-tracked", "config", "core.hooksPath", ".githooks")
     (hooks_dir(root2 / "p-foreign")).mkdir(parents=True, exist_ok=True)
     (hooks_dir(root2 / "p-foreign") / "pre-push").write_text("#!/bin/sh\nexit 0\n")
+    git(root2 / "p-foreign", "config", "rewritefollow.chain", "false")     # この clone は鎖にしない (clone ごとの opt-out)
     res = sweep(root2, fetch=False)
     check("sweep: by default a repo without a manifest gets no stub and no line",
           prepush_state(root2 / "p-plain") == "none" and not [pl for _r, pl in res if pl])
@@ -1865,7 +1991,8 @@ def _selftest():
           prepush_state(root2 / "p-plain") == "stub" and len(lines) == 1 and "1 repo" in lines[0], " | ".join(lines))
     check("sweep(stub_all): a repo whose hooks are tracked (core.hooksPath inside the worktree) gets no stub file",
           not (root2 / "p-tracked" / ".githooks").exists() and prepush_state(root2 / "p-tracked") == "foreign")
-    check("sweep(stub_all): a foreign pre-push is left alone, silently", "exit 0" in (hooks_dir(root2 / "p-foreign") / "pre-push").read_text())
+    check("sweep(stub_all): a foreign pre-push in a clone that opted out of chaining is left alone, silently",
+          "exit 0" in (hooks_dir(root2 / "p-foreign") / "pre-push").read_text() and prepush_state(root2 / "p-foreign") == "foreign")
     check("sweep(stub_all): second run is silent", not [pl for _r, pl in sweep(root2, fetch=False, stub_all=True) if pl])
     root3 = tmp / "root3"
     root3.mkdir()
@@ -1880,9 +2007,11 @@ def _selftest():
         subprocess.run(["git", "clone", "-q", str(dx_remote), str(root5 / nm)], check=True, env=_env())
     hooks_dir(root5 / "u-foreign").mkdir(parents=True, exist_ok=True)
     (hooks_dir(root5 / "u-foreign") / "pre-push").write_text("#!/bin/sh\nexit 0\n")
+    os.chmod(hooks_dir(root5 / "u-foreign") / "pre-push", 0o755)
     placed, failed = ensure_prepush_all(root5)
-    check("ensure_prepush_all: places on every repo with an upstream, skips a foreign hook, idempotent",
-          placed == ["u-plain"] and not failed and ensure_prepush_all(root5) == ([], []), f"{placed} {failed}")
+    check("ensure_prepush_all: places on every repo with an upstream (a foreign hook is kept and chained), idempotent",
+          placed == ["u-foreign", "u-plain"] and not failed and ensure_prepush_all(root5) == ([], [])
+          and prepush_state(root5 / "u-foreign") == "stub", f"{placed} {failed}")
 
     # --- forbidden の生成: 旧 object が残る clone から、 旧世代にしか無い tree / blob を集める
     objs, have, total = forbidden_from_local(a_cont)
@@ -2039,6 +2168,104 @@ def _selftest():
         subprocess.run(["git", "clone", "-q", str(remote), str(root4 / "r-back")], check=True, env=_env())
         res = sweep(root4, fetch=False)
         check("sweep: a resurrection on the remote surfaces as a stopped line", any(r.state == "stopped" and "🔴" in r.line for r, _ in res))
+
+    # --- 別の pre-push hook が在る clone: 元の hook を残したまま、 検査を先に通す
+    ch_remote = bare("ch.git")
+    ch_src = tmp / "ch-src"
+    init(ch_src)
+    commit(ch_src, {"a.txt": "one\n"}, "h1")
+    git(ch_src, "remote", "add", "origin", str(ch_remote))
+    git(ch_src, "push", "-q", "-u", "origin", "main")
+
+    def foreign_hook(repo, log, note="a hook that was here first", mode=0o755):
+        hp = hooks_dir(repo) / "pre-push"
+        hp.parent.mkdir(parents=True, exist_ok=True)
+        hp.write_text(f'#!/bin/sh\n# {note}\n{{ echo "args=$*"; cat; }} >> "{log}"\nexit "${{CHAINED_RC:-0}}"\n')
+        os.chmod(hp, mode)
+        return hp
+
+    cw = clone_of(ch_remote, "c-wrap")
+    wlog = tmp / "chained-wrap.log"
+    hk = foreign_hook(cw, wlog)
+    line = ensure_prepush(cw, only_with_manifest=False)
+    kept = hk.with_name("pre-push" + CHAIN_SUFFIX)
+    check("chain: a foreign pre-push is kept next to the stub, and the clone counts as guarded",
+          "残し" in line and prepush_state(cw) == "stub" and "was here first" in kept.read_text() and os.access(kept, os.X_OK), line)
+    check("chain: idempotent", ensure_prepush(cw, only_with_manifest=False) == "")
+    w1 = commit(cw, {"w.txt": "w\n"}, "ordinary work")
+    pr = run_git(cw, "push", "origin", "main")
+    body = wlog.read_text() if wlog.exists() else ""
+    check("chain end to end: an ordinary push passes the check, then the original hook runs with the same arguments and stdin",
+          pr.returncode == 0 and "args=origin " in body and f"refs/heads/main {w1} refs/heads/main" in body, pr.stderr[-300:] + body)
+    commit(cw, {"w2.txt": "w\n"}, "more work")
+    os.environ["CHAINED_RC"] = "1"
+    pr = run_git(cw, "push", "origin", "main")
+    os.environ.pop("CHAINED_RC")
+    check("chain end to end: the original hook's refusal still stops the push",
+          pr.returncode != 0 and git(cw, "ls-remote", "origin", "refs/heads/main").split()[0] == w1, pr.stderr[-200:])
+    wlog.unlink()
+    git(cw, "reset", "-q", "--hard", w1)
+    git(cw, "commit", "-q", "--amend", "-m", "reworded = a rewrite of the default branch")
+    os.environ[READY_HOOK_ENV] = hook("ready-no-chain", "echo 'NOT READY: fixture'; exit 1\n")
+    pr = run_git(cw, "push", "--force", "origin", "main")
+    os.environ[READY_HOOK_ENV] = "0"
+    check("chain end to end: when the check refuses, the original hook is not run",
+          pr.returncode != 0 and GUARD_HEADLINE in pr.stderr and not wlog.exists(), pr.stderr[-300:])
+    foreign_hook(cw, wlog, note="reinstalled by its own tool")
+    line = ensure_prepush(cw, only_with_manifest=False)
+    check("chain: when the hook's own tool overwrites the stub, the next run wraps the new hook (the stale copy is replaced)",
+          "残し" in line and "reinstalled by its own tool" in kept.read_text() and prepush_state(cw) == "stub", line)
+
+    ce = clone_of(ch_remote, "c-noengine")
+    elog = tmp / "chained-noengine.log"
+    foreign_hook(ce, elog)
+    ensure_prepush(ce, only_with_manifest=False, engine="/nonexistent/engine.py")
+    commit(ce, {"e.txt": "e\n"}, "work in a clone whose engine is gone")
+    pr = run_git(ce, "push", "origin", "main")
+    check("chain end to end: with the engine missing the push is not checked, says so, and the original hook still runs",
+          pr.returncode == 0 and "engine が無い" in pr.stderr and elog.exists() and "args=origin " in elog.read_text(), pr.stderr[-300:])
+
+    cn = clone_of(ch_remote, "c-noexec")
+    nlog = tmp / "chained-noexec.log"
+    nh = foreign_hook(cn, nlog, mode=0o644)          # 実行の印が無い hook = git は呼ばない
+    ensure_prepush(cn, only_with_manifest=False)
+    commit(cn, {"n.txt": "n\n"}, "work in a clone whose old hook was inactive")
+    pr = run_git(cn, "push", "origin", "main")
+    check("chain: a hook that git was ignoring (not executable) is not brought to life by the wrap",
+          pr.returncode == 0 and not nlog.exists() and not os.access(nh.with_name("pre-push" + CHAIN_SUFFIX), os.X_OK), pr.stderr[-200:])
+
+    pdf_installer = Path(__file__).resolve().parent.parent.parent / "templates" / "shared-project" / "pdf-publish" / "install-hook.sh"
+    if pdf_installer.is_file():
+        cp = clone_of(ch_remote, "c-pdf")
+        subprocess.run(["sh", str(pdf_installer)], cwd=str(cp), capture_output=True, env=_env())
+        php = hooks_dir(cp) / "pre-push"
+        before = php.read_text() if php.exists() else ""
+        line = ensure_prepush(cp, only_with_manifest=False)
+        slot = php.with_name("pre-push" + PDFPUB_SLOT)
+        check("pdf-publish hook: the stub goes into that hook's own chain slot; the hook itself is untouched",
+              PDFPUB_MARK in before and "鎖の口" in line and slot.exists() and STUB_MARK in slot.read_text() and php.read_text() == before
+              and prepush_state(cp) == "stub" and ensure_prepush(cp, only_with_manifest=False) == "", line)
+        tip_p = git(cp, "ls-remote", "origin", "refs/heads/main").split()[0]
+        git(cp, "commit", "-q", "--amend", "-m", "reworded through the pdf-publish hook")
+        os.environ[READY_HOOK_ENV] = hook("ready-no-pdf", "echo 'NOT READY: fixture'; exit 1\n")
+        pr = run_git(cp, "push", "--force", "origin", "main")
+        os.environ[READY_HOOK_ENV] = "0"
+        check("pdf-publish hook end to end: the check runs through the chain slot and its refusal stops the push",
+              pr.returncode != 0 and GUARD_HEADLINE in pr.stderr and git(cp, "ls-remote", "origin", "refs/heads/main").split()[0] == tip_p,
+              pr.stderr[-300:])
+        ct = clone_of(ch_remote, "c-tracked-pdf")
+        git(ct, "config", "core.hooksPath", ".githooks")
+        subprocess.run(["sh", str(pdf_installer)], cwd=str(ct), capture_output=True, env=_env())
+        git(ct, "add", ".githooks/pre-push")
+        git(ct, "commit", "-q", "-m", "the repo tracks its hooks dir")
+        line = ensure_prepush(ct, only_with_manifest=False)
+        check("pdf-publish hook in a tracked hooks dir: the slot file is placed and kept out of git status (info/exclude)",
+              (ct / ".githooks" / ("pre-push" + PDFPUB_SLOT)).exists() and prepush_state(ct) == "stub"
+              and git(ct, "status", "--porcelain") == "", line + " | " + git(ct, "status", "--porcelain"))
+    ck = clone_of(ch_remote, "c-tracked-plain")
+    git(ck, "config", "core.hooksPath", ".githooks")
+    check("tracked hooks dir without a pre-push: nothing is written into the worktree (a later pre-push of the repo's own would collide)",
+          "置けない" in ensure_prepush(ck, only_with_manifest=False) and not (ck / ".githooks").exists() and prepush_state(ck) == "foreign")
 
     print(f"selftest: {'PASS' if not fails else 'FAIL'} ({len(fails)} failing)")
     return 0 if not fails else 1
