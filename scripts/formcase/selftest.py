@@ -387,6 +387,9 @@ def run() -> int:
 
         run_docx_tests(tmp, expect)
         run_page_role_tests(tmp, expect)
+        from .selftest_regate import run_regate_tests
+
+        run_regate_tests(tmp, inst, expect)
         if saved.get("cfg") is not None:        # 呼び元の設定に戻してから instance の selftest を探す
             CF._STATE.update(saved)
             CF._invalidate()

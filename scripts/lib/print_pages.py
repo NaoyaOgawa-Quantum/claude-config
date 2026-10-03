@@ -11,7 +11,9 @@
 宣言 (record): PDF の Info 辞書の key ``PrintPages`` に JSON:
     {"v": 1, "src": "<誰が宣言したか>", "pages": [{"role": "submit", "label": "<頁の名前>"}, ...],
      "dropped": [{"from": 3, "role": "instructions", "label": "..."}],   # 任意 = 元の file から外した頁
-     "include_flagged": "<理由>"}                                        # 任意 = 推定で疑わしい頁を理由つきで残した
+     "include_flagged": "<理由>",                                        # 任意 = 推定で疑わしい頁を理由つきで残した
+     "origin": {"path": "<元の file の絶対 path>", "sha256": "<その時の元の file>"}}  # 任意 = 派生物 (raster・頁の抜き出し) の元
+    origin = 刷る直前の gate が派生物から元の file を辿る (元が検査を通るか・派生の後に元が作り直されていないか) ための pointer。
     pages の長さ = file の頁数。 raster 化・頁の抜き出しで Info が落ちる経路は copy_record で引き継ぐ。
 
 役割 (ROLES): submit = 窓口に出す (受付印を押して返される控えを含む) / keep = 手元の控え (PDF が控え = 刷らない) /
@@ -106,7 +108,7 @@ def read_record(doc) -> dict | None:
 
 
 def write_record(doc, pages: list, src: str, dropped: list | None = None, include_flagged: str | None = None,
-                 fidelity: dict | None = None) -> dict:
+                 fidelity: dict | None = None, origin: dict | None = None) -> dict:
     """開いている fitz.Document に宣言を書く (保存は呼び出し側)。 pages = [{"role", "label"}] を頁の順に、長さ = 頁数。
     fidelity = 様式の雛形との照合に要るもの {template, sha256, targets, drop, blank} (formcase の build が書き、 刷る直前の
     preflight が同じ照合を回す = conventions/form-case-pipeline.md#fidelity)。 raster 化・頁の抜き出しでも copy_record が引き継ぐ。"""
@@ -124,6 +126,8 @@ def write_record(doc, pages: list, src: str, dropped: list | None = None, includ
         rec["include_flagged"] = str(include_flagged)
     if fidelity:
         rec["fidelity"] = fidelity
+    if origin and origin.get("path"):
+        rec["origin"] = {"path": str(origin["path"]), "sha256": str(origin.get("sha256") or "")}
     doc.xref_set_key(_info_xref(doc, create=True), KEY, fitz.get_pdf_str(json.dumps(rec, ensure_ascii=False)))
     return rec
 
@@ -138,8 +142,20 @@ def copy_record(src_doc, dst_doc, page_indices=None) -> bool:
     if any(i >= len(rec["pages"]) for i in idx):
         return False
     write_record(dst_doc, [rec["pages"][i] for i in idx], rec.get("src", ""), rec.get("dropped"),
-                 rec.get("include_flagged"), fidelity=rec.get("fidelity"))
+                 rec.get("include_flagged"), fidelity=rec.get("fidelity"), origin=rec.get("origin"))
     return True
+
+
+def file_origin(path) -> dict:
+    """派生物の宣言に載せる origin = 元の file の絶対 path と、 派生を作った時の sha256。"""
+    import hashlib
+    import os
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 16), b""):
+            h.update(chunk)
+    return {"path": os.path.abspath(path), "sha256": h.hexdigest()}
 
 
 # ---------------------------------------------------------------- 推定 (classify)

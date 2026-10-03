@@ -125,7 +125,7 @@ def frozen_lines(m: M.Manifest) -> list:
         cur = g.get("current") or {}
         if cur.get("state") in M.FROZEN_STATES:
             out.append((M.FROZEN, f"{doc_id}/{gid}",
-                        f"{cur.get('state')} {cur.get('date', '')} = 凍結 (検査・再生成の対象外)".strip()))
+                        f"{cur.get('state')} {cur.get('date', '')} = 凍結 (記入内容 gate・再生成の対象外。 今の関門との照合は formcase.py regate)".strip()))
     return out
 
 
@@ -164,6 +164,8 @@ def status_rows(m: M.Manifest) -> list:
                 extra.append(label + f"🗓 日付不明 (owner 確認済: {issue['date_ack']})")
             if issue.get("outputs_ack"):
                 extra.append(label + f"🗂 出力 file は記録に無い (確認済: {issue['outputs_ack']})")
+            if issue.get("gate_waiver"):
+                extra.append(label + f"📄 今の関門に落ちてもそのまま出すと決めた記録: {issue['gate_waiver']}")
         rows.append((doc_id, doc.get("form"), gid, cur.get("state"), cur.get("date", ""),
                      ", ".join(f"{k}={Path(v).name}" for k, v in (cur.get("outputs") or {}).items()),
                      cur.get("note", ""), extra))

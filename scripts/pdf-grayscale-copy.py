@@ -45,12 +45,20 @@ def make_copy(src_path: str, out_path: str, pages: str | None = None, dpi: int =
     from seal_artifact import copy_marker
     src = fitz.open(src_path)
     out = fitz.open()
-    for i in parse_pages(pages, len(src)):
+    sel = parse_pages(pages, len(src))
+    for i in sel:
         page = src[i]
         pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
         np_ = out.new_page(width=page.rect.width, height=page.rect.height)
         np_.insert_image(np_.rect, stream=pix.tobytes("png"))
     copy_marker(src, out)
+    # 元が刷る頁の宣言 (PrintPages) を持つ = 道具が作った様式の出力。 選んだ頁の宣言と、 元の file の所在 (origin) を写しに書く
+    # = 刷る・添付する直前の受け入れが、 字の無い写しから元の出力を辿って今の関門で見直せる (form-case-pipeline.md#regate)
+    from print_pages import file_origin, read_record, write_record
+    rec = read_record(src)
+    if rec is not None and len(rec["pages"]) == len(src):
+        write_record(out, [rec["pages"][i] for i in sel], f"pdf-grayscale-copy ({os.path.basename(src_path)})",
+                     origin=rec.get("origin") or file_origin(src_path))
     out.save(out_path, deflate=True, garbage=4)
     return os.path.getsize(out_path)
 
@@ -83,6 +91,21 @@ def _selftest() -> int:
     check("色のある画素が無い = 白黒の写し", is_monochrome_copy(out))
     check("圧縮されている (1 頁 1 MB 未満)", size < 1_000_000)
     check("元の PDF は色つき (白黒の写しではない)", not is_monochrome_copy(src))
+    from print_pages import file_origin, read_record, write_record
+    check("宣言の無い元からの写しには宣言を書かない", read_record(res) is None)
+    decl = fitz.open(src)
+    write_record(decl, [{"role": "submit", "label": f"p{k + 1}"} for k in range(3)], "selftest")
+    src2 = os.path.join(d, "form_decl.pdf")
+    decl.save(src2)
+    out2 = os.path.join(d, "copy2.pdf")
+    make_copy(src2, out2, "3")
+    r2 = read_record(fitz.open(out2))
+    check("宣言のある元からの写しは、 選んだ頁の宣言と元の所在 (origin) を持つ",
+          r2 is not None and [x["label"] for x in r2["pages"]] == ["p3"] and r2["origin"]["path"] == os.path.abspath(src2)
+          and r2["origin"]["sha256"] == file_origin(src2)["sha256"] and "form_decl.pdf" in r2["src"])
+    out3 = os.path.join(d, "copy3.pdf")
+    make_copy(out2, out3)
+    check("写しの写しは最初の元を指す", read_record(fitz.open(out3))["origin"]["path"] == os.path.abspath(src2))
     try:
         parse_pages("5", 3)
         check("範囲外の頁は止める", False)

@@ -315,10 +315,12 @@
 - **[formcase/manifest.py](formcase/manifest.py)** — submission.yaml (案件ごとの提出状態) の読み書きと凍結の判定。
 - **[formcase/markers.py](formcase/markers.py)** — 案件 dir の隔離 marker (00-⚠️-DO-NOT-USE-AS-BASE.md) を manifest から生成する。
 - **[formcase/recipes.py](formcase/recipes.py)** — 様式ごとの生成 recipe (= 値は spec と案件の workbook、 体裁は使い捨ての temp / staged copy にだけ当てる)。
+- **[formcase/regate.py](formcase/regate.py)** — 今ある出力を「今の関門」 に通し直す (regate) と、 外へ出す直前の受け入れ (admit)。 規約 = conventions/form-case-pipeline.md#regate。
 - **[formcase/rules.py](formcase/rules.py)** — お手本 spec の中の「規則」 (= id + summary を持つ entry) を集める。
 - **[formcase/scaffold.py](formcase/scaffold.py)** — 新しい案件を配布雛形から作る (= 前の案件の dir・driver・xlsx を写さない唯一の入口)。
 - **[formcase/selftest.py](formcase/selftest.py)** — engine の内蔵 fixture test (Office 不要)。 ``python3 formcase.py --selftest``。
 - **[formcase/selftest_docx.py](formcase/selftest_docx.py)** — Word 様式 (docx_form) と 刷る頁 (page_roles) の test。 fixture は全部合成 (Office 不要)。
+- **[formcase/selftest_regate.py](formcase/selftest_regate.py)** — regate.py (今ある出力を今の関門に通し直す / 刷る直前の受け入れ) の fixture test。 ``formcase.py --selftest`` から呼ばれる。
 - **[formcase/specs.py](formcase/specs.py)** — お手本 spec (``<spec_dir>/*.yaml``) の読み込み。 spec の書式の正本は各 yaml と記入内容 gate。
 - **[formcase/views.py](formcase/views.py)** — doc の中の generated view (規則の表・checklist・セル定数表) を spec から描く。
 - **[formcase/word.py](formcase/word.py)** — Word の操作は全部ここ (staging 経由・前面に出さない・1 回に 1 文書)。 D6 (2026-09-25): docx の欄に値を **Word で** 書く。
