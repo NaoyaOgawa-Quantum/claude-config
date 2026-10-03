@@ -73,9 +73,10 @@ scope を足したら token を取り直す (consent を 1 回)。 同じ OAuth 
 - 短答課題の提出は `studentSubmissions.list`。 締切前は未提出の submission が `CREATED` で並ぶだけ = 取り込み件数 0 を「提出が無い」 と読まない ([`debugging-discipline.md`](debugging-discipline.md) の dedup の話と同じ)
 - `assignedGrade` は返却 (`RETURNED`) 後にだけ入る。 返却前の採点は `draftGrade`
 - <a id="who-graded"></a>**誰が点を付けたか** = 各 submission の `submissionHistory[].gradeHistory` (`actorUserId` = 点を変えた先生、 `gradeChangeType` = 下書きの点か返却した点か、 `pointsEarned`、 `gradeTimestamp`)。 `actorUserId` は `courses.teachers.list` で名前に直す。 共同で教えるクラスで「この点は誰が入れたか」 を相手に聞く前に引ける。 ⚠️ `pointsEarned` の無い履歴は、 0 点を付けたのか点を空に戻したのかを区別できない (実測) = 今の値は `draftGrade` / `assignedGrade` で見る。 ⚠️ 履歴の無いまま点の入っている submission がある (実測) = 履歴だけで全件の帰属は決まらない。 数えるだけの道具 = engine の `gradeHistory` (学生の名前を出さない)
+- <a id="short-answers-by-theme"></a>**短答の回答を名前なしで取り、 テーマ別に数える** = engine の `shortAnswers` (submission ごとに文字列 1 つ、 userId は返さない。 提出済み 〔`TURNED_IN` / `RETURNED`〕 でなければ "" = list の長さが課題の対象の人数) → [`scripts/short-answer-themes.py`](../scripts/short-answer-themes.py) (テーマの表で人数・どの項目にも入らない語・docx)。 課題の id は engine の `listCourseWork`
 - 画面の「ファイルを開いていない」 は API に無い
 - 画面で作った課題を読み戻して確かめられるのは、 タイトル・本文・期限・状態まで。 **`dueDate` / `dueTime` は UTC** (日本時間 23:59 の期限は `dueTime` 14:59 で返る、 実測)。 「期限後に提出を締め切る」 などの画面のスイッチは読み戻しの対象にならない (= 画面で見る)
 
 ## 実装の置き場所
 
-engine = [`scripts/lib/classroom-courses.mjs`](../scripts/lib/classroom-courses.mjs) (クラスの作成・変更・招待・添付つきお知らせ・名簿と参加者の突き合わせ・採点の履歴の集計)。 googleapis の classroom client を引数で受け取るので、 この module 自体は外部 module を import しない = 認証と googleapis の install は呼び元が持つ。 hermetic test = [`scripts/lib/classroom-courses.test.mjs`](../scripts/lib/classroom-courses.test.mjs) (偽の client、 `node` で直接実行)。 MCP server と CLI (認証・引数の解釈・提出の取り込み) は owner の private な MCP 設定 repo (`gmail-mcp-config`) にあり、 engine を re-export の shim で読む。 上の挙動はその実装で確かめたもの。
+engine = [`scripts/lib/classroom-courses.mjs`](../scripts/lib/classroom-courses.mjs) (クラスの作成・変更・招待・添付つきお知らせ・名簿と参加者の突き合わせ・採点の履歴の集計・課題の一覧・短答の回答の取り出し)。 googleapis の classroom client を引数で受け取るので、 この module 自体は外部 module を import しない = 認証と googleapis の install は呼び元が持つ。 hermetic test = [`scripts/lib/classroom-courses.test.mjs`](../scripts/lib/classroom-courses.test.mjs) (偽の client、 `node` で直接実行)。 MCP server と CLI (認証・引数の解釈・提出の取り込み) は owner の private な MCP 設定 repo (`gmail-mcp-config`) にあり、 engine を re-export の shim で読む。 上の挙動はその実装で確かめたもの。

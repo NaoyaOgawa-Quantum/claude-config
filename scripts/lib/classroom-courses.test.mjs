@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   summarize, createCourse, updateCourse, createAnnouncement, inviteMembers, rosterStatus, emailsFromRosterText, gradeHistory,
+  shortAnswers, listCourseWork,
 } from "./classroom-courses.mjs";
 
 const apiError = (status, code) => Object.assign(new Error(status), { code, response: { status: code, data: { error: { status, message: status } } } });
@@ -117,6 +118,35 @@ await check("gradeHistory counts grade changes by teacher and flags grades witho
   assert.deepEqual(r.span, ["2030-01-01T00:00:00Z", "2030-01-03T00:00:00Z"]);
   assert.equal(r.byState["TURNED_IN late=false draft=5 assigned=none"], 2);
   await assert.rejects(gradeHistory(c, "c1"), /courseWorkId are required/);
+});
+
+await check("shortAnswers gives one string per submission across pages, \"\" when not turned in, and no user ids", async () => {
+  const pages = [
+    { studentSubmissions: [
+      { userId: "s1", state: "TURNED_IN", shortAnswerSubmission: { answer: "answer one" } },
+      { userId: "s2", state: "CREATED", shortAnswerSubmission: { answer: "draft not turned in" } },
+      { userId: "s3", state: "CREATED" }], nextPageToken: "p2" },
+    { studentSubmissions: [
+      { userId: "s4", state: "RETURNED", shortAnswerSubmission: { answer: "answer two" } },
+      { userId: "s5", state: "RECLAIMED_BY_STUDENT", shortAnswerSubmission: { answer: "taken back" } },
+      { userId: "s6", state: "TURNED_IN" }] },
+  ];
+  const c = { courses: { courseWork: { studentSubmissions: { list: async ({ pageToken }) => ({ data: pages[pageToken ? 1 : 0] }) } } } };
+  const r = await shortAnswers(c, "c1", "w1");
+  assert.deepEqual(r, ["answer one", "", "", "answer two", "", ""]);
+  assert.ok(!JSON.stringify(r).includes("s1"));
+  await assert.rejects(shortAnswers(c, "c1"), /courseWorkId are required/);
+});
+
+await check("listCourseWork pages through, formats the due date and sorts newest first", async () => {
+  const pages = [
+    { courseWork: [{ id: "w1", title: "Week 1", workType: "SHORT_ANSWER_QUESTION", state: "PUBLISHED", creationTime: "2030-01-01T00:00:00Z", dueDate: { year: 2030, month: 1, day: 8 } }], nextPageToken: "p2" },
+    { courseWork: [{ id: "w2", title: "Week 2", workType: "ASSIGNMENT", state: "DRAFT", creationTime: "2030-01-09T00:00:00Z" }] },
+  ];
+  const c = { courses: { courseWork: { list: async ({ pageToken }) => ({ data: pages[pageToken ? 1 : 0] }) } } };
+  const r = await listCourseWork(c, "c1");
+  assert.deepEqual(r.map((w) => [w.id, w.due]), [["w2", null], ["w1", "2030-01-08"]]);
+  await assert.rejects(listCourseWork(c), /courseId is required/);
 });
 
 await check("emailsFromRosterText takes the last column, skips the header and non-addresses", () => {

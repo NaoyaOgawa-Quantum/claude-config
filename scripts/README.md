@@ -256,6 +256,8 @@
 - **[setup-dropbox-refs.sh](setup-dropbox-refs.sh)** — personal layer の dropbox-collabs.yaml を読んで symlink を生成
 - **[shared-drive-folder-watch.mutants.json](shared-drive-folder-watch.mutants.json)** — shared-drive-folder-watch.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 8 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[shared-drive-folder-watch.py](shared-drive-folder-watch.py)** — 他人から共有された Google Drive folder を台帳で監視し、 版の差分だけを手元の写しに落とす (標準ライブラリだけで動く)
+- **[short-answer-themes.mutants.json](short-answer-themes.mutants.json)** — short-answer-themes.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 7 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
+- **[short-answer-themes.py](short-answer-themes.py)** — 短答の回答 (文字列の list) をテーマの表 (大きなまとまり → テーマ → 項目 = 表示名と正規表現) で数え、 どの項目にも入らない語の一覧と、 まとまりごとの見出し・人数・抜粋・追記の節を並べた docx を出す。--selftest 内蔵。
 - **[smoke-googleapis.mjs](smoke-googleapis.mjs)** — googleapis / google-auth-library の依存 bump 後 read-only smoke test (対象 dir 自身の node_modules を createRequire で load し、 実 API read か token refresh で更新実体を検証。 書き込み API・token 永続化なし。 規約 = conventions/google-api-direct-access.md)
 - **[sot-registry-add.py](sot-registry-add.py)** — check-sot-drift.py の registry に topic を足す前に検査し、 通ったものだけ registry の書式で末尾に追記する
 - **[sot-registry-edit.py](sot-registry-edit.py)** — check-sot-drift.py の registry を topic 単位の操作で行ごと書き換える (comment と書式を保つ)
@@ -330,7 +332,7 @@
 - **[lib/browser_tab.py](lib/browser_tab.py)** — 起動中の Chromium 系 browser に裏で tab を 1 枚開かせ、 行き先を見て、 自分が開いた tab だけを閉じる (macOS)。 SSO 保護サイトの login 切れからの復帰用
 - **[lib/chat_file_refs.py](lib/chat_file_refs.py)** — chat の最終発話にある file 参照 (markdown link の href と、 path に見える inline code) を、 Claude Code desktop app の右パネルと同じ基準で解決し、 開けないものに正しい path を添えて返す共通部品 (Stop hook chat-file-ref-enforce.sh と校正が共用)
 - **[lib/class_meetings.py](lib/class_meetings.py)** — 授業の「第何回か」 をクラスのカレンダーから数え、 撮影時刻を時限に振り分ける helper (python3 class_meetings.py で selftest)
-- **[lib/classroom-courses.mjs](lib/classroom-courses.mjs)** — Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address; takes a googleapis classroom client, no imports.
+- **[lib/classroom-courses.mjs](lib/classroom-courses.mjs)** — Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address, coursework list, short answers without names; takes a googleapis classroom client, no imports.
 - **[lib/classroom-courses.test.mjs](lib/classroom-courses.test.mjs)** — Hermetic self-test for classroom-courses.mjs; uses a fake Classroom client and needs no network or googleapis.
 - **[lib/commit-msg-leak-matcher.sh](lib/commit-msg-leak-matcher.sh)** — commit message leak matcher (= sensitive-terms.txt + repos.md private list - 10 allowlist の (a)(b)(c) check + 審査中の申請を識別する種目語×評価語の共起 (d))、 claude-code hook + git-side runner の両方が source する DRY 実装
 - **[lib/config_dir_auth.py](lib/config_dir_auth.py)** — Claude Code の設定フォルダ (CLAUDE_CONFIG_DIR) の認証が切れているかを、 `claude` を呼ばずに読む共有判定。
