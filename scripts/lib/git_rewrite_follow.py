@@ -1233,10 +1233,13 @@ PDFPUB_SLOT_CALL = '"$0.before-pdf-publish" "$@"'
 
 def stub_text(engine_path, repo):
     """pre-push stub。 止めるのは「engine が exit 1 かつ違反の見出しを出した」 時だけ = engine の故障 (python の異常終了も
-    exit 1) を違反と読んで全 push を止めない。 検査が走らなかった時は 1 行出して通す (黙って通さない)。
+    exit 1) を違反と読んで全 push を止めない。 検査が走らなかった時は 1 行出して通し、 追従の記録にも残す (guard-error。
+    その場の 1 行は誰も読まない = 定期 job が recent_events で拾う)。
     `<この file>.rewrite-follow-chained` が在れば (= 前からそこに在った別の hook)、 検査が通った後に同じ引数と stdin で呼び、
     その終了値で push が決まる。 検査が走らなかった時 (python3・engine・一時 file が無い) も、 元の hook は必ず呼ぶ。"""
+    import shlex
     chained = f'"$0{CHAIN_SUFFIX}"'
+    name = shlex.quote(Path(str(repo)).name)
     return (
         "#!/bin/sh\n"
         f"# {STUB_MARK} — installed by git-rewrite-follow.py ensure-prepush (do not edit; re-run ensure-prepush)\n"
@@ -1244,23 +1247,30 @@ def stub_text(engine_path, repo):
         "(conventions/multi-machine-state.md#history-rewrite-follow).\n"
         f"# A pre-push hook that was here before lives on as <this file>{CHAIN_SUFFIX}: it runs after the check passes,\n"
         "# with the same arguments and stdin, and its exit status decides the push.\n"
+        f'LOG="${{{LOG_ENV}:-$HOME/.claude/state/rewrite-follow.log}}"\n'
+        "skipped() {\n"
+        '  echo "rewrite-follow pre-push: $1" >&2\n'
+        "  { mkdir -p \"$(dirname \"$LOG\")\" && printf '%s guard-error %s %s\\n' \"$(date +%Y-%m-%dT%H:%M:%S)\" "
+        f'{name} "$2" >> "$LOG"; }} 2>/dev/null\n'
+        "  return 0\n"
+        "}\n"
         'IN="$(mktemp 2>/dev/null || mktemp -t prepush 2>/dev/null)"\n'
         'if [ -z "$IN" ]; then\n'
-        "  echo 'rewrite-follow pre-push: 一時 file を作れないので検査せず通す' >&2\n"
+        "  skipped '一時 file を作れないので検査せず通す' no-tmpfile\n"
         f'  if [ -x {chained} ]; then exec {chained} "$@"; fi\n'
         "  exit 0\n"
         "fi\n"
         'cat > "$IN"\n'
         "if ! command -v python3 >/dev/null 2>&1; then\n"
-        "  echo 'rewrite-follow pre-push: python3 が無いので検査せず通す' >&2\n"
+        "  skipped 'python3 が無いので検査せず通す' no-python3\n"
         f'elif [ ! -f "{engine_path}" ]; then\n'
-        "  echo 'rewrite-follow pre-push: engine が無いので検査せず通す' >&2\n"
+        "  skipped 'engine が無いので検査せず通す' no-engine\n"
         "else\n"
         f'  out="$(python3 "{engine_path}" guard --repo "{repo}" --hook "$@" < "$IN" 2>&1)"\n'
         "  rc=$?\n"
         "  [ -n \"$out\" ] && printf '%s\\n' \"$out\" >&2\n"
         f"  if [ \"$rc\" -eq 1 ]; then case \"$out\" in *'{GUARD_HEADLINE}'*) rm -f \"$IN\"; exit 1 ;; esac; fi\n"
-        "  [ \"$rc\" -eq 0 ] || echo \"rewrite-follow pre-push: 検査が走らなかった (rc=$rc) ので通す\" >&2\n"
+        '  [ "$rc" -eq 0 ] || skipped "検査が走らなかった (rc=$rc) ので通す" "rc=$rc"\n'
         "fi\n"
         f'if [ -x {chained} ]; then\n'
         f'  {chained} "$@" < "$IN"; rc=$?; rm -f "$IN"; exit $rc\n'
@@ -2170,10 +2180,12 @@ def _selftest():
           ok and len(msgs) == 1 and "点呼が走らなかった" in msgs[0], " | ".join(msgs))
     ev = recent_events()
     check("events: a roll call that could not run and an override are recorded, and read back by kind and repo",
-          ev.get("ready-skip") == ["rg"] and ev.get("ready-override") == ["rg"] and "guard-error" not in ev, json.dumps(ev))
+          ev.get("ready-skip") == ["rg"] and ev.get("ready-override") == ["rg"], json.dumps(ev))
+    check("events: a push that the stub let through unchecked (engine failure, exit 1 without the headline) is recorded by the stub itself",
+          "s-fake" in ev.get("guard-error", []), json.dumps(ev))
     log_event("guard-error", "/somewhere/else/repo-x", "ValueError")
     check("events: only recent ones are returned, by repo name",
-          recent_events().get("guard-error") == ["repo-x"] and recent_events(hours=-1) == {})
+          "repo-x" in recent_events().get("guard-error", []) and recent_events(hours=-1) == {})
     # 本物の git push を stub 越しに: 備えが揃うまで remote の履歴は動かない / 揃えば通る
     ensure_prepush(rg, only_with_manifest=False)
     os.environ[READY_HOOK_ENV] = hook("ready-no-e2e", "echo 'NOT READY: fixture'; echo '  - mac-b: no stub'; exit 1\n")
@@ -2268,6 +2280,8 @@ def _selftest():
     pr = run_git(ce, "push", "origin", "main")
     check("chain end to end: with the engine missing the push is not checked, says so, and the original hook still runs",
           pr.returncode == 0 and "engine が無い" in pr.stderr and elog.exists() and "args=origin " in elog.read_text(), pr.stderr[-300:])
+    check("stub: a push that went through unchecked is recorded for the periodic job to pick up",
+          "c-noengine" in recent_events().get("guard-error", []), json.dumps(recent_events()))
 
     cn = clone_of(ch_remote, "c-noexec")
     nlog = tmp / "chained-noexec.log"
