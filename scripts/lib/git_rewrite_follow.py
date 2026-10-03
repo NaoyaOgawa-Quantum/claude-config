@@ -42,6 +42,12 @@ repo ごとの事実を点呼の材料として載せる)。
           (識別子の一覧の在る machine でだけ。 1 回の push で新しい方から 50 commit まで)
   I9  追従を人にも session の開始にも頼らない: 無人の定期 job (fleet-heartbeat の --repos-follow) が、 全 repo を fetch して
       follow_repo を回す。 「書き換えた後、 各 machine で 1 回」 は、 session を開かない machine では誰も実行しない (実測)。
+  I10 順序の検査: remote の既定 branch を fast-forward でなく動かす push (= 履歴の書き換えそのもの) の前に、 複製の側の備え
+      (push の検査の stub・無人の追従) が全 machine に在るかを外の command に聞く (ready_gate。 command = env
+      GIT_REWRITE_READY_HOOK か ~/.claude/rewrite-ready-check、 引数 = repo の path)。 exit 1 + 「NOT READY」 = 止める /
+      exit 0 = 通す / それ以外 = 点呼が走らなかったと 1 行出して通す。 command が無ければ何もしない。 入口で聞くので、
+      書き換えの道具にも手で打った push --force にも同じに効く (I5 までは「書き換えた後」 の網、 これは「書き換える前」 の網)。
+      備えの無い複製が在るまま進めるのは持ち主の判断 = GIT_REWRITE_READY_OVERRIDE=1。
 
 公開 repo には manifest を置かない: 対応表の旧 sha と forbidden の sha は、 host が旧 object を gc するまで、 消した中身を
 sha で取り出す鍵になる (host は、 どの ref からも届かない commit も sha を知っていれば見せる)。 公開 repo の網は、 clone 自身の
@@ -78,6 +84,9 @@ manifest (`<repo>/.rewrite-follow/`、 repo 自身が運ぶ。 読むのは upst
 manifest は reflog の記憶 (I5 b) が消えた後と、 旧履歴を見たことのない clone のための網。 書き換えの直後は manifest が
 まだ無くても I5 が効くが、 置くまでが書き換えの 1 単位 (実測: 対応表だけを置き forbidden を置かなかった repo では、 消した
 中身を新しい sha で運ぶ push 〔rebase・cherry-pick〕 が manifest の網を通った)。
+
+古い branch の中身 (stale_branches / branch_unique): 捨てられた履歴を抱えた手元の branch は消さず、 名前と「その branch にしか
+無い commit・blob の数」 を事実として載せる (0 / 0 = 古い履歴の写し。 消すかを決める材料を、 その machine を開かずに読む)。
 
 点呼 (repo_facts / judge_fact): 各 machine は判定せず事実 (HEAD・見ている upstream) だけを載せ、 最新を fetch した machine が
 判定する。 「追従した」 という報告を集めても、 報告の無い machine は「追従の必要が無い」 と区別がつかない (実測) = 分母
@@ -815,6 +824,70 @@ def _remote_moved(repo, remote, rows):
     return False
 
 
+# ---------------------------------------------------------------- 履歴を書き換える push の前の点呼 (順序の検査)
+#
+# 「正本を先に変え、 追従を後から配る」 の順序を、 正本が変わる瞬間 (既定 branch を fast-forward でなく動かす push) に検査する。
+# 複製の側の備え (push の検査の stub・無人の追従) が全 machine に在るかは、 この engine には分からない (fleet の記録は呼ぶ側の層が
+# 持つ) = 外の command に聞く。 入口で聞くので道具に依らない (書き換えの道具でも、 手で打った push --force でも、 同じ所を通る)。
+
+READY_HOOK_ENV = "GIT_REWRITE_READY_HOOK"          # 点呼の command の path。 "0" = 呼ばない。 既定 = ~/.claude/rewrite-ready-check
+READY_OVERRIDE_ENV = "GIT_REWRITE_READY_OVERRIDE"  # "1" = 備えの無い複製が在っても通す (持ち主の判断を受けた時だけ)
+READY_HEADLINE = "NOT READY"
+READY_TIMEOUT = 120
+READY_MAX_LINES = 20
+
+
+def _ready_hook():
+    v = os.environ.get(READY_HOOK_ENV, "")
+    if v == "0":
+        return None
+    hook = Path(v) if v else Path.home() / ".claude" / "rewrite-ready-check"
+    return hook if hook.is_file() else None
+
+
+def rewrites_default_branch(repo, remote, rows, refs=None):
+    """push の行 (lref lsha rref rsha) のうち、 remote の既定 branch を fast-forward でなく動かすもの (= 履歴の書き換え) の
+    remote ref の list。 既定 branch だけを見る (作業 branch の rebase + force-push は普通の運用)。 remote の今の値が手元に
+    無ければ判定しない (fetch できなかった = その push 自体が同じ理由で失敗する)。"""
+    refs = tracked_refs(repo, remote) if refs is None else refs
+    head = f"refs/remotes/{remote}/"
+    names = {r[len(head):] for r in refs if r.startswith(head)}
+    out = []
+    for _lref, lsha, rref, rsha in rows:
+        if rsha == ZERO or not rref.startswith("refs/heads/") or rref[len("refs/heads/"):] not in names:
+            continue
+        if _has(repo, rsha) and not is_ancestor(repo, rsha, lsha):
+            out.append(rref)
+    return out
+
+
+def ready_gate(repo, rrefs):
+    """履歴を書き換える push の前に、 複製の側の備えを点呼する command (READY_HOOK、 引数 = repo の path) を呼ぶ。
+    (止めるか, 行の list)。 契約: exit 1 かつ出力に READY_HEADLINE = 備えの無い複製が在る → 止める。 exit 0 = 揃っている。
+    それ以外 (起動できない・timeout・他の終了値) = 点呼が走らなかった → 1 行出して通す (点呼の故障で push を止めない)。
+    command が無ければ何もしない。"""
+    hook = _ready_hook()
+    if hook is None:
+        return False, []
+    repo = Path(repo)
+    try:
+        r = subprocess.run([str(hook), str(repo)], capture_output=True, text=True, timeout=READY_TIMEOUT, env=dict(os.environ))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった ({type(exc).__name__}) = 点呼なしで通す"]
+    out = [l for l in (r.stdout + "\n" + r.stderr).splitlines() if l.strip()]
+    if r.returncode == 1 and any(READY_HEADLINE in l for l in out):
+        body = "\n".join("    " + l for l in out[:READY_MAX_LINES])
+        if os.environ.get(READY_OVERRIDE_ENV) == "1":
+            return False, [f"{repo.name}: 備えの無い複製が在るまま、 履歴を書き換える push を通す ({READY_OVERRIDE_ENV}=1):\n{body}"]
+        return True, [f"{repo.name}: {GUARD_HEADLINE} ({' '.join(rrefs)}): この push は remote の既定 branch の履歴を書き換える"
+                      f" (fast-forward でない)。 備え (push の検査・無人の追従) の無い複製が在る:\n{body}\n"
+                      f"  備えは各 machine の定期 job が置く = 揃うのを待つ。 待てない時は、 持ち主の判断を受けてから"
+                      f" {READY_OVERRIDE_ENV}=1 を付けて push する"]
+    if r.returncode != 0:
+        return False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった (rc={r.returncode}) = 点呼なしで通す"]
+    return False, []
+
+
 def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
     """git pre-push の stdin (local_ref local_sha remote_ref remote_sha) を検査。 (ok, messages)。
     remote = pre-push の第 1 引数 (remote 名。 URL だけの push では無い = upstream の remote を使う)。
@@ -844,6 +917,14 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
     rewritten = bool(gen.maps or gen.forbidden or discarded[0])
     base = [c for c in (rev(repo, r) for r in refs) if c]
     msgs = []
+    notes = []      # 止めない知らせ (stub が表示して通す)
+    forced = rewrites_default_branch(repo, rname, rows, refs)
+    if forced:
+        try:
+            stop, said = ready_gate(repo, forced)
+        except Exception as exc:  # 点呼の故障は push を止めない
+            stop, said = False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった ({type(exc).__name__}) = 点呼なしで通す"]
+        (msgs if stop else notes).extend(said)
     for _lref, lsha, rref, rsha in rows:
         # 既に remote に在る分は範囲から除く。 rsha が手元に無い (fetch できなかった) / 新しい ref なら、 既定 branch の今の値を除く
         exclude = [rsha] if (rsha != ZERO and _has(repo, rsha)) else base
@@ -859,7 +940,7 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
             extra = []
         if extra:
             msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(extra)}")
-    return (not msgs), msgs
+    return (not msgs), msgs + notes
 
 
 # ---------------------------------------------------------------- push 範囲の中身の検査 (書き換えに依らない)
@@ -1216,6 +1297,12 @@ def repo_facts(root):
             ob = stale_branches(repo)
             if ob:
                 out[repo.name]["old_branches"] = ob
+                try:
+                    bu = branch_unique(repo, ob)
+                except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError):
+                    bu = {}
+                if bu:
+                    out[repo.name]["old_branch_unique"] = bu
         except (RuntimeError, subprocess.TimeoutExpired, OSError):
             continue
     return out
@@ -1242,6 +1329,69 @@ def stale_branches(repo, cli_globs=()):
         if b and b != cur and (_range_ids(repo, "refs/heads/" + b, [upstream], objects=False, timeout=60) & removed):
             names.append(b)
     return names
+
+
+BRANCH_CACHE = "rewrite-follow-branches.json"   # <git common dir>/ の下。 branch_unique の結果 (branch の先頭 + 捨てられた履歴が鍵)
+BRANCH_CACHE_TTL = 86400
+
+
+def _object_types(repo, shas):
+    """{sha: 型}。 手元に無い sha は落とす。"""
+    shas = sorted(shas)
+    if not shas:
+        return {}
+    out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                         input="\n".join(shas) + "\n", capture_output=True, text=True, env=_env(), timeout=300).stdout
+    return {a[0]: a[1] for a in (l.split() for l in out.splitlines()) if len(a) == 2 and _SHA_RE.match(a[0])}
+
+
+def branch_unique(repo, names, cli_globs=()):
+    """names (stale_branches の返り値) の branch ごとに、 その branch にしか無い中身の数 {name: {"commits": n, "blobs": m}}。
+    「その branch にしか無い」 = 今の remote の履歴 (既定 branch + 旧履歴を抱えていない他の branch) にも、 remote から捨てられた
+    履歴 (書き換えで意図して消した側) にも無い object。 0 / 0 = その branch は古い履歴の写しで、 消しても失うものが無い。
+    消すかを決める材料を、 その machine を開かずに読めるようにする (判断はしない)。 全 walk が要るので、 branch の先頭と
+    捨てられた履歴の集合を鍵に 1 日 cache する (その間に upstream が進んでも「そこにしか無い」 は減るだけ = 古い値は多めに出る)。"""
+    import json
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    if not names or not upstream:
+        return {}
+    remote = upstream.split("/", 1)[0]
+    refs = tracked_refs(repo, remote)
+    dcommits, dobjs = discarded_objects(repo, refs)
+    gen = Generation.load(repo, upstream, cli_globs)
+    removed = set(dcommits) | gen.old_shas
+    cur = [c for c in (rev(repo, r) for r in refs) if c] or [rev(repo, upstream)]
+    cpath = _common_dir(repo) / BRANCH_CACHE
+    try:
+        cache = json.loads(cpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    dkey = hashlib.sha1("\n".join(sorted(removed)).encode()).hexdigest()[:16]
+    now = time.time()
+    out, keep, base_objs = {}, {}, None
+    for b in names:
+        tip = rev(repo, "refs/heads/" + b)
+        if not tip:
+            continue
+        key = f"{tip}:{dkey}"
+        ent = cache.get(b) if isinstance(cache, dict) else None
+        if not (isinstance(ent, dict) and ent.get("key") == key and now - float(ent.get("at", 0)) < BRANCH_CACHE_TTL):
+            if base_objs is None:
+                base_objs = _all_objects(repo, _clean_remote_tips(repo, remote, removed, cur))
+            only = _all_objects(repo, [tip]) - base_objs - dobjs - removed - gen.forbidden
+            types = _object_types(repo, only)
+            ent = {"key": key, "at": now, "commits": sum(1 for t in types.values() if t == "commit"),
+                   "blobs": sum(1 for t in types.values() if t == "blob")}
+        keep[b] = ent
+        out[b] = {"commits": int(ent.get("commits", 0)), "blobs": int(ent.get("blobs", 0))}
+    try:
+        tmpf = cpath.with_suffix(".tmp")
+        tmpf.write_text(json.dumps(keep), encoding="utf-8")
+        os.replace(tmpf, cpath)
+    except OSError:
+        pass
+    return out
 
 
 def judge_fact(repo, fact, cli_globs=(), _memo=None):
@@ -1301,6 +1451,7 @@ def _selftest():
                        "GIT_COMMITTER_EMAIL": "t@example.invalid", LOG_ENV: os.path.join(td, "follow.log"),
                        MAPS_FILE_ENV: os.path.join(td, "no-maps.txt"), MAPS_ENV: "",
                        MSG_GATE_ENV: "0",     # machine の識別子の一覧に依らせない (message の検査は専用の fixture で差し替えて見る)
+                       READY_HOOK_ENV: "0",   # machine に置かれた点呼の command に依らせない (専用の fixture で差し替えて見る)
                        # 旧履歴の日時を固定 (新履歴は別の日時 = 同じ中身・message の commit が同じ秒で同じ sha になるのを避ける、 Linux の CI で実測)
                        "GIT_AUTHOR_DATE": "2000-01-01T00:00:00 +0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00 +0000"})
     tmp = Path(td)
@@ -1795,6 +1946,73 @@ def _selftest():
     check("stale_branches: a local branch that still carries the discarded history is named (the current branch is not)",
           stale_branches(s_merge) == ["keep-old"], str(stale_branches(s_merge)))
     check("stale_branches: silent in a clone with no rewrite trace", stale_branches(reader) == [])
+    git(s_merge, "checkout", "-q", "-b", "keep-work", d3)
+    commit(s_merge, {"only-here.txt": "work that exists nowhere else\n"}, "local only, on the discarded history")
+    git(s_merge, "checkout", "-q", "main")
+    bu = branch_unique(s_merge, stale_branches(s_merge))
+    check("branch_unique: a plain copy of the discarded history holds nothing of its own; a branch with local work is counted",
+          bu == {"keep-old": {"commits": 0, "blobs": 0}, "keep-work": {"commits": 1, "blobs": 1}}, json.dumps(bu))
+    check("branch_unique: the result is cached under the git dir", (_common_dir(s_merge) / BRANCH_CACHE).is_file()
+          and branch_unique(s_merge, ["keep-work"]) == {"keep-work": {"commits": 1, "blobs": 1}})
+
+    # --- 履歴を書き換える push の前の点呼 (既定 branch の forced update の時だけ、 外の command に聞く)
+    rg = clone_of(dx_remote, "rg")
+    rg_tip = rev(rg, "HEAD")
+    ff = commit(rg, {"ff.txt": "fast-forward\n"}, "ordinary commit on top")
+    check("rewrites_default_branch: a fast-forward push is not a rewrite",
+          rewrites_default_branch(rg, "origin", [["refs/heads/main", ff, "refs/heads/main", rg_tip]]) == [])
+    git(rg, "reset", "-q", "--hard", rg_tip)
+    git(rg, "commit", "-q", "--amend", "-m", "the tip reworded = a rewrite of the default branch")
+    rw = rev(rg, "HEAD")
+    row = ["refs/heads/main", rw, "refs/heads/main", rg_tip]
+    check("rewrites_default_branch: a non-fast-forward update of the default branch is named",
+          rewrites_default_branch(rg, "origin", [row]) == ["refs/heads/main"])
+    check("rewrites_default_branch: a forced update of a work branch, and a new branch, are not",
+          rewrites_default_branch(rg, "origin", [["refs/heads/topic", rw, "refs/heads/topic", rg_tip],
+                                                 ["refs/heads/main", rw, "refs/heads/main", ZERO]]) == [])
+
+    def hook(name, body, mode=0o755):
+        hp = tmp / name
+        hp.write_text("#!/bin/sh\n" + body)
+        hp.chmod(mode)
+        return str(hp)
+
+    line = " ".join(row)
+    check("ready gate: off (no command) → a rewriting push passes silently", guard_stdin(rg, [line], fetch=False) == (True, []))
+    os.environ[READY_HOOK_ENV] = hook("ready-no", "echo \"NOT READY: $(basename \"$1\")\"; echo '  - mac-b: no report'; exit 1\n")
+    ok, msgs = guard_stdin(rg, [line], fetch=False)
+    check("ready gate: NOT READY stops the rewriting push, with the roll call and the way out",
+          not ok and GUARD_HEADLINE in msgs[0] and "NOT READY: rg" in msgs[0] and "mac-b" in msgs[0] and READY_OVERRIDE_ENV in msgs[0],
+          " | ".join(msgs))
+    ok, msgs = guard_stdin(rg, [f"refs/heads/main {ff} refs/heads/main {rg_tip}"], fetch=False)
+    check("ready gate: the command is not asked for a fast-forward push", ok and not msgs, " | ".join(msgs))
+    os.environ[READY_OVERRIDE_ENV] = "1"
+    ok, msgs = guard_stdin(rg, [line], fetch=False)
+    check("ready gate: the override passes and says so", ok and len(msgs) == 1 and READY_OVERRIDE_ENV in msgs[0] and GUARD_HEADLINE not in msgs[0],
+          " | ".join(msgs))
+    os.environ.pop(READY_OVERRIDE_ENV)
+    os.environ[READY_HOOK_ENV] = hook("ready-yes", "echo READY; exit 0\n")
+    check("ready gate: READY passes silently", guard_stdin(rg, [line], fetch=False) == (True, []))
+    os.environ[READY_HOOK_ENV] = hook("ready-crash", "echo boom >&2; exit 1\n")
+    ok, msgs = guard_stdin(rg, [line], fetch=False)
+    check("ready gate: a failing command (exit 1 without the headline) does not stop the push, and is reported",
+          ok and len(msgs) == 1 and "点呼が走らなかった (rc=1)" in msgs[0], " | ".join(msgs))
+    os.environ[READY_HOOK_ENV] = hook("ready-noexec", "exit 1\n", mode=0o644)
+    ok, msgs = guard_stdin(rg, [line], fetch=False)
+    check("ready gate: a command that cannot be started does not stop the push, and is reported",
+          ok and len(msgs) == 1 and "点呼が走らなかった" in msgs[0], " | ".join(msgs))
+    # 本物の git push を stub 越しに: 備えが揃うまで remote の履歴は動かない / 揃えば通る
+    ensure_prepush(rg, only_with_manifest=False)
+    os.environ[READY_HOOK_ENV] = hook("ready-no-e2e", "echo 'NOT READY: fixture'; echo '  - mac-b: no stub'; exit 1\n")
+    pr = run_git(rg, "push", "--force", "origin", "main")
+    check("stub end to end: a push that rewrites the default branch is refused while a replica is not ready (remote untouched)",
+          pr.returncode != 0 and GUARD_HEADLINE in pr.stderr and "mac-b" in pr.stderr
+          and git(rg, "ls-remote", "origin", "refs/heads/main").split()[0] == rg_tip, pr.stderr[-300:])
+    os.environ[READY_HOOK_ENV] = hook("ready-yes-e2e", "exit 0\n")
+    pr = run_git(rg, "push", "--force", "origin", "main")
+    check("stub end to end: the same push goes through once the roll call says ready",
+          pr.returncode == 0 and git(rg, "ls-remote", "origin", "refs/heads/main").split()[0] == rw, pr.stderr[-300:])
+    os.environ[READY_HOOK_ENV] = "0"
     facts = repo_facts(root2)
     check("repo_facts: one entry per repo with head / up / prepush",
           set(facts) == {"p-plain", "p-tracked", "p-foreign"} and facts["p-plain"]["prepush"] == "stub"
