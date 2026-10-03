@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check)
+when: macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check) + 予定にゲスト (参加者) を足す・繰り返し予定を消す時 (#eventkit-add-attendees / #applescript-recurring-delete) + Android (DAVx5) で作った予定が Mac で消えない・Mac にだけ出ない時 (#android-davx5-organizer-invitation)
 category: macos
 summary: macOS Calendar.app の calendar に AppleScript (osascript) で event を作る universal recipe。 `tell application "Calendar" ... make new event with properties {summary, location, description, start date, end date}` で書ける。 property 名は英語 literal (日本語は syntax error)、 calendar name は Calendar.app が list する literal string (全角括弧 / 空白 込み)、 iCloud 側の write は数分〜数十分で iCloud sync 経由で Google Calendar の webcal 購読 view (`@import.calendar.google.com`) に反映、 他 iCloud 端末には即時反映。 TCC = Terminal.app / iTerm 側に Calendar 権限を付与、 osascript 経由も同 grant で通る。 verify は `every event whose summary contains "..."` で件数 + start date 確認。 「MCP から write 不可能な calendar (= webcal import は Google 側 read-only)」 の唯一の Claude-executable 経路
 -->
@@ -136,6 +136,76 @@ end tell
 ```
 
 `trigger interval` の単位は分、 負値 = 開始前。 sound alarm / display alarm / mail alarm がある (`type` は別 property)。
+
+## <a id="applescript-recurring-delete"></a>AppleScript の `delete` は繰り返し予定だと 1 回分しか消さない
+
+`delete e` (e = `every event ... whose uid is ...` で取った繰り返し予定) は、 系列全体でなく**選ばれた回だけ**を除外日 (EXDATE) にして終わる。 戻り値も error も無いので消えたように見え、 次の週から同じ予定が出続ける (実測)。 系列ごと消すのは EventKit で、 系列の本体を `span = futureEvents` で消す:
+
+```javascript
+// osascript -l JavaScript
+ObjC.import('EventKit');
+var store = $.EKEventStore.alloc.init;
+var item = store.calendarItemWithIdentifier('<AppleScript の uid と同じ値>');
+store.removeEventSpanCommitError(item, 1 /* EKSpanFutureEvents */, true, null);
+```
+
+⚠️ 大きい calendar で `whose uid is` を回すと 2 分を超える (= 消す対象が分かっているなら最初から EventKit の id で引く)。
+
+## <a id="eventkit-add-attendees"></a>ゲスト (参加者) つきの予定をプログラムで作る
+
+AppleScript の attendee は**読み取り専用** (`iCal.sdef` の attendee の property が全部 `access="r"`)、 EventKit の公開 API にも参加者を足す method は無い。 画面操作に降りる前に、 EventKit の**内部 method** で足す (Calendar.app 自身が招待の作成に使うもの、 macOS 26 で実測):
+
+1. `-[EKCalendarItem addOrganizerAndSelfAttendeeForNewInvitationInCalendar:force:]` (calendar, YES) = 主催者を本人にし、 本人の出席を入れる。 ⚠️ 引数なしの `addOrganizerAndSelfAttendeeForNewInvitation` は主催者を入れない (organizer が nil のまま)
+2. `+[EKAttendee attendeeWithName:emailAddress:]` (name には nil を渡す) → `-[EKCalendarItem addAttendee:]`
+3. `save(_:span:commit:)`
+
+```swift
+// swiftc で build (Command Line Tools で通る)。 BOOL 引数は perform では渡せないので IMP を直に呼ぶ
+let sel = Selector(("addOrganizerAndSelfAttendeeForNewInvitationInCalendar:force:"))
+typealias F = @convention(c) (AnyObject, Selector, AnyObject, Bool) -> Void
+let f = unsafeBitCast(method_getImplementation(class_getInstanceMethod(type(of: ev), sel)!), to: F.self)
+f(ev, sel, ev.calendar, true)
+let a = (NSClassFromString("EKAttendee")! as AnyObject)
+  .perform(Selector(("attendeeWithName:emailAddress:")), with: nil, with: "guest@example.org")!.takeUnretainedValue()
+_ = ev.perform(Selector(("addAttendee:")), with: a)
+try store.save(ev, span: .thisEvent, commit: true)
+```
+
+- ⚠️ **既存の繰り返し予定に足して保存すると span が何でも「An invalid span was specified」 (EKErrorDomain code 13)** = 新しい `EKEvent` に全部 (繰り返し・場所・通知・参加者) を載せて 1 回で保存し、 古い方を [#applescript-recurring-delete](#applescript-recurring-delete) の手で消す。 単発の予定は既存のものに足して `thisEvent` で保存が通る
+- 保存前に `organizer` と `attendees` を print して確かめる (dry run = 保存せず終える)。 結果は Calendar.app の画面で招待した予定と同じ形 (主催者 = 本人、 本人の出席 = 承諾、 ゲスト = 返事待ち)
+- ⚠️ **iCloud など server 側で招待を扱う calendar では、 保存した時点で server がゲストに招待メールを送る** = 外部への送信。 送るかどうかを owner に聞いてから保存する
+- ⚠️ **既存の予定を作り直すときは、 参加者も含めて元の field を全部移す**。 参加者を外すと送信は避けられるが、 予定の中身を owner に断らず変えることになる。 移せない field があるなら、 作り直す前に owner に聞く
+
+## <a id="android-davx5-organizer-invitation"></a>Android (DAVx5) でゲストを入れて作った予定が、 Mac では「他人からの招待」 になる
+
+**症状**: Android で作った予定のうち、 Mac で消したはずのものが Android には残る / Mac にだけ出ない。 Mac の同期は error 0 で、 予定は Mac の DB にも server にも在る。
+
+**機構**:
+
+1. ゲストのいる予定には主催者 (ORGANIZER) が必須 (iCalendar の決まり)。 Android のカレンダーには「この account での自分の address」 の欄が無く、 **DAVx5 の account 名がそのまま主催者になる** ([DAVx5 manual](https://manual.davx5.com/accounts_collections.html))。 account 名を「iCloud」 のような address でない名前にすると、 主催者は `mailto:iCloud` になる
+2. Mac (と iCloud.com) は主催者を本人と認めないので、 自分の予定を**他人からの招待**として扱う。 ゲストのいない予定は主催者が書かれないので起きない
+3. **招待された予定は、 Mac / iCloud.com で消しても server からは消えず「不参加」 になるだけ** (Mac は「通知して削除 / 通知せずに削除」 を聞く。 [iCloud.com の help](https://support.apple.com/en-ae/guide/icloud/mmfbbb4470/icloud) も「招待された予定を消す = 不参加にする」)。 本人の address がゲストに入っていてその返事が不参加だと、 Mac はその予定を隠す
+4. 隠す・隠さないの切替 = Calendar.app の**メニュー「表示」 →「欠席する予定を表示」** (`defaults read com.apple.iCal ShowDeclinedEvents`)。 ⚠️ 設定 →「詳細」 の「不参加者を表示」 は別の項目
+
+**見つけ方** (read-only):
+
+```sql
+-- ~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb を mode=ro で
+SELECT ci.summary, i.address AS organizer,
+       (SELECT p.status FROM Participant p WHERE p.ROWID = ci.self_attendee_id) AS self_status
+FROM CalendarItem ci
+JOIN Participant o ON o.ROWID = ci.organizer_id
+JOIN Identity i ON i.ROWID = o.identity_id
+WHERE i.address = 'mailto:<DAVx5 の account 名>';
+-- self_status = 2 が「不参加」 (= Mac で隠れている)。 OccurrenceCache に 1 件も無いことでも分かる
+```
+
+Android 製の予定は UID が小文字の UUID (Apple 製は大文字) なので、 出所の見分けにも使える。
+
+**直し方**:
+
+- **DAVx5 の account 名を、 server が本人と認める address (iCloud なら Apple ID の address) にする** = 以後に作る予定の主催者が本人になる。 ⚠️ 既存の予定の主催者は変わらない。 ⚠️ 主催者が本人になると、 Android でゲストを入れた予定に server が招待メールを送るようになりうる
+- 既存の予定の主催者は Mac・iCloud.com からは書き換えられない = 先の回が残るものだけ作り直す ([#eventkit-add-attendees](#eventkit-add-attendees)、 参加者も移す)。 **古い方は Android 側で消す** (Mac で消すとまた不参加になるだけ)。 過去の回しか無いものは表示に影響しないので、 作り直さずにそのまま置く
 
 ## <a id="use-cases"></a>使い所
 
