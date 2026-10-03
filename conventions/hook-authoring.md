@@ -1048,11 +1048,12 @@ Stop hook が「この行が無い → 返事の全文を出し直す」 と止�
 - <a id="stop-block-reason-delivered-twice"></a>**block の理由は model に 2 通届く (harness 側の挙動、 hook では消せない)**:
   1 回の block につき transcript に meta の user 行 `Stop hook feedback:\n<reason>` と attachment `hook_blocking_error`
   (`rendered` = `Stop hook blocking error from command: "<command>": <reason>`) が 1 組ずつ残り、 継続の request に両方が入る
-  (実測: 2.1.266〜2.1.286、 desktop と `claude -p` の両方。 Stop の処理が attachment を継続の messages に積み、 同じ理由から
-  作った meta の行も積む。 TaskCompleted / TeammateIdle の hook も同じ形)。 hook の二重実行と取り違えない =
+  (transcript の組は 2.1.266〜2.1.286 の desktop と `claude -p` で実測。 継続の request に両方が入るのは 2.1.286 の desktop で
+  model の側から実測し、 同じ版の本体で、 Stop の処理が attachment を継続の messages に積み、 同じ理由から作った meta の行も
+  積むことを読んだ。 TaskCompleted / TeammateIdle の hook も同じ形)。 hook の二重実行と取り違えない =
   `stop_hook_summary` の `hookInfos` に同じ command が 1 回・`hookErrors` が 1 件なら hook は 1 回しか走っていない
   (配線の重複を疑う前にここを数える)。 帰結: 理由文は 2 倍の context を食う前提で短く書く。 user の画面に同じ返事が
-  2 通並ぶのはこれとは別の原因で、 全文の出し直しを求める文面から来る (上の 2 項)。
+  2 通並ぶのはこれとは別の原因で、 全文の出し直しを求める文面から来る (この節の冒頭と 1 つ上の項)。
 - **挙動は transcript で実測する**: `hook_blocking_error` と meta の `Stop hook feedback` 行 → 書き直した返事 → `stop_hook_summary`
   の並びを、 hook が書く state の時刻と突き合わせる (実測: 処理済みの記録時刻が「差し戻しの後の Stop」 でなく、 その後に別の通知で
   走った Stop に揃っていたことで、 差し戻しの後の照合の抜けが分かった)。
