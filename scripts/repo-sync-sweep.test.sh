@@ -17,6 +17,7 @@ trap 'rm -rf "$TMP"' EXIT
 
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL="$TMP/gitconfig"
+export GIT_REWRITE_FOLLOW_LOG="$TMP/rewrite-follow.log"   # 追従の記録を本物 (~/.claude/state/) に書かせない (fixture の repo 名が点呼に出る)
 git config --global user.email t@t
 git config --global user.name t
 git config --global init.defaultBranch main
