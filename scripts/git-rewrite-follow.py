@@ -20,6 +20,8 @@ usage:
       push 範囲に、 対応表の旧 sha / forbidden-blobs の object / この clone の reflog が覚えている「remote から捨てられた
       履歴」 の object が在れば exit 1 + 理由 (見出し「push を止めた」)。 remote の今の先頭が手元の知識と違えば、 判定の
       前に fetch する (--no-fetch で止める)。 exit 3 = 検査が走らなかった (stub は 1 行出して通す)。
+      書き換えに依らない 2 つも同じ入口で見る: git-crypt の対象の path の平文の blob (止める = CLAUDE_CRYPT_PUSH_GUARD=0) /
+      commit message の識別子の検査 (commit-msg と同じ engine を push 範囲に。 止める = その engine の escape hatch)。
   git-rewrite-follow.py guard-head --repo PATH
       HEAD が、 書き換えで捨てられた履歴の commit の上にあれば exit 1 + 見出し「[rewrite-follow] BLOCK」 (pre-commit の段が
       呼ぶ = 追従前の clone で commit を始めさせない)。 fetch はしない。 exit 3 = 検査が走らなかった。

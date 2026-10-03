@@ -34,6 +34,18 @@ repo ごとの事実を点呼の材料として載せる)。
       pre-commit の段が呼ぶ = 追従前の clone で仕事を積ませない)。
   I7  remote 側の検出: upstream (と remote の他の branch) に対応表の旧 sha / forbidden の object が戻っていないかを
       読む (audit_repo。 hook を持たない clone・host 上の merge から戻った分は、 ここでしか分からない)。
+  I8  push 範囲の中身の検査 (書き換えに依らない。 content_violations): remote の中身についての不変条件は、 remote への
+      入口で検査しないと網にならない (commit 時の検査は、 rebase・merge・cherry-pick で運ばれる commit を通らない)。
+      (1) git-crypt の対象の path に平文の blob を push しない = 暗号化の対象を広げた .gitattributes が届く前の clone で
+          commit された file を止める (判定は今の worktree の attr。 空の file は対象外)
+      (2) commit message の識別子の検査 (commit-msg と同じ engine) を、 push 範囲の新しい commit にも当てる
+          (識別子の一覧の在る machine でだけ。 1 回の push で新しい方から 50 commit まで)
+  I9  追従を人にも session の開始にも頼らない: 無人の定期 job (fleet-heartbeat の --repos-follow) が、 全 repo を fetch して
+      follow_repo を回す。 「書き換えた後、 各 machine で 1 回」 は、 session を開かない machine では誰も実行しない (実測)。
+
+公開 repo には manifest を置かない: 対応表の旧 sha と forbidden の sha は、 host が旧 object を gc するまで、 消した中身を
+sha で取り出す鍵になる (host は、 どの ref からも届かない commit も sha を知っていれば見せる)。 公開 repo の網は、 clone 自身の
+reflog の記憶 (I5 b) と、 外から渡す対応表 (非公開の置き場。 `--map` / maps file / env) にする。
 
 追従の判定 (follow_repo):
   0. upstream が無い / detached / merge・rebase 進行中 → 触らない。 HEAD が upstream の祖先 (= behind か同じ) →
@@ -749,13 +761,28 @@ def _range_ids(repo, positive, negative, objects=True, timeout=600):
     return {l.split(" ", 1)[0] for l in out.splitlines() if l}
 
 
-def push_violations(repo, local_sha, exclude, gen, discarded=None):
+def _range_objects(repo, positive, negative, timeout=600):
+    """positive から届き negative から届かない object の [(sha, path)] (commit は path ''。 path は中身の検査が file を
+    名指しするためだけに使い、 「捨てられた履歴」 の側には渡さない)。"""
+    args = ["rev-list", "--objects", positive]
+    if negative:
+        args += ["--not"] + list(negative)
+    out = []
+    for line in git(repo, *args, check=False, timeout=timeout).splitlines():
+        sha, _, path = line.partition(" ")
+        if sha:
+            out.append((sha, path))
+    return out
+
+
+def push_violations(repo, local_sha, exclude, gen, discarded=None, ids=None):
     """local_sha までの commit のうち exclude に無いものが、 旧 sha / 旧世代の blob / 捨てられた履歴の object を含むか。
     違反の説明 list。 exclude = sha か sha の list ('' / [] = remote のどの ref にも無いもの全部)。
-    discarded = discarded_objects の返り値 (無ければ manifest だけで判定)。"""
+    discarded = discarded_objects の返り値 (無ければ manifest だけで判定)。 ids = 呼び手が既に求めた範囲の sha の set。"""
     if isinstance(exclude, str):
         exclude = [exclude] if exclude else []
-    ids = _range_ids(repo, local_sha, exclude or ["--remotes"])
+    if ids is None:
+        ids = _range_ids(repo, local_sha, exclude or ["--remotes"])
     hits = []
     olds = ids & gen.old_shas
     if olds:
@@ -814,18 +841,138 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
         discarded = discarded_objects(repo, refs) if refs else (set(), set())
     except (RuntimeError, subprocess.TimeoutExpired, OSError):
         discarded = (set(), set())
-    if not gen.maps and not gen.forbidden and not discarded[0]:
-        return True, []
+    rewritten = bool(gen.maps or gen.forbidden or discarded[0])
     base = [c for c in (rev(repo, r) for r in refs) if c]
     msgs = []
     for _lref, lsha, rref, rsha in rows:
         # 既に remote に在る分は範囲から除く。 rsha が手元に無い (fetch できなかった) / 新しい ref なら、 既定 branch の今の値を除く
         exclude = [rsha] if (rsha != ZERO and _has(repo, rsha)) else base
-        hits = push_violations(repo, lsha, exclude, gen, discarded)
-        if hits:
-            msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
-                        f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す")
+        objs = _range_objects(repo, lsha, exclude or ["--remotes"])
+        if rewritten:
+            hits = push_violations(repo, lsha, exclude, gen, discarded, ids={s for s, _p in objs})
+            if hits:
+                msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
+                            f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す")
+        try:
+            extra = content_violations(repo, lsha, exclude, objs)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError, UnicodeError):
+            extra = []
+        if extra:
+            msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(extra)}")
     return (not msgs), msgs
+
+
+# ---------------------------------------------------------------- push 範囲の中身の検査 (書き換えに依らない)
+#
+# remote の中身についての不変条件は、 remote への入口 (push) で検査しないと網にならない: commit 時の検査は、 rebase・merge・
+# cherry-pick で運ばれる commit と、 hook の無い clone で作られた commit を通らない。 ここでは 2 つだけを見る:
+#   (1) git-crypt の対象の path に、 平文の blob を push しない (暗号化の対象を広げた attr が届く前の clone で commit した file)
+#   (2) commit message の識別子の検査 (commit-msg と同じ engine) を、 push 範囲の新しい commit にも当てる
+
+CRYPT_MAGIC = b"\x00GITCRYPT"
+CRYPT_GUARD_ENV = "CLAUDE_CRYPT_PUSH_GUARD"          # "0" で (1) を止める
+MSG_GATE_ENV = "GIT_REWRITE_FOLLOW_MSG_GATE"          # (2) の engine の path を差し替える (test 用)。 "0" で止める
+MSG_GATE_HEADING = "check-student-identifiers: BLOCK"
+MSG_GATE_MAX = 50                                     # 1 回の push で見る commit の上限 (新しい方から)
+
+
+def _crypt_declared(repo):
+    """worktree の .gitattributes のどれかが git-crypt の filter を宣言しているか (宣言の無い repo で検査の process を起こさない)。"""
+    names = git(repo, "ls-files", "--", ".gitattributes", "*/.gitattributes", check=False).splitlines()
+    for n in names or [".gitattributes"]:
+        try:
+            if "filter=git-crypt" in (Path(repo) / n).read_text(encoding="utf-8", errors="replace"):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def crypt_plaintext(repo, objs):
+    """objs = [(sha, path)] (push 範囲の新しい object)。 path が今の .gitattributes で filter=git-crypt なのに、 中身が git-crypt の
+    暗号文でない blob の [(sha, path)]。 空の file は対象外 (git-crypt は空の file を暗号化しない)。"""
+    if os.environ.get(CRYPT_GUARD_ENV, "1") == "0" or not _crypt_declared(repo):
+        return []
+    cands = [(s, p) for s, p in objs if p]
+    if not cands:
+        return []
+    paths = sorted({p for _s, p in cands})
+    r = subprocess.run(["git", "-C", str(repo), "check-attr", "-z", "--stdin", "filter"], input="\0".join(paths) + "\0",
+                       capture_output=True, text=True, env=_env(), timeout=120)
+    f = r.stdout.split("\0")
+    crypt = {f[i] for i in range(0, len(f) - 2, 3) if f[i + 2] == "git-crypt"}
+    if not crypt:
+        return []
+    cands = [(s, p) for s, p in cands if p in crypt]
+    chk = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+                         input="\n".join(sorted({s for s, _p in cands})) + "\n", capture_output=True, text=True, env=_env(),
+                         timeout=120).stdout
+    blobs = {a[0] for a in (l.split() for l in chk.splitlines()) if len(a) == 3 and a[1] == "blob" and a[2] != "0"}
+    bad = []
+    for s, p in cands:
+        if s not in blobs:
+            continue
+        pr = subprocess.Popen(["git", "-C", str(repo), "cat-file", "blob", s], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=_env())
+        try:
+            head = pr.stdout.read(len(CRYPT_MAGIC))
+        finally:
+            pr.stdout.close()
+            pr.kill()
+            pr.wait()
+        if head != CRYPT_MAGIC:
+            bad.append((s, p))
+    return bad
+
+
+def _msg_gate_engine():
+    """commit message の識別子の検査の engine の path ('' = 当てない)。 識別子の一覧が machine に無ければ当てない
+    (一覧は machine ごとの file。 無い machine で commit ごとに process を起こさない)。"""
+    v = os.environ.get(MSG_GATE_ENV)
+    if v == "0":
+        return ""
+    if v:
+        return v if os.path.isfile(v) else ""
+    eng = Path(__file__).resolve().parent.parent / "check-student-identifiers.py"
+    home = Path(os.path.expanduser("~")) / ".claude"
+    if eng.is_file() and ((home / "student-identity.json").is_file() or (home / "pii-filename-patterns.txt").is_file()):
+        return str(eng)
+    return ""
+
+
+def message_gate(repo, local_sha, exclude):
+    """push 範囲の新しい commit の message を、 commit-msg と同じ engine に通す。 止められた commit の sha の list。
+    commit-msg の hook は rebase・cherry-pick で運ばれる commit には走らない = 消した識別子入りの message が、 新しい sha で戻る。"""
+    eng = _msg_gate_engine()
+    if not eng:
+        return []
+    import tempfile
+    args = ["rev-list", f"--max-count={MSG_GATE_MAX}", local_sha] + (["--not"] + list(exclude) if exclude else ["--not", "--remotes"])
+    bad = []
+    with tempfile.TemporaryDirectory(prefix="grf-msg-") as td:
+        mf = os.path.join(td, "COMMIT_EDITMSG")
+        for c in git(repo, *args, check=False, timeout=120).split():
+            with open(mf, "w", encoding="utf-8", errors="surrogateescape") as f:
+                f.write(git(repo, "log", "-1", "--format=%B", c, check=False) + "\n")
+            r = subprocess.run([sys.executable or "python3", eng, "--commit-msg", mf], cwd=str(repo),
+                               capture_output=True, text=True, timeout=60)
+            if r.returncode == 1 and MSG_GATE_HEADING in (r.stderr + r.stdout):
+                bad.append(c)
+    return bad
+
+
+def content_violations(repo, local_sha, exclude, objs):
+    """push 範囲の中身の検査 (上の 2 つ)。 違反の説明 list。"""
+    hits = []
+    pl = crypt_plaintext(repo, objs)
+    if pl:
+        hits.append(f"git-crypt の対象の path に平文の blob {len(pl)} 個 (例 {pl[0][1]}) = 暗号化されずに commit されている。"
+                    f" その file を今の .gitattributes の下で commit し直す (git rm --cached <file> && git add <file>、"
+                    f" 平文の版を含む commit は push しない)。 意図した平文なら {CRYPT_GUARD_ENV}=0")
+    bm = message_gate(repo, local_sha, exclude)
+    if bm:
+        hits.append(f"commit message に識別子の検査で止まるものが {len(bm)} 個 (例 {bm[0][:7]}) = message を直してから push する"
+                    f" (確かめる: git log -1 --format=%B {bm[0][:7]})")
+    return hits
 
 
 def head_violations(repo, cli_globs=()):
@@ -1066,9 +1213,35 @@ def repo_facts(root):
             if not up:
                 continue
             out[repo.name] = {"head": rev(repo, "HEAD")[:12], "up": rev(repo, up)[:12], "prepush": prepush_state(repo)}
+            ob = stale_branches(repo)
+            if ob:
+                out[repo.name]["old_branches"] = ob
         except (RuntimeError, subprocess.TimeoutExpired, OSError):
             continue
     return out
+
+
+def stale_branches(repo, cli_globs=()):
+    """手元の branch (今の branch を除く) のうち、 upstream に無い commit として、 書き換えで捨てられた履歴の commit を抱えているものの
+    名前。 push しなければ害は無い (push は検査が止める) が、 どの machine に残っているかは、 その machine を開くまで誰にも見えない
+    = 事実として点呼に載せる。 書き換えの痕跡 (manifest か、 この clone の reflog の forced update) の無い repo は見ない
+    (外から渡す対応表だけでは見ない = 全 repo で表を読むことになるため)。"""
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    if not upstream or not rev(repo, upstream):
+        return []
+    dc = set(discarded_commits(repo, tracked_refs(repo, upstream.split("/", 1)[0]))[0])
+    if not dc and not manifest_tree(repo, upstream):
+        return []
+    removed = Generation.load(repo, upstream, cli_globs).old_shas | dc
+    if not removed:
+        return []
+    cur = git(repo, "symbolic-ref", "--short", "-q", "HEAD", check=False).strip()
+    names = []
+    for b in git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/", check=False).splitlines():
+        if b and b != cur and (_range_ids(repo, "refs/heads/" + b, [upstream], objects=False, timeout=60) & removed):
+            names.append(b)
+    return names
 
 
 def judge_fact(repo, fact, cli_globs=(), _memo=None):
@@ -1127,6 +1300,7 @@ def _selftest():
                        "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
                        "GIT_COMMITTER_EMAIL": "t@example.invalid", LOG_ENV: os.path.join(td, "follow.log"),
                        MAPS_FILE_ENV: os.path.join(td, "no-maps.txt"), MAPS_ENV: "",
+                       MSG_GATE_ENV: "0",     # machine の識別子の一覧に依らせない (message の検査は専用の fixture で差し替えて見る)
                        # 旧履歴の日時を固定 (新履歴は別の日時 = 同じ中身・message の commit が同じ秒で同じ sha になるのを避ける、 Linux の CI で実測)
                        "GIT_AUTHOR_DATE": "2000-01-01T00:00:00 +0000", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00 +0000"})
     tmp = Path(td)
@@ -1565,6 +1739,45 @@ def _selftest():
           f"{len(objs)} objs, {have}/{total}")
     check("forbidden_from_local: lists no commit", not (set(objs) & {o1, o2, o3, o0}))
 
+    # --- push 範囲の中身の検査 (書き換えに依らない): git-crypt の対象の path の平文 / commit message の検査
+    cr_remote = bare("cr.git")
+    cr = tmp / "cr"
+    init(cr)
+    k1 = commit(cr, {".gitattributes": "secret/** filter=git-crypt diff=git-crypt\n", "a.txt": "a\n"}, "k1")
+    git(cr, "remote", "add", "origin", str(cr_remote))
+    git(cr, "push", "-q", "-u", "origin", "main")
+    commit(cr, {"secret/plain.txt": "committed without the filter\n"}, "k2")
+    ok, msgs = guard_stdin(cr, [f"refs/heads/main {rev(cr, 'HEAD')} refs/heads/main {k1}"], fetch=False)
+    check("content: plaintext under a git-crypt path is refused at push (no rewrite involved)",
+          not ok and "git-crypt の対象" in " ".join(msgs) and "secret/plain.txt" in " ".join(msgs), " ".join(msgs))
+    os.environ[CRYPT_GUARD_ENV] = "0"
+    check("content: the switch turns the git-crypt check off",
+          guard_stdin(cr, [f"refs/heads/main {rev(cr, 'HEAD')} refs/heads/main {k1}"], fetch=False)[0])
+    os.environ.pop(CRYPT_GUARD_ENV, None)
+    git(cr, "reset", "-q", "--hard", k1)
+    (cr / "secret").mkdir(exist_ok=True)
+    (cr / "secret" / "enc.bin").write_bytes(CRYPT_MAGIC + b"\x00" + b"x" * 24)
+    (cr / "secret" / "empty.txt").write_bytes(b"")
+    (cr / "other.txt").write_text("plain is fine outside the path\n")
+    git(cr, "add", "-A")
+    git(cr, "commit", "-q", "-m", "k2 encrypted")
+    ok, msgs = guard_stdin(cr, [f"refs/heads/main {rev(cr, 'HEAD')} refs/heads/main {k1}"], fetch=False)
+    check("content: an encrypted blob, an empty file and a file outside the path pass", ok and not msgs, " ".join(msgs))
+    fake_gate = tmp / "fake-msg-gate.py"
+    fake_gate.write_text("import sys\nm = open(sys.argv[sys.argv.index('--commit-msg') + 1]).read()\n"
+                         "if 'FORBIDDEN-TOKEN' in m:\n    print('" + MSG_GATE_HEADING + " fixture', file=sys.stderr)\n    sys.exit(1)\n"
+                         "sys.exit(0)\n")
+    os.environ[MSG_GATE_ENV] = str(fake_gate)
+    k2 = rev(cr, "HEAD")
+    bad_c = commit(cr, {"n.txt": "n\n"}, "a message that carries FORBIDDEN-TOKEN")
+    commit(cr, {"m.txt": "m\n"}, "a fine message")
+    ok, msgs = guard_stdin(cr, [f"refs/heads/main {rev(cr, 'HEAD')} refs/heads/main {k2}"], fetch=False)
+    check("content: a commit message that the commit-msg gate refuses is refused at push (rebase / cherry-pick skip that hook)",
+          not ok and "commit message" in " ".join(msgs) and bad_c[:7] in " ".join(msgs), " ".join(msgs))
+    ok, msgs = guard_stdin(cr, [f"refs/heads/main {rev(cr, 'HEAD')} refs/heads/main {rev(cr, 'HEAD~1')}"], fetch=False)
+    check("content: commits already on the remote are not re-checked", ok and not msgs, " ".join(msgs))
+    os.environ[MSG_GATE_ENV] = "0"
+
     # --- 点呼: 別の machine の事実を、 最新を知っている clone が判定する
     reader = clone_of(dx_remote, "reader")
     git(reader, "fetch", "-q")
@@ -1578,6 +1791,10 @@ def _selftest():
     check("judge: unknown head on a known new upstream → unpushed",
           judge_fact(s_merge, {"head": "0123456789ab", "up": e4[:12]}, _memo=memo)[0] == "unpushed")
     check("judge: nothing known → unknown", judge_fact(s_merge, {"head": "0123456789ab", "up": "ba9876543210"}, _memo=memo)[0] == "unknown")
+    git(s_merge, "branch", "-q", "keep-old", d3)
+    check("stale_branches: a local branch that still carries the discarded history is named (the current branch is not)",
+          stale_branches(s_merge) == ["keep-old"], str(stale_branches(s_merge)))
+    check("stale_branches: silent in a clone with no rewrite trace", stale_branches(reader) == [])
     facts = repo_facts(root2)
     check("repo_facts: one entry per repo with head / up / prepush",
           set(facts) == {"p-plain", "p-tracked", "p-foreign"} and facts["p-plain"]["prepush"] == "stub"

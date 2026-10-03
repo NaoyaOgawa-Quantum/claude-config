@@ -88,7 +88,12 @@ repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_re
     machine の reader (lib.judge_fact) が、 各 machine の事実を自分の知識で判定する
   - stale = この machine 自身が「HEAD は捨てられた履歴の上」 と分かっている repo (fetch 済み・未追従)。 変化は即 commit
   - no_stub = stub が無い repo (別の pre-push hook がある / hook が repo に track されている)。 変化は即 commit
+  - heads の各 repo の old_branches = 捨てられた履歴の commit を抱えた手元の branch (今の branch を除く。 在る時だけ載る)
   heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
+  --repos-follow (opt-in): 毎 beat、 全 repo を fetch し、 書き換えられた履歴に揃えられる clone を揃える (lib.follow_repo =
+  手元の commit の中身が upstream に在る時だけ ref を動かす)。 「書き換えた後、 各 machine で追従を 1 回」 を人にも session の開始にも
+  頼らない (実測: session を何週間も開かない machine は、 人が思い出すまで古い履歴のまま残る)。 followed = この beat で揃えた repo、
+  stopped = 揃えられなかった repo (手元にしか無い commit。 変化は即 commit)。 前から behind なだけの repo は fetch するだけで動かさない。
 
 config_dirs の読み方 (実測):
   - pinned の alias (`~/.claude-<acct>`) = その設定フォルダの `.claude.json` の oauthAccount の email = その
@@ -548,7 +553,7 @@ def essence(d: dict):
             "harness_hooks": d.get("harness_hooks"),
             "rewrite_follow": {k: (d.get("rewrite_follow") or {}).get(k) for k in ("capable", "state", "manifest", "prepush_stub")},
             # repo ごとの点呼: 「捨てられた履歴の上に居る repo」 と「stub の無い repo」 の変化は即 commit (heads は入れない)
-            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub")},
+            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub", "stopped")},
         },
         sort_keys=True,
     )
@@ -612,12 +617,46 @@ def rewrite_preflight(repo: Path, subdir: str):
     return out
 
 
-def repos_rollcall(root: Path):
+def follow_all(root: Path, skip=()):
+    """root/*/ の全 repo を fetch し、 書き換えられた履歴に揃えられる clone を揃える (lib.follow_repo = 手元の commit の中身が
+    upstream に在る時だけ ref を動かす。 pull / merge / rebase はしない)。 (揃えた repo 名, 止まった repo 名)。
+    session を開かない machine でも、 この無人の job が追従する = 「その machine で 1 回」 を人に渡さない。
+    fetch は並列 (network 待ち)、 追従の判定は直列。 skip = 既に呼び手が扱った repo の path。"""
+    from concurrent.futures import ThreadPoolExecutor
+    repos = [Path(g).parent for g in sorted(globmod.glob(os.path.join(str(root), "*", ".git")))]
+    repos = [r for r in repos if r.resolve() not in {Path(s).resolve() for s in skip}]
+
+    def fetch(repo):
+        try:
+            up = _rf.upstream_of(repo)
+            if up:
+                git(repo, "fetch", "-q", up.split("/", 1)[0], timeout=_rf.FETCH_TIMEOUT)
+        except Exception:
+            pass
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        list(ex.map(fetch, repos))
+    followed, stopped = [], []
+    for repo in repos:
+        try:
+            r = _rf.follow_repo(repo, fetch=False)
+        except Exception:
+            continue
+        if r.state == "followed":
+            followed.append(repo.name)
+        elif r.state == "stopped":
+            stopped.append(repo.name)
+    return followed, stopped
+
+
+def repos_rollcall(root: Path, follow=False, skip=()):
     """root/*/ の全 repo に pre-push stub を置き、 repo ごとの事実と、 この machine 自身が分かっている未追従を返す
-    (docstring「repo ごとの点呼」)。 部品が古い / 失敗 = None (beat は止めない)。"""
+    (docstring「repo ごとの点呼」)。 follow=True なら、 その前に全 repo を fetch して追従する。 部品が古い / 失敗 = None
+    (beat は止めない)。"""
     if _rf is None or not hasattr(_rf, "repo_facts"):
         return None
     try:
+        followed, stopped = follow_all(root, skip) if follow else ([], [])
         placed, failed = _rf.ensure_prepush_all(root)
         heads = _rf.repo_facts(root)
         stale = []
@@ -627,9 +666,12 @@ def repos_rollcall(root: Path):
                     stale.append(name)
             except Exception:
                 pass
-        return {"heads": heads, "stale": sorted(stale),
-                "no_stub": sorted(n for n, f in heads.items() if f.get("prepush") != "stub"),
-                "stub_placed": len(placed), "stub_failed": failed[:5]}
+        out = {"heads": heads, "stale": sorted(stale),
+               "no_stub": sorted(n for n, f in heads.items() if f.get("prepush") != "stub"),
+               "stub_placed": len(placed), "stub_failed": failed[:5]}
+        if follow:
+            out["followed"], out["stopped"] = sorted(followed), sorted(stopped)
+        return out
     except Exception:
         return None
 
@@ -666,7 +708,7 @@ def git(repo: Path, *args, timeout=60):
 
 
 def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_prefix,
-         inventory_specs=None, job_prefixes=None, job_modules=None, repos_root=None):
+         inventory_specs=None, job_prefixes=None, job_modules=None, repos_root=None, repos_follow=False):
     data = collect(rc_prefix, cron_prefix, inventory_specs, job_prefixes, job_modules)
     data["engine_head"] = engine_head()
     hh = harness_hooks(Path.home())
@@ -680,7 +722,7 @@ def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_pr
         if pre["state"] == "stopped":
             return "deferred (rewrite follow stopped; no commit, no rebase): " + pre["line"]
     if repos_root:
-        rr = repos_rollcall(Path(repos_root).expanduser())
+        rr = repos_rollcall(Path(repos_root).expanduser(), follow=repos_follow, skip=[repo])
         if rr is not None:
             data["repos"] = rr
     rel = f"{subdir}/{data['host']}.json"
@@ -909,6 +951,32 @@ def selftest():
             assert rr["stale"] == [] and rr["no_stub"] == [] and rr["stub_placed"] == 1, rr
             assert repos_rollcall(rc_root)["stub_placed"] == 0, "2 回目は置き直さない"
             ok += 1
+            # --repos-follow: fetch していない clone でも、 beat が fetch して書き換えに追従する (message だけの書き換え = tree は同じ)。
+            # 手元にしか無い commit のある clone は止まって名前が載る。 ただ behind なだけの clone は動かさない
+            for nm in ("stale", "local", "behind"):
+                sh(["git", "clone", "-q", str(rc_remote), str(rc_root / nm)])
+                git(rc_root / nm, "config", "user.email", "t@" + "example.invalid")
+                git(rc_root / nm, "config", "user.name", "t")
+            (rc_root / "local" / "mine.txt").write_text("local\n")
+            git(rc_root / "local", "add", "mine.txt")
+            git(rc_root / "local", "commit", "-q", "-m", "local only")
+            git(seed, "commit", "-q", "--amend", "-m", "c1 rewritten")
+            git(seed, "push", "-q", "--force", "origin", "main")
+            new_tip = git(seed, "rev-parse", "HEAD")[1].strip()
+            rr = repos_rollcall(rc_root, follow=True, skip=[seed])
+            assert rr["followed"] == ["behind", "stale"] and rr["stopped"] == ["local"], rr
+            assert git(rc_root / "stale", "rev-parse", "HEAD")[1].strip() == new_tip, "追従前の clone は新しい先頭へ"
+            assert git(rc_root / "local", "log", "-1", "--format=%s")[1].strip() == "local only", "手元の commit は動かさない"
+            assert rr["stale"] == ["local"], rr
+            assert essence({"repos": {"stopped": []}}) != essence({"repos": {"stopped": ["x"]}}), "止まった repo が現れたら commit する"
+            (seed / "g.txt").write_text("2\n")
+            git(seed, "add", "g.txt")
+            git(seed, "commit", "-q", "-m", "c2")
+            git(seed, "push", "-q", "origin", "main")
+            rr = repos_rollcall(rc_root, follow=True, skip=[seed])
+            assert rr["followed"] == [] and git(rc_root / "stale", "rev-parse", "HEAD")[1].strip() == new_tip, \
+                "behind なだけの clone は fetch するだけで動かさない"
+            ok += 1
         if _rf is not None:
             ok += _selftest_rewrite(Path(td))
         # inventory: name = 最初の `*` 以降の最初の path 要素 (= 親 dir 名 / file 名の両形)
@@ -1017,6 +1085,9 @@ def main():
     ap.add_argument("--repos-root", default=None,
                     help="この dir の直下の全 repo に pre-push stub を置き、 repo ごとの事実 (HEAD・見ている upstream) を記録する "
                          "(履歴を書き換えた repo の追従を、 最新を知る machine の reader が判定するための点呼)")
+    ap.add_argument("--repos-follow", action="store_true",
+                    help="--repos-root の全 repo を毎 beat fetch し、 書き換えられた履歴に揃えられる clone を揃える "
+                         "(session を開かない machine でも追従する)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -1030,7 +1101,7 @@ def main():
                    args.min_commit_interval_hours, args.rc_label_prefix,
                    args.cron_label_prefix, args.inventory, args.job_label_prefix,
                    [m.strip() for m in args.job_python_modules.split(",") if m.strip()],
-                   repos_root=args.repos_root)
+                   repos_root=args.repos_root, repos_follow=args.repos_follow)
         print(msg)
     except Exception as e:
         print(f"fail-open: {e}", file=sys.stderr)
