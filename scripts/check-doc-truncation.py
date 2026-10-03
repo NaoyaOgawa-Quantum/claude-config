@@ -58,10 +58,14 @@ config (yaml):
 from __future__ import annotations
 
 import argparse
+import datetime
+import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 def _yaml_safe_load(stream):  # yaml.safe_load と同じ結果を C 版 (libyaml) で返す = 約 10 倍速 (2026-09-23)
@@ -74,9 +78,15 @@ RESET_MARKER = "[truncation-ok]"
 # **黙って監視対象から外れる** = この script が防ごうとしている失敗そのもの。
 # `git cat-file --filters` は smudge filter を通すので、unlock 済なら平文で読める。
 _GITCRYPT = "\x00GITCRYPT"
-# 履歴の走査は 1 file あたり window 回の subprocess になる。file と HEAD が変わらなければ
-# 結果も変わらないので (repo HEAD, rel, size, mtime) を key に cache する。
+# 履歴の走査は 1 file あたり window 回の subprocess になる。 高水位は「その file を触った直近 window commit の列」
+# だけで決まる (blob は sha で不変、 working tree の中身は cur 側で毎回数える) ので、 その列
+# (git log -<window> --format=%H%x1f%s -- <file>) の hash を key に cache する。 旧 key (repo HEAD + size + mtime) は
+# repo のどこかに 1 commit 入るたびに全 target が外れ、 毎回 全履歴を歩き直していた (実測: 200 target で 50 秒超、
+# entry は 2 万件 / 2 MB まで肥大 = prune が無かった)。 保存時に、 同じ file の古い列の entry と KEEP_DAYS 使われなかった
+# entry を落とす。 書き込みは tmp + os.replace (= 並列の dashboard / runner に途中の中身を読ませない)。
 CACHE = Path.home() / ".local/state/claude-doc-truncation/high-water.json"
+CACHE_VERSION = 2            # 2: key = file の履歴の列、 entry = [base, sha, 最終使用日 (ordinal)]。 旧形式は読まず作り直す
+KEEP_DAYS = 60
 
 _MD_TABLE = re.compile(r"^\s*\|")
 _MD_SEP = re.compile(r"^\s*\|[\s:|-]+\|?\s*$")
@@ -118,10 +128,17 @@ def _blob(repo: Path, sha: str, rel: str) -> str:
     return "" if out.startswith(_GITCRYPT) else out
 
 
+def file_log(repo: Path, rel: str, window: int) -> str:
+    """その file を触った直近 window commit (sha + 件名)。 高水位の唯一の入力 = cache key の素。"""
+    return git(repo, "log", f"-{window}", "--format=%H%x1f%s", "--", rel)
+
+
 def high_water(repo: Path, rel: str, kind: str, window: int,
-               reset_sha: str = "") -> tuple[int, str]:
-    """reset_sha = commit 付き ack の sha。[truncation-ok] と同じく、その commit 以前を baseline から外す。"""
-    log = git(repo, "log", f"-{window}", "--format=%H%x1f%s", "--", rel)
+               reset_sha: str = "", log: "str | None" = None) -> tuple[int, str]:
+    """reset_sha = commit 付き ack の sha。[truncation-ok] と同じく、その commit 以前を baseline から外す。
+    log = file_log() の結果を渡せば git log を省く (audit は cache key のために先に取っている)。"""
+    if log is None:
+        log = file_log(repo, rel, window)
     best, best_sha = 0, ""
     for line in log.splitlines():
         if "\x1f" not in line:
@@ -141,18 +158,38 @@ def high_water(repo: Path, rel: str, kind: str, window: int,
 
 
 def _cache_load() -> dict:
+    """entries (key → [base, sha, 最終使用日])。 旧形式 (HEAD key の平らな dict) は読まない = 作り直す。"""
     try:
-        return json.loads(CACHE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _cache_save(c: dict) -> None:
-    try:
-        CACHE.parent.mkdir(parents=True, exist_ok=True)
-        CACHE.write_text(json.dumps(c), encoding="utf-8")
+        c = json.loads(CACHE.read_text(encoding="utf-8"))
+        if isinstance(c, dict) and c.get("v") == CACHE_VERSION and isinstance(c.get("entries"), dict):
+            return c["entries"]
     except Exception:
         pass
+    return {}
+
+
+def _cache_save(entries: dict) -> None:
+    try:
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE.with_name(f"{CACHE.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"v": CACHE_VERSION, "entries": entries}), encoding="utf-8")
+        os.replace(tmp, CACHE)
+    except Exception:
+        pass
+
+
+def _prune(entries: dict, current: dict, today: int) -> int:
+    """同じ file (prefix) の古い列の entry と、 KEEP_DAYS 使われなかった entry を落とす。 戻り値 = 落とした数。
+    current = 今回の run の prefix → key (別の config しか見ない target の entry は使用日で寿命を持つ)。"""
+    gone = 0
+    for k in list(entries):
+        prefix = k.rsplit("|", 1)[0]
+        v = entries[k]
+        used = v[2] if isinstance(v, list) and len(v) >= 3 and isinstance(v[2], int) else 0
+        if (prefix in current and current[prefix] != k) or today - used > KEEP_DAYS:
+            del entries[k]
+            gone += 1
+    return gone
 
 
 def audit(root: Path, config: dict, use_cache: bool = True) -> list[tuple]:
@@ -163,22 +200,33 @@ def audit(root: Path, config: dict, use_cache: bool = True) -> list[tuple]:
             for a in (config.get("acks") or []) if a.get("path") and a.get("reason")]
     out = []
     cache = _cache_load() if use_cache else {}
-    n0 = len(cache)
+    dirty = False
+    today = datetime.date.today().toordinal()
+    current: dict[str, str] = {}             # prefix (repo|rel|window|ack) → 今回の key。 保存時の prune に使う
     heads: dict[str, str] = {}
+    present = []
     for t in config.get("targets") or []:
         repo_name, rel = t.get("repo", ""), t.get("path", "")
-        kind = t.get("kind") or ("yaml" if rel.endswith((".yaml", ".yml")) else "md")
-        label = t.get("label", "")
         f = root / repo_name / rel
         if not f.exists():
             continue                             # fail-open (未 clone の機械)
+        present.append((t, repo_name, rel, f))
+    # 履歴の列は target ごとに 1 subprocess (触られることの少ない file は repo の履歴を全部歩く = 履歴の長い repo で 1 本 0.2 秒)。
+    # 読むだけなので並列に取る (結果の順序は target の宣言順のまま)。 実測: 200 target で直列 17 秒 → 8 並列 10 秒、 それ以上
+    # 増やしても縮まない (= 1 つの長い履歴の repo の walk が支配的)。 さらに縮めるなら repo ごとの 1 回の walk に
+    # まとめる手があるが、 merge commit の扱いで per-file の log と結果が変わりうるので入れていない (= 等価性を優先)
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        logs = list(ex.map(lambda x: file_log(root / x[1], x[2], window), present))
+    for (t, repo_name, rel, f), log in zip(present, logs):
+        kind = t.get("kind") or ("yaml" if rel.endswith((".yaml", ".yml")) else "md")
+        label = t.get("label", "")
         cur = count(f.read_text(encoding="utf-8", errors="replace"), kind)
         repo_path = root / repo_name
         full = f"{repo_name}/{rel}"
         # commit 付き ack = その commit までの削減だけを許す (baseline をそこで切る、監視は続く)
         commit_acks = [c for p, _, c in acks if len(c) >= 7 and p in full]
         ack_sha = commit_acks[0] if commit_acks else ""
-        if repo_name not in heads:
+        if ack_sha and repo_name not in heads:
             heads[repo_name] = git(repo_path, "rev-parse", "HEAD").strip()[:12]
         # commit 付き ack は、 その commit が今の履歴に在るときだけ基準を切れる。 rebase・履歴の書き換えで作り直された
         # 前の sha を書くと、 ack は在るのに黙って効かない (実測)。 同じ path に複数あると最初の 1 つだけが効く
@@ -191,19 +239,20 @@ def audit(root: Path, config: dict, use_cache: bool = True) -> list[tuple]:
         if len(commit_acks) > 1:
             out.append(("🟠", "ACK_DUPLICATE",
                         f"{full}: commit 付き ack が {len(commit_acks)} 件 = 最初の {commit_acks[0]} だけが効く。 1 件にまとめる"))
-        key = None
-        if use_cache:
-            try:
-                st = f.stat()
-                key = f"{repo_name}|{rel}|{heads[repo_name]}|{st.st_size}|{int(st.st_mtime)}|{window}|{ack_sha}"
-            except OSError:
-                key = None
-        if key and key in cache:
-            base, sha = cache[key]
+        prefix = f"{repo_name}|{rel}|{window}|{ack_sha}"
+        key = f"{prefix}|{hashlib.sha1(log.encode('utf-8', 'replace')).hexdigest()[:16]}"
+        current[prefix] = key
+        hit = cache.get(key) if use_cache else None
+        if isinstance(hit, list) and len(hit) >= 2:
+            base, sha = hit[0], hit[1]
+            if len(hit) < 3 or hit[2] != today:
+                cache[key] = [base, sha, today]
+                dirty = True
         else:
-            base, sha = high_water(repo_path, rel, kind, window, ack_sha)
-            if key:
-                cache[key] = [base, sha]
+            base, sha = high_water(repo_path, rel, kind, window, ack_sha, log=log)
+            if use_cache:
+                cache[key] = [base, sha, today]
+                dirty = True
         if not base:
             continue
         thresh = max(drop_min, int(base * drop_frac))
@@ -217,8 +266,11 @@ def audit(root: Path, config: dict, use_cache: bool = True) -> list[tuple]:
                     f"commit の最大 {base} 件 ({sha}) より {base - cur} 件少ない "
                     f"(閾値 {thresh})。意図的なら commit message に {RESET_MARKER}、"
                     f"過去分なら config の acks に理由と commit つきで"))
-    if use_cache and len(cache) != n0:
-        _cache_save(cache)
+    if use_cache:
+        if _prune(cache, current, today):
+            dirty = True
+        if dirty:
+            _cache_save(cache)
     return out
 
 
@@ -303,6 +355,43 @@ def selftest() -> int:
                     use_cache=False) == [])
         check("git-crypt: 暗号 blob を平文と誤認しない",
               count("\x00GITCRYPT\x00binary", "md") == 0)
+
+        # cache: key = file の履歴の列。 無関係な commit では外れず、 file を触る commit で入れ替わり、 古い entry は落ちる
+        global CACHE
+        saved_cache, CACHE = CACHE, root / "state" / "hw.json"
+        today = datetime.date.today().toordinal()
+        try:
+            r1 = audit(root, cfg)                              # cold = 計算して書く (led.md は上で checkout 済)
+            k1 = list(_cache_load())
+            (repo / "other.txt").write_text("x\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "other.txt"], check=False)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "unrelated"], check=False)
+            r2 = audit(root, cfg)
+            check("cache: 無関係な commit (HEAD が進む) では key が変わらず結果も同じ",
+                  len(k1) == 1 and k1 == list(_cache_load()) and r1 == r2)
+            doc.write_text(doc.read_text(encoding="utf-8") + "| extra | y |\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repo), "add", "led.md"], check=False)
+            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "grow"], check=False)
+            audit(root, cfg)
+            k3 = list(_cache_load())
+            check("cache: file を触る commit で key が入れ替わり、 同じ file の古い key は落ちる", len(k3) == 1 and k3 != k1)
+            ent = _cache_load()
+            ent["old|g.md|20||cafe0000cafe0000"] = [1, "x", today - KEEP_DAYS - 1]
+            ent["other|f.md|20||cafe0000cafe0000"] = [1, "x", today]
+            _cache_save(ent)
+            audit(root, cfg)
+            ent2 = _cache_load()
+            check("cache: KEEP_DAYS 使われなかった entry は落ち、 別の config の生きている entry は残る",
+                  "old|g.md|20||cafe0000cafe0000" not in ent2 and "other|f.md|20||cafe0000cafe0000" in ent2)
+            CACHE.write_text(json.dumps({"r|led.md|abc|1|2|20|": [30, "abc"]}), encoding="utf-8")   # 旧形式 (HEAD key)
+            check("cache: 旧形式の file は読まずに作り直す", _cache_load() == {})
+            audit(root, cfg)
+            check("cache: 書き込みは tmp + replace (tmp が残らない) で読み戻せる",
+                  not list(CACHE.parent.glob("*.tmp")) and len(_cache_load()) == 1)
+            check("cache: use_cache=False は読みも書きもしない",
+                  audit(root, cfg, use_cache=False) == audit(root, cfg) and len(_cache_load()) == 1)
+        finally:
+            CACHE = saved_cache
 
     print("\n" + ("✅ selftest PASS" if ok else "❌ selftest FAIL"))
     return 0 if ok else 1
