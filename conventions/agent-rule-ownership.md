@@ -150,6 +150,7 @@ CLI の session 検出・対応する transcript 表現・state の保存先の�
 5. 自分の編集権限・検査範囲・例外・検査の実装を変更する場合は、変更者と別の context または本人による検品を受ける。期待する verdict を渡さず、具体的な反例と通常操作への影響を確認させる。自己検査だけを独立検品と呼ばず、実行できなければ未検品と示す。隔離と受領の手順は [cold-eyes isolation](cold-eyes-isolation.md#sealed-sandbox) を使い、決定的な所見は受領側でも再現する。
 6. 修正後の最終候補で検査と裁定の記録を揃え、その候補だけを反映する。検品後に候補が変わったら、変更した範囲を追加検証し、古い候補への裁定・検品を転用しない。
 7. 配置・信頼・述語・実際の tool 呼び出しを別々に確かめる。規制を弱める本番変更を試験に使わず、架空の fixture で試す。結果を根拠と限界つきで正本または case 記録へ置き、入口には参照だけを残す。
+8. <a id="fix-then-commit-separately"></a>止まった理由を直す編集と commit を 1 つの Bash command に繋がない。 PreToolUse の guard は command を走らせる前の file を見るので、 同じ行に直す編集 (sed など) を書いても、 直す前の内容で同じ理由で止まる (実測)。 編集は Edit tool か別の command で先に済ませてから、 commit を単独で打つ。
 
 ## <a id="limits"></a>保証の境界
 
