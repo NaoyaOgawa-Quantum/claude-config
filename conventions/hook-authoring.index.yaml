@@ -73,6 +73,9 @@ sections:
   - id: bash32-case-in-command-substitution
     level: 3
     title: "`$(...)` の中の `case` のパターンは `(` を前置する (`-n` を通り、 実行時にだけ落ちる)"
+  - id: bash32-brace-expansion-in-cmdsub
+    level: 3
+    title: "`\"$(f \"...\")\"` の中の二重引用の文字列が brace 展開される (test の入力 JSON が黙って壊れる)"
   - id: bash32-vs-runtime-backtick-expansion
     level: 3
     title: "bash 3.2 parser bug と runtime backtick 展開を同じ事故にしない"
