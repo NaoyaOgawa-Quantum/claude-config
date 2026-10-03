@@ -212,7 +212,7 @@ build step を持たない runtime project (= 自作 MCP server、 CLI、 script
 
 ### <a id="node-modules-follow-lockfile"></a>merge しても各マシンの node_modules は追従しない (2026-10-03)
 
-依存の版上げ PR を merge / pull しても、 git が運ぶのは `package.json` と `package-lock.json` だけで、 各マシンの `node_modules` は最後に install した版のまま残る = lockfile の版と実際に動く版が黙ってずれる (検証した版が本番で動いていない)。 自作 stdio MCP server なら session 開始の bootstrap が、 lockfile と npm の hidden lockfile (`node_modules/.package-lock.json`) の版を突き合わせ、 ずれていれば `npm install` する ([`scripts/bootstrap-stdio-mcps.sh`](../scripts/bootstrap-stdio-mcps.sh)。 他 platform 用で入っていない package は数えない)。 registry に載らない dir (OAuth の consent だけの helper 等) は追従の射程外 = その dir の script を走らせる直前に `npm install`。
+依存の版上げ PR を merge / pull しても、 git が運ぶのは `package.json` と `package-lock.json` だけで、 各マシンの `node_modules` は最後に install した版のまま残る = lockfile の版と実際に動く版が黙ってずれる (検証した版が本番で動いていない)。 自作 stdio MCP server なら session 開始の bootstrap が、 lockfile と npm の hidden lockfile (`node_modules/.package-lock.json`) の版を突き合わせ、 ずれていれば `npm install` する ([`scripts/bootstrap-stdio-mcps.sh`](../scripts/bootstrap-stdio-mcps.sh)。 他 platform 用で入っていない package は数えない)。 無人で全マシンに入るので `--ignore-scripts` で入れ、 lockfile に install script を持つ package (`hasInstallScript`) があれば自動では入れず 1 行出して人の確認に回す (= 供給網の悪意ある postinstall を session 開始で全マシンに走らせない)。 registry に載らない dir (OAuth の consent だけの helper 等) は追従の射程外 = その dir の script を走らせる直前に `npm install`。
 
 ### <a id="requirement-floor-vs-python"></a>pip の「update X requirement」 は下限と一緒に Python の版の下限も上げることがある (2026-10-03)
 

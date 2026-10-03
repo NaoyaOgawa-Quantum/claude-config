@@ -130,6 +130,18 @@ if command -v python3 >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
   lock "$TMP/base/classroom" 182.0.0; rm -f "$TMP/base/classroom/node_modules/.package-lock.json"
   out="$(CLAUDE_BOOTSTRAP_MCP_LIST="$mock_list" CLAUDE_BOOTSTRAP_NO_ADD=1 bash "$SCRIPT" "$TMP/reg.txt" "$TMP/base")"
   [ -z "$out" ] && ok "unreadable hidden lockfile silent" || ng "unreadable hidden lockfile should be silent (got: $out)"
+
+  # T12: install script を持つ package があれば自動では入れず、 確認を促す 1 行
+  echo "=== T12: install script のある lockfile は自動 install しない ==="
+  printf '{"packages":{"":{"name":"x"},"node_modules/googleapis":{"version":"182.0.0"},"node_modules/evil":{"version":"1.0.0","hasInstallScript": true}}}' > "$TMP/base/classroom/package-lock.json"
+  hidden "$TMP/base/classroom" 176.0.0
+  out="$(CLAUDE_BOOTSTRAP_MCP_LIST="$mock_list" bash "$SCRIPT" "$TMP/reg.txt" "$TMP/base")"
+  case "$out" in
+    *"classroom-cis: node_modules が package-lock.json とずれているが、 install script"*) ok "install-script lockfile surfaces instead of installing" ;;
+    *) ng "install-script lockfile should surface (got: $out)" ;;
+  esac
+  got="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["packages"]["node_modules/googleapis"]["version"])' "$TMP/base/classroom/node_modules/.package-lock.json")"
+  [ "$got" = "176.0.0" ] && ok "node_modules untouched" || ng "node_modules should be untouched (got: $got)"
 else
   echo "  SKIP: python3 / npm が無い"
 fi
