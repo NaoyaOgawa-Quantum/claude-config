@@ -24,6 +24,14 @@
 
 commit は `git commit` で作る (pre-commit / prepare-commit-msg / commit-msg / post-commit がそのまま走る)。
 
+## 似た道具との使い分け
+
+- **本 script** = 手元の HEAD の上に commit する。 worktree を作らないので速く、 暗号化の repo でも checkout が要らない。
+  hook は手元の作業 tree で走る。 push は別に行う。
+- [`commit-from-origin-worktree.py`](commit-from-origin-worktree.py) = `origin/<branch>` から切った使い捨ての worktree で commit して push まで行う。
+  手元の index・作業 tree・未 push の commit に一切触れない。 手元に他の session の未 push の commit が居て、 それを巻き込んで
+  push したくない時はこちら (同じ file に相手の変更が混ざる時は、 その `--apply` に (old, new) の pair を渡す)。
+
 ## 使い方
 
     # 置換で指定 (親の版と作業 tree の両方に、 同じ置換を当てる)。 OLD / NEW は file で渡す (shell の引用の事故を避ける)
