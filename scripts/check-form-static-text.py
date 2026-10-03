@@ -1033,8 +1033,16 @@ def check_docx(template, pdf, filled=None) -> dict:
     text = "".join(page_texts(pdf))
     body = tpl["body"]
     if filled:
-        got = set(_docx_strings(filled)["body"])
-        body = [t for t in body if t in got]          # 案件で書き換えた段落 (= 記入欄) は除く
+        # 案件で書き換えた段落 (= 記入欄) は除く。 同じ字の段落が雛形に複数ある時 (日付の空欄が 4 つ、 など) は、
+        # 案件に残っている数だけを見出しに数える (集合で比べると、 一部だけ書き換えた時に書き換えた分まで「消えた見出し」 になる)
+        from collections import Counter
+        left = Counter(_docx_strings(filled)["body"])
+        kept = []
+        for t in body:
+            if left[t] > 0:
+                left[t] -= 1
+                kept.append(t)
+        body = kept
     missing, missing_labels = [], []
     for t in sorted(tpl["boxes"], key=len, reverse=True):
         text, ok = _consume(t, text)
@@ -1477,6 +1485,21 @@ def selftest() -> int:
     ok = rep["missing_total"] == 0 and rep["missing_labels_total"] == 1 and rep["targets"][0]["missing_labels"][0]["text"] == "見出しA"
     fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} docx: 本文の見出しの欠けは label: {rep['missing_labels_total']}")
+    # 同じ字の段落が雛形に複数あり、 案件がその一部だけを書き換えた: 残っている数だけを見出しに数える
+    dt2, df2 = os.path.join(d, "t2.docx"), os.path.join(d, "f2.docx")
+    _mk_docx(dt2, body=("空欄の日付", "空欄の日付", "空欄の日付", "見出しA"))
+    _mk_docx(df2, body=("記入した日付", "空欄の日付", "記入した別の日付", "見出しA"))
+    out = pdf("d3.pdf", [["枠の字", "記入した日付", "空欄の日付", "記入した別の日付", "見出しA", "頁の字"]])
+    rep = check_docx(dt2, out, filled=df2)
+    ok = rep["missing_labels_total"] == 0 and rep["targets"][0]["labels_checked"] == 2
+    fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} docx: 同じ字の段落の一部だけ書き換えた時、 書き換えた分を見出しに数えない: "
+          f"labels={rep['targets'][0]['labels_checked']} missing={rep['missing_labels_total']}")
+    out = pdf("d4.pdf", [["枠の字", "記入した日付", "記入した別の日付", "見出しA", "頁の字"]])
+    rep = check_docx(dt2, out, filled=df2)
+    ok = rep["missing_labels_total"] == 1 and rep["targets"][0]["missing_labels"][0]["text"] == "空欄の日付"
+    fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} docx: 同じ字の段落のうち、 案件に残っている 1 つが紙から消えたら拾う: {rep['missing_labels_total']}")
     print("ALL PASS" if not fails else f"{fails} FAIL")
     return 1 if fails else 0
 
