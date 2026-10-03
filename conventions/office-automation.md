@@ -3647,6 +3647,8 @@ origin: 実測 (autofit 表の docx 様式) — 変換を繰り返して (1)+(2)
 
 <a id="print-preflight-fidelity"></a>(2026-09-25 追記) preflight は **雛形との照合**も回す: 様式の生成道具 (formcase) が出力 PDF の宣言 (`PrintPages`) に雛形の path・対象・刷らない図形・素刷りを載せ、 `lp` の hook がそれを読んで [`check-form-static-text.py`](../scripts/check-form-static-text.py) を回す。 雛形の図形の字 (区分の枠・様式番号・㊞) が無ければ刷らせない (build と同じ判定)、 見出し・画像の減少は情報、 雛形がその機械に無ければ ⚪ (照合できない、 と言って通す = 別の機械で刷るとき)。 宣言の無い PDF は `--template-xlsx 雛形.xlsx --target 'sheet!A1:AH60'` で手で指定できる。 不変条件と層の全体 = [`form-case-pipeline.md#fidelity`](form-case-pipeline.md#fidelity)。
 
+<a id="print-preflight-admission"></a>preflight は、 PDF が**様式の案件の出力**なら、 その案件の道具に「今の関門で通るか」 を聞く (受け入れ)。 上の雛形との照合は「出力が自分で持つ宣言」 から引くので、 照合が入る前に作られた出力は宣言を持たず、 **検査を受けずに PASS になる** (実測: 欠けの分かっている世代の様式が、 修正の後に刷る段で通った)。 受け入れは file から案件の manifest を辿り、 前の版 (作り直しで置き換え済み)・今の関門に落ちる出力・元が作り直された派生物を止める。 派生物 (`--rasterize` / `--extract`) には元の file の path と sha256 (`origin`) が付き、 刷る版を作る段でも元が落ちるなら書かない。 formcase の出力だと宣言が言うのに照合の宣言も案件への道も無い PDF は止める。 案件の道具の所在 = 環境変数 `FORMCASE_CLI` (個人層の hook が渡す)、 無ければ PDF の上の dir の manifest の頭の案内行。 規約 = [`form-case-pipeline.md#regate`](form-case-pipeline.md#regate)。 頁が見つからない対象 (raster) を照合済みと言わないことも同じ変更で直した。
+
 **起源 (実測、 同じ 1 枚の様式の刷り直しが続いた)**: ① docx 様式が 2 頁にはみ出し (= [`docx-autofit-grid-overflow`](#docx-autofit-grid-overflow)) → ② 直したら PyMuPDF 追記文字が紙で文字化け (= [`pymupdf-builtin-font-print-mojibake`](#pymupdf-builtin-font-print-mojibake)) → ③ raster を gray で作って認印が黒 → ④ 電話番号が罫線に被る (= [`pdf-overlay-anchoring`](#pdf-overlay-anchoring))。 **どれも個別には既知の罠**で、 欠けていたのは「lp に渡す前に機械と目で確認する段」。 user が remote で紙を見られないと、 1 回の失敗 = 1 往復 + 紙 1 枚。
 
 **印刷前 gate (全部通してから `lp`)**:
@@ -3721,6 +3723,8 @@ origin: 実測 (autofit 表の docx 様式) — 変換を繰り返して (1)+(2)
 **機械 backstop**: 点呼行 + git log があれば「印刷日以降に source が変わった open task」 は機械検出できる (dashboard 統合の検出器を推奨)。 ただし検出器は点呼行に依存する = 規律 1 と機械は相補 (点呼行 pattern の一般則 = [`convention-design-principles.md §19 (= #rollcall-line-marker)`](../docs/convention-design-principles.md#rollcall-line-marker))。 印刷 preflight (= [`print-preflight`](#print-preflight)) が「刷る紙の品質」 gate なのに対し、 本節は「刷った紙の鮮度」 gate — 直交する別の関門。
 
 **検出器設計の実測知見 (= 偽陽性 2 class、 2026-08 live 検証)**: ① **同日 print↔fix は判定不能** — 「夕方に xlsx を再構築 → 直後に最終版を刷って提出」 が実運用の常態で、 commit 日 granularity の inclusive 比較は偽陽性の洪水になる → **strictly-after (翌日以降の修正のみ) に倒し、 同日の伝播は規律 2 (修正 turn の点呼) を床にする**。 ② **新規ファイル追加は印刷済みの紙を無効化しない** — 案件 dir には後から別書類の PDF が増える (宿泊証明書の事前印字等) → `git log --diff-filter=M` で**修正のみ**を見る (= source xlsx は常に in-place 修正されるので取りこぼさない)。
+
+<a id="printed-artifact-gate-staleness"></a>**鮮度の第 2 の軸 = 関門・規則の側が変わる**: 上の 3 点は「印刷後に digital の中身が変わった」 を見る。 もう 1 つ、 **中身は変わらないのに、 それを合格させた検査や規則が変わる**場合がある (生成道具の欠陥が見つかって直った / 記入の規則が変わった / 押印の運用が変わった)。 このとき刷った紙・送った PDF・手元の出力 file は 1 byte も変わらないので、 修正日と印刷日の比較には何も出ない。 見るのは「今の検査に通るか」 で、 生成道具が出力を今の関門に通し直す入口を持つこと ([`form-case-pipeline.md#regate`](form-case-pipeline.md#regate)) と、 刷る直前の受け入れ ([`#print-preflight-admission`](#print-preflight-admission)) がその軸を持つ。 検査や規則を直した turn に決めることは 2 つある: 既に窓口に出た分を出し直すか (人が決める) と、 手元・輸送中の同じ世代をもう使わせないこと (機械が止める)。 後者は前者の判断と独立に行う。
 
 ## <a id="unsealed-page-mail-submission"></a>押印の無いページは紙にしなくてよい — 提出・差し替えの経路は「押印の有無」 で分岐
 

@@ -14,6 +14,13 @@
                    file に宣言 (作った道具が書く) があればそれを読み、 提出でない頁 (説明書き・記載例・控え・マスタ・白紙)
                    が入っていれば 🔴。 宣言が無ければ見出しから推定し、 記載例・控え・注意事項・白紙に見える頁と、
                    宣言の無い 2 頁以上の file は 🔴 (= どの頁を出すかを --pages で決めてから刷る)。 頁の一覧を毎回出す
+  6. 雛形との照合: 宣言に fidelity (作った道具が書く) があれば、 雛形の図形の字が PDF に在るか (form-case-pipeline.md#fidelity)
+  7. 様式の案件の出力の受け入れ (form-case-pipeline.md#regate): PDF (または宣言の origin が指す元の file) が様式の案件
+                   (formcase の manifest) の出力なら、 その案件の CLI の ``admit`` に渡し、 **今の**関門で見直す。 前の issue の出力
+                   (作り直しで置き換え済み)・今の関門に落ちる出力・元が作り直された派生物は 🔴。 6. は宣言を持つ出力しか見ない
+                   (= 照合が入る前に作られた出力ほど検査が薄い) ので、 formcase の出力なのに fidelity の宣言が無く、 案件にも
+                   辿れない PDF は 🔴 (= 今の関門を通ったと言えない)。 CLI の所在 = 環境変数 FORMCASE_CLI、 無ければ PDF の上の
+                   dir の manifest の頭の案内行。 formcase の出力でない PDF には何も言わない
   ※ 2. は PyMuPDF 製に限らない: headless browser の print-to-PDF が書く Type3 font も非埋め込み扱いで FAIL になる (実測)
 
 オプション:
@@ -65,7 +72,7 @@ except ImportError:  # pragma: no cover
     sys.exit(2)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-from print_pages import ROLES, changed_pages, classify, parse_pages, problems, read_record, write_record  # noqa: E402
+from print_pages import ROLES, changed_pages, classify, file_origin, parse_pages, problems, read_record, write_record  # noqa: E402
 from seal_artifact import MARKER, copy_marker, mark_doc  # noqa: E402
 import printer_media  # noqa: E402
 
@@ -93,8 +100,9 @@ PAGE_FIX = ("→ 窓口に出す頁だけの file を作って刷る: pdf-print-
             "説明書き等に見える頁を残すなら --include-flagged '<理由>')")
 
 
-def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=None):
-    """return (findings:list[str], infos:list[str])。 fidelity = 雛形との照合の指定 (無ければ PDF の宣言から読む)。"""
+def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=None, env=None):
+    """return (findings:list[str], infos:list[str])。 fidelity = 雛形との照合の指定 (無ければ PDF の宣言から読む)。
+    env = 様式の案件の受け入れ (7.) が CLI の所在を読む環境 (既定 os.environ)。"""
     findings, infos = [], []
     doc = fitz.open(path)
     n = doc.page_count
@@ -160,6 +168,9 @@ def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=N
             f2, i2 = fidelity_check(path, fid)
             findings.extend(f2)
             infos.extend(i2)
+        f3, i3 = formcase_admission(path, rec, env=env, explicit_fidelity=bool(fidelity))
+        findings.extend(f3)
+        infos.extend(i3)
     return findings, infos
 
 
@@ -199,6 +210,9 @@ def fidelity_check(path, fid: dict) -> tuple:
         return findings, infos
     for t in rep.get("targets") or []:
         where = f"{str(t['sheet']).strip()}!{t['range']}" if rep.get("kind") != "docx" else "docx"
+        if rep.get("kind") != "docx" and "page" in t and t.get("page") is None and (t.get("checked") or t.get("labels_checked")):
+            infos.append(f"⚪ 雛形との照合 {where}: この範囲の頁が PDF に見つからない (raster・頁の抜き出し等) = 照合できていない")
+            continue
         if t["missing"]:
             ms = ", ".join(f"{m['name']}「{m['text'][:16]}」" for m in t["missing"][:4])
             findings.append(f"🔴 雛形の図形の字が無い {where}: {len(t['missing'])}/{t['checked']} — {ms} "
@@ -210,6 +224,98 @@ def fidelity_check(path, fid: dict) -> tuple:
             infos.append(f"⚠️ {where}: 素刷りより画像が少ない {b['images'][0]} → {b['images'][1]} (checkbox の箱・図)")
         if t.get("missing_labels"):
             infos.append(f"⚠️ {where}: 雛形の見出しが無い {len(t['missing_labels'])}/{t['labels_checked']}")
+    return findings, infos
+
+
+ADMIT_PREFIX = "🔴 様式の案件:"
+_CLI_HINT = re.compile(r"^#\s+python3\s+(\S+)\s+freeze\|", re.M)
+MANIFEST_NAME = "submission.yaml"
+
+
+def _formcase_cli(path, rec, env):
+    """様式の案件の instance CLI (formcase.py の shim) の所在。 環境変数 FORMCASE_CLI → PDF (と宣言の origin が指す元の file) の
+    上の dir に在る manifest の頭の案内行 (engine が書く 「python3 <cli> freeze|…」)。 無ければ None。"""
+    cli = (env.get("FORMCASE_CLI") or "").strip()
+    if cli:
+        cli = os.path.expanduser(cli)
+        return cli if os.path.isfile(cli) else None
+    starts = [os.path.abspath(path)]
+    org = ((rec or {}).get("origin") or {}).get("path")
+    if org:
+        starts.append(org)
+    for st in starts:
+        d = os.path.dirname(st)
+        for _ in range(4):
+            mf = os.path.join(d, MANIFEST_NAME)
+            if os.path.isfile(mf):
+                try:
+                    with open(mf, "rb") as fh:
+                        head = fh.read(2000).decode("utf-8", "replace")
+                except OSError:
+                    head = ""
+                m = _CLI_HINT.search(head)
+                if m:
+                    c = os.path.expanduser(m.group(1))
+                    if os.path.isfile(c):
+                        return c
+            nd = os.path.dirname(d)
+            if nd == d:
+                break
+            d = nd
+    return None
+
+
+def formcase_admission(path, rec=None, env=None, explicit_fidelity=False) -> tuple:
+    """7. 様式の案件 (formcase) の出力の受け入れ → (findings, infos)。 判定の実体 = 案件の CLI の ``admit`` (今の engine・spec・雛形で
+    見直す = 作った時の合格を持ち越さない)。 止めるのは admit が block と答えた時と、 formcase の出力なのに雛形との照合の宣言も
+    案件への道も無い時 (= 今の関門を通ったと言えない)。 CLI が走らない・照合できないだけなら ⚪ で通す (故障を違反にしない)。"""
+    import json
+    import subprocess
+
+    env = os.environ if env is None else env
+    findings, infos = [], []
+    if env.get("PRINT_PREFLIGHT_ADMIT") == "0":
+        return findings, infos
+    if rec is None:
+        try:
+            rec = read_record(fitz.open(path))
+        except Exception:  # noqa: BLE001
+            rec = None
+    rec = rec or {}
+    labelled = str(rec.get("src") or "").startswith("formcase")
+    declared = bool(rec.get("fidelity")) or explicit_fidelity
+    orphan = (f"{ADMIT_PREFIX} formcase の出力 (宣言 = {rec.get('src')}) だが、 雛形との照合の宣言を持たない世代で、 案件にも辿れない "
+              "= 今の関門を通ったと言えない。 案件 dir の中の今の出力を刷る / 作り直す (formcase.py reopen → build) / "
+              "雛形を渡して照合する (--template-xlsx)")
+    cli = _formcase_cli(path, rec, env)
+    if not cli:
+        if labelled and not declared:
+            findings.append(orphan)
+        return findings, infos
+    res = None
+    try:
+        r = subprocess.run([sys.executable, cli, "admit", os.path.abspath(path), "--json"],
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=300)
+        last = [x for x in r.stdout.splitlines() if x.strip().startswith("{")]
+        res = json.loads(last[-1]) if last and r.returncode in (0, 1, 3) else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        res = None
+    if not isinstance(res, dict) or res.get("status") not in ("ok", "block", "unknown", "not-formcase"):
+        infos.append("⚪ 様式の案件の受け入れが走らなかった (formcase admit の出力を読めない) = 今の関門では見ていない")
+        if labelled and not declared:
+            findings.append(orphan)
+        return findings, infos
+    lines = [str(x) for x in res.get("lines") or []]
+    if res["status"] == "block":
+        head = next((x for x in lines if x.startswith("🔴")), "🔴 今の関門に落ちる")
+        findings.append(f"{ADMIT_PREFIX} " + head[1:].strip())
+        findings.extend("   " + x.strip() for x in lines if x is not head)
+    elif res["status"] == "unknown":
+        infos.extend(lines)
+        if labelled and not declared:
+            findings.append(orphan)
+    else:
+        infos.extend(lines)
     return findings, infos
 
 
@@ -288,8 +394,12 @@ def write_selected(src, out, sel, raster, dpi=600, src_label="", include_flagged
         dropped.append({"from": k, "role": role, "label": label[:40]})
     src_name = os.path.basename(src)
     by = src_label or f"pdf-print-preflight --pages {','.join(map(str, sel))} ({src_name})"
+    # 派生物の元 (origin) を書く = 刷る直前の gate が元の file の検査を引ける。 元も派生物ならその origin を引き継ぐ。
+    # 雛形との照合の宣言 (fidelity) は字の残る vector 版にだけ写す (raster は字が無く照合できない = 元で照合する)
+    origin = (rec or {}).get("origin") or file_origin(src)
     write_record(o, [{"role": "submit", "label": lb} for lb in labels], by, dropped=dropped,
-                 include_flagged=include_flagged)
+                 include_flagged=include_flagged, origin=origin,
+                 fidelity=None if raster else (rec or {}).get("fidelity"))
     o.save(out, garbage=3, deflate=True)
     return out
 
@@ -303,7 +413,8 @@ def rasterize(src, out, dpi=600, fit=None):
     copy_marker(doc, o)  # 紙専用の印 (lib/seal_artifact.py) を raster 版へ引き継ぐ (印影が画素に焼かれて見分けられなくなるため)
     rec = read_record(doc)
     if rec is not None and len(rec["pages"]) == doc.page_count:
-        write_record(o, rec["pages"], rec.get("src", ""), rec.get("dropped"), rec.get("include_flagged"))
+        write_record(o, rec["pages"], rec.get("src", ""), rec.get("dropped"), rec.get("include_flagged"),
+                     origin=rec.get("origin") or file_origin(src))
     o.save(out, deflate=True)
     return out
 
@@ -464,8 +575,75 @@ def selftest():
         fit_size("no-such-paper"); raise AssertionError("unknown paper accepted")
     except ValueError:
         pass
+    # P: 様式の案件の出力の受け入れ (7.) — 案件の CLI (admit) の答えで止める / formcase の出力でない PDF には何も言わない /
+    #    formcase の宣言はあるのに雛形との照合の宣言が無く案件にも辿れない PDF (照合が入る前の世代) は止める / CLI の故障は違反にしない
+    def fake_cli(name, status, lines, rc, raw=None):
+        p = os.path.join(d, name)
+        with open(p, "w", encoding="utf-8") as fh:
+            if raw is not None:
+                fh.write(f"import sys\nprint({raw!r})\nsys.exit({rc})\n")
+            else:
+                fh.write("import json, sys\n"
+                         f"print(json.dumps({{'status': {status!r}, 'lines': {lines!r}}}, ensure_ascii=False))\nsys.exit({rc})\n")
+        return p
+
+    def relabel(name, src, fidelity=None):
+        p = os.path.join(d, name); doc = fitz.open(two)      # two = 提出 2 頁の raster (font の 🔴 が出ない)
+        write_record(doc, [{"role": "submit", "label": "様式"}] * 2, src, fidelity=fidelity)
+        doc.save(p); return p
+    old_gen = relabel("old_gen.pdf", "formcase fx/g1")                       # 宣言はあるが fidelity が無い = 照合が入る前の世代
+    new_gen = relabel("new_gen.pdf", "formcase fx/g1", {"template": os.path.join(d, "no_such.xlsx"), "targets": [], "drop": [], "blank": None})
+    plain = relabel("plain.pdf", "selftest")                                 # formcase の出力でない
+    rc, msg = hook(ev(f"lp -d Q {old_gen}"), env=E)
+    assert rc == 2 and ADMIT_PREFIX in msg and "宣言を持たない世代" in msg and "formcase.py reopen" in msg, (rc, msg)
+    assert hook(ev(f"lp -d Q {new_gen}"), env=E)[0] == 0 and hook(ev(f"lp -d Q {plain}"), env=E)[0] == 0
+    assert hook(ev(f"lp -d Q {old_gen}"), env={**E, "PRINT_PREFLIGHT_ADMIT": "0"})[0] == 0
+    blk = fake_cli("cli_block.py", "block", ["🔴 案件 d1/g1: 前の issue の出力 = reopen で置き換え済みの旧版。 今の版 = x_r2.pdf"], 1)
+    okc = fake_cli("cli_ok.py", "ok", ["✅ 案件 d1/g1 (printed): 今の関門を通る"], 0)
+    unk = fake_cli("cli_unknown.py", "unknown", ["⚪ どの案件の出力か辿れない"], 3)
+    nfc = fake_cli("cli_nf.py", "not-formcase", [], 0)
+    brk = fake_cli("cli_broken.py", None, None, 5, raw="Traceback (most recent call last): boom")
+    rc, msg = hook(ev(f"lp -d Q {plain}"), env={**E, "FORMCASE_CLI": blk})
+    assert rc == 2 and ADMIT_PREFIX in msg and "前の issue の出力" in msg and "今の版 = x_r2.pdf" in msg, (rc, msg)
+    assert hook(ev(f"lp -d Q {old_gen}"), env={**E, "FORMCASE_CLI": okc})[0] == 0      # 案件が「通る」 と答えれば世代は問わない
+    assert hook(ev(f"lp -d Q {plain}"), env={**E, "FORMCASE_CLI": nfc})[0] == 0
+    assert hook(ev(f"lp -d Q {plain}"), env={**E, "FORMCASE_CLI": unk})[0] == 0        # 照合できないだけ = 止めない
+    assert hook(ev(f"lp -d Q {old_gen}"), env={**E, "FORMCASE_CLI": unk})[0] == 2      # 旧世代で照合もできない = 止める
+    assert hook(ev(f"lp -d Q {plain}"), env={**E, "FORMCASE_CLI": brk})[0] == 0        # CLI の故障を違反にしない
+    assert hook(ev(f"lp -d Q {old_gen}"), env={**E, "FORMCASE_CLI": brk})[0] == 2
+    fi = formcase_admission(plain, env={"FORMCASE_CLI": brk})
+    assert not fi[0] and any("受け入れが走らなかった" in x for x in fi[1]), fi
+    # 案件 dir の manifest の頭の案内行から CLI を見つける (環境変数が無い時)
+    case = os.path.join(d, "repo", "docs", "2026-01-01-case"); os.makedirs(case)
+    with open(os.path.join(case, MANIFEST_NAME), "w", encoding="utf-8") as fh:
+        fh.write(f"# formcase manifest (schema formcase/1)。 状態を変えるときは手で書き換えず\n#   python3 {blk} freeze|annotate|reopen|status …\nschema: formcase/1\n")
+    inside = os.path.join(case, "out.pdf"); fitz.open(plain).save(inside)
+    assert _formcase_cli(inside, None, {}) == blk and _formcase_cli(plain, None, {}) is None
+    assert any(x.startswith(ADMIT_PREFIX) for x in inspect(inside, env={})[0])
+    # 派生物 (raster・頁の抜き出し) は元の file (origin) を宣言に持ち、 派生の派生も最初の元を指す。 origin から案件の CLI を辿れる
+    der = os.path.join(d, "der.pdf"); write_selected(inside, der, [1], raster=True, dpi=36)
+    r1 = read_record(fitz.open(der))
+    assert r1["origin"]["path"] == os.path.abspath(inside) and len(r1["origin"]["sha256"]) == 64, r1
+    der2 = os.path.join(d, "der2.pdf"); rasterize(der, der2, dpi=36)
+    assert read_record(fitz.open(der2))["origin"]["path"] == os.path.abspath(inside)
+    assert _formcase_cli(der2, read_record(fitz.open(der2)), {}) == blk
+    assert hook(ev(f"lp -d Q {der2}"), env=E)[0] == 2
+    # raster にしても直らない 🔴 (雛形との照合・様式の案件) だけが「刷る版を作らない」 の理由になる (font の 🔴 は raster が直す)
+    assert _is_blocker(["🔴 printer で化けうる font が 1 個残っている", f"{ADMIT_PREFIX} x", "🔴 雛形の図形の字が無い y"]) == [
+        f"{ADMIT_PREFIX} x", "🔴 雛形の図形の字が無い y"]
+    assert _source_blockers(inside) and not _source_blockers(plain)
+    # 雛形との照合で頁が見つからなかった対象 (raster 等) を ✓ と言わない
+    try:
+        none_checker = os.path.join(d, "none-checker.py")
+        with open(none_checker, "w", encoding="utf-8") as fh:
+            fh.write('print(\'{"targets": [{"sheet": "様式", "range": "A1:J20", "page": null, "missing": [], "checked": 2, "labels_checked": 0}]}\')\n')
+        globals()["STATIC_TEXT"] = none_checker
+        _f, i_none = fidelity_check(ok_pdf, {"template": tpl, "targets": ["様式!A1:J20"]})
+        assert any("照合できていない" in x for x in i_none) and not any("✓" in x for x in i_none), i_none
+    finally:
+        globals()["STATIC_TEXT"] = checker
     printer_media._selftest()
-    print("pdf-print-preflight selftest: 15/15 PASS (printer_media 含む)")
+    print("pdf-print-preflight selftest: 16/16 PASS (printer_media 含む)")
 
 
 HOOK_LP = re.compile(r"(^|[;&|\s])lpr?\s")
@@ -596,7 +774,7 @@ def hook(payload: dict, env=None, printer_check=None) -> tuple:
             continue
         seen.add(path)
         try:
-            findings, infos = inspect(path)
+            findings, infos = inspect(path, env=env)
             sizes |= pdf_sizes(path)
         except Exception as e:  # noqa: BLE001 - 読めない PDF は止めずに知らせない (fail-open、 lp 側が失敗を出す)
             print(f"pdf-print-preflight --hook: {path} を読めない ({type(e).__name__})", file=sys.stderr)
@@ -617,7 +795,7 @@ def hook(payload: dict, env=None, printer_check=None) -> tuple:
             "正本: conventions/office-automation.md#printer-media-ipp",
         ])
     msg = "\n".join([
-        "[print-preflight] 印刷前 preflight FAIL — この PDF はそのまま lp に渡さない (文字化け / 窓口に出さない頁 / どの頁を出すかの宣言なし):",
+        "[print-preflight] 印刷前 preflight FAIL — この PDF はそのまま lp に渡さない (文字化け / 窓口に出さない頁 / どの頁を出すかの宣言なし / 様式の案件の出力が今の関門に落ちる):",
         *fails, "",
         "対処 (直してから lp を打ち直す):",
         "  - 頁: 窓口に出す頁だけの file を作る = pdf-print-preflight.py <元の PDF> --extract <刷る.pdf> --pages <頁>",
@@ -628,6 +806,9 @@ def hook(payload: dict, env=None, printer_check=None) -> tuple:
         "        RGB 600dpi raster 版を作って刷る (認印は RGB でしか朱が残らない)。 ⚠️ font の ✓ は「既知の壊れ方が",
         "        無い」 であって RIP が全 glyph を出す保証ではない = 正しく subset 埋め込みされた CM Type1 でも",
         "        laser queue が記号 (slash・Greek) を落とした実測がある。 化けは 1 部目の現物でしか分からない。",
+        "  - 様式の案件: 前の issue の出力 = 今の issue の出力 (上の行に名前) を刷る。 今の関門に落ちる出力 = formcase.py reopen → build で",
+        "        作り直す (作った後に検査が強くなった出力は、 作った時の合格を持ち越さない)。 そのまま出すと人が決めたなら、 その言葉を",
+        "        formcase.py annotate --gate-waiver に記録する (規約 = conventions/form-case-pipeline.md#regate)。",
         "  - 刷る頁の一覧 (上) を user に 1 行で伝えてから刷る。 crop 目視 + remote の user には全頁 PNG。",
         "正本: conventions/office-automation.md#print-preflight / #print-submission-pages-only",
     ])
@@ -684,6 +865,24 @@ def main():
     return rc
 
 
+def _is_blocker(findings) -> list:
+    """raster にしても直らない 🔴 (雛形との照合・様式の案件の受け入れ)。 font の 🔴 は raster が直すので含めない。"""
+    return [f for f in findings if f.startswith(ADMIT_PREFIX) or f.startswith("🔴 雛形の図形の字が無い")]
+
+
+def _source_blockers(path) -> list:
+    """--pages で刷る版を作る前に、 元の PDF の雛形との照合と様式の案件の受け入れだけを見る (頁・font は作った版で見る)。"""
+    try:
+        rec = read_record(fitz.open(path))
+    except Exception:  # noqa: BLE001
+        return []
+    out = []
+    if rec and rec.get("fidelity"):
+        out += fidelity_check(path, rec["fidelity"])[0]
+    out += formcase_admission(path, rec)[0]
+    return _is_blocker(out) + [f for f in out if f.startswith("   ")]
+
+
 def run_checks(a, ap):
     """--printer 以外の CLI の検査 (頁・font・用紙の寸法・書き出し) → exit code。"""
     if a.rasterize and a.extract:
@@ -725,6 +924,12 @@ def run_checks(a, ap):
             print("  🔴 窓口に出さない頁に見える頁を選んでいる: " + ", ".join(flagged))
             print("  ✗ 書かない。 --pages から外す。 本当に窓口に出す (or 読むために刷る) なら --include-flagged '<理由>'")
             return 1
+        sf = _source_blockers(a.pdf)
+        if sf:
+            for f in sf:
+                print(" ", f)
+            print("  ✗ 書かない (元の PDF が雛形との照合・様式の案件の受け入れに落ちる = 刷る版を作らない)")
+            return 1
         write_selected(a.pdf, out, sel, raster=bool(a.rasterize), dpi=a.dpi, include_flagged=a.include_flagged, fit=fit)
         kind = f"raster 版 ({a.dpi} dpi RGB)" if a.rasterize else "vector 版"
         print(f"  ✅ {kind}: {out} ({os.path.getsize(out)//1024} KB、 元の {src_doc.page_count} 頁から "
@@ -743,6 +948,9 @@ def run_checks(a, ap):
     for f in findings:
         print(" ", f)
     if a.rasterize:
+        if _is_blocker(findings):
+            print("  ✗ raster 版を書かない (元の PDF が雛形との照合・様式の案件の受け入れに落ちる = 刷る版を作らない)")
+            return 1
         out = rasterize(a.pdf, a.rasterize, a.dpi, fit=fit)
         print(f"  ✅ raster 版: {out} ({os.path.getsize(out)//1024} KB, {a.dpi} dpi RGB) — 印刷はこちらを lp に渡す")
         of, _ = inspect(out, a.expect_pages, a.template)

@@ -254,6 +254,17 @@ def main() -> None:
 
     if not args.no_marker:
         mark_doc(doc)
+    # The input's page declaration (PrintPages) is kept by saving the same document. Add the input's location (origin)
+    # to it, so that the gate before printing/attaching can trace this derived file back to the output it came from
+    # and re-check that output against the current gates (conventions/form-case-pipeline.md#regate).
+    try:
+        from print_pages import file_origin, read_record, write_record
+        rec = read_record(doc)
+        if rec is not None and len(rec["pages"]) == doc.page_count and not rec.get("origin"):
+            write_record(doc, rec["pages"], rec.get("src", ""), rec.get("dropped"), rec.get("include_flagged"),
+                         fidelity=rec.get("fidelity"), origin=file_origin(args.pdf))
+    except Exception as e:  # noqa: BLE001 - provenance is best-effort; the overlay itself must not fail on it
+        print(f"note: could not record the origin of {args.pdf}: {type(e).__name__}", file=sys.stderr)
     doc.save(args.out)
     doc.close()
 

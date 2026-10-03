@@ -17,8 +17,16 @@ instance (どの repo の / どの様式の案件か) は設定 file (formcase.c
                                --paper same|differs|unverified [--paper-diff T] [--paper-basis T] [--paper-commit H] [--date-ack T]
                                                           (printed/sent/submitted は --paper 必須、 differs/unverified は --paper-diff 必須)
     python3 formcase.py annotate CASE DOC GROUP [--issue current|previous[N]] [--paper …] [--paper-diff T] [--paper-basis T]
-                               [--paper-commit H] [--date-ack T] [--note T]   記録と紙の関係・日付不明の確認済み・note を後から注記 (digest は触らない)
+                               [--paper-commit H] [--date-ack T] [--note T] [--gate-waiver T]
+                                                          記録と紙の関係・日付不明の確認済み・note を後から注記 (digest は触らない)。
+                                                          --gate-waiver = 今の関門に落ちる出力をそのまま出すと決めた人の言葉 (空文字で消す)
     python3 formcase.py reopen CASE DOC GROUP --reason T [--date D]
+    python3 formcase.py regate [CASE ...|--all] [--scope pre|current|all] [--excel] [--no-cache] [--json]
+                                                          今ある出力を今の関門 (雛形との照合) に通し直す。 窓口より手前
+                                                          (draft / printed / sent / unknown) の出力が落ちれば 🔴 (exit 1)、
+                                                          提出済みが落ちるのは 📄 (出し直すかは人が決める)。 既定の scope = pre
+    python3 formcase.py admit FILE.pdf [--json]           刷る・添付する直前の 1 file の受け入れ (前の issue の出力・今の関門に落ちる
+                                                          出力 = exit 1、 formcase の出力でない = exit 0 で何も言わない、 照合できない = exit 3)
     python3 formcase.py normalize CASE DOC                 workbook を Excel で開いて保存するだけ (freeze の前提 = Mac Excel の保存形)
     python3 formcase.py guard --staged [--repo PATH]       pre-commit 用 (凍結出力・凍結 sheet の staged 変更を BLOCK)
     python3 formcase.py rules [ID ...]                     spec の規則 (id / summary / 経緯) を表示
@@ -26,7 +34,7 @@ instance (どの repo の / どの様式の案件か) は設定 file (formcase.c
     python3 formcase.py lint [--staged]                    process doc の規則の書き写し + 案件 README の状態の書き写しを検出
                                                           (--staged = pre-commit 用: stage した案件 README / submission.yaml の案件だけ、
                                                            README の generated view の鮮度も見る。 exit 1 = BLOCK)
-    python3 formcase.py audit                              check --all --quiet + views --check + lint (発火面用)
+    python3 formcase.py audit                              check --all --quiet + views --check + lint + regate (発火面用)
     python3 formcase.py --selftest
 
 CASE = submission.yaml のある dir。 --all = 設定の case_roots の下の全 manifest。
@@ -44,21 +52,12 @@ from formcase import config as CF  # noqa: E402
 from formcase import guard as G  # noqa: E402
 from formcase import lifecycle as L  # noqa: E402
 from formcase import manifest as M  # noqa: E402
+from formcase import regate as RG  # noqa: E402
 
 
 def discover(roots=None) -> list:
     """設定の case_roots の下の案件 dir (= submission.yaml のある dir)。 root 直下の case_root_skip は見ない。"""
-    out = []
-    skip = CF.case_root_skip()
-    for r in roots if roots is not None else CF.case_roots():
-        r = Path(r)
-        if not r.is_dir():
-            continue
-        for p in sorted(r.glob("**/" + M.MANIFEST_NAME)):
-            if p.relative_to(r).parts[:1] and p.relative_to(r).parts[0] in skip:
-                continue
-            out.append(p.parent)
-    return out
+    return RG.discover(roots)
 
 
 def case_label(case: Path) -> str:
@@ -123,22 +122,38 @@ def cmd_freeze(args) -> int:
           + (f"docx digest)" if cur['frozen'].get('docx_digest') else f"sheet {len(cur['frozen'].get('sheet_digest') or {})})") + (f" paper={cur['paper']}" if cur.get("paper") else ""))
     if M.paper_line(cur):
         print(f"   {M.paper_line(cur)}")
+    _regate_note(args.case, args.doc, args.group)
     return 0
+
+
+def _regate_note(case, doc_id, group_id) -> None:
+    """freeze の後に、 凍結した出力を今の関門に通した結果を出す (記録は止めない = 刷った・送った事実は残す。
+    落ちる出力を刷った・送ったなら、 その場で分かるようにする)。 走らなくても freeze は成功のまま。"""
+    try:
+        m = M.load(case)
+        rows = [r for r in RG.sweep(m, "current") if r["doc"] == doc_id and r["group"] == group_id]
+    except Exception as e:  # noqa: BLE001  照合の故障で freeze を失敗にしない
+        print(f"   ⚪ 今の関門との照合が走らなかった ({type(e).__name__}: {e})")
+        return
+    bad = [r for r in rows if r["verdict"] == RG.FAIL]
+    if bad:
+        print(f"   🔴 この issue の出力は今の関門に落ちる: {', '.join(r['file'] for r in bad)} — {RG._short(bad[0]['reason'], 120)}")
+        print("      = 作った後に関門が変わった出力。 窓口に出す前に formcase.py reopen → build で作り直す (formcase.py regate で一覧)")
 
 
 def cmd_annotate(args) -> int:
     if (args.paper is None and not (args.paper_diff or args.paper_basis or args.paper_commit) and args.date_ack is None
-            and args.outputs_ack is None and args.note is None):
-        print("🔴 annotate に書くものが無い (--paper … / --date-ack … / --outputs-ack … / --note …)", file=sys.stderr)
+            and args.outputs_ack is None and args.note is None and args.gate_waiver is None):
+        print("🔴 annotate に書くものが無い (--paper … / --date-ack … / --outputs-ack … / --note … / --gate-waiver …)", file=sys.stderr)
         return 2
     m = M.load(args.case)
     it = L.annotate(m, args.doc, args.group, args.issue, paper=args.paper, paper_diff=args.paper_diff,
                     paper_basis=args.paper_basis, paper_commit=args.paper_commit, date_ack=args.date_ack,
-                    outputs_ack=args.outputs_ack, note=args.note)
+                    outputs_ack=args.outputs_ack, note=args.note, gate_waiver=args.gate_waiver)
     m.save()
     _refresh(args.case)
     print(f"📝 {args.doc}/{args.group} {args.issue or 'current'} ({it.get('state')} {it.get('date', '')}): "
-          + ", ".join(f"{k}={it[k]!r}" for k in ("paper", "paper_commit", "date_ack", "outputs_ack", "note") if k in it))
+          + ", ".join(f"{k}={it[k]!r}" for k in ("paper", "paper_commit", "date_ack", "outputs_ack", "note", "gate_waiver") if k in it))
     if M.paper_line(it):
         print(f"   {M.paper_line(it)}")
     return 0
@@ -159,6 +174,88 @@ def _refresh(case) -> None:
     line = V.refresh_case(Path(case).resolve())
     if line:
         print(line)
+
+
+MARK = {RG.PASS: "✅", RG.FAIL: "🔴", RG.NA: "⚪"}
+
+
+def cmd_regate(args) -> int:
+    """今ある出力を今の関門に通し直す (form-case-pipeline.md#regate)。 exit 1 = 窓口より手前の出力が落ちる (waiver なし)。"""
+    import json
+
+    bad = False
+    out = []
+    for case in _cases(args):
+        label = case_label(case)
+        try:
+            m = M.load(case)
+        except M.Locked:
+            print(f"── {label}: SKIP (git-crypt locked = 未検査)")
+            continue
+        except M.ManifestError as e:
+            print(f"── {label}\n   🔴 {e}")
+            bad = True
+            continue
+        rows = RG.sweep(m, args.scope, excel=args.excel, use_cache=not args.no_cache)
+        for r in rows:
+            r["case"] = label
+        out += rows
+        if args.json:
+            continue
+        shown = [r for r in rows if not (args.quiet and r["verdict"] != RG.FAIL)]
+        if not shown:
+            continue
+        print(f"── {label}")
+        for r in shown:
+            pre = r["stage"] == "pre"
+            mark = MARK[r["verdict"]]
+            if r["verdict"] == RG.FAIL and (not pre or r["waiver"]):
+                mark = "📄"
+            tail = ""
+            if r["verdict"] == RG.FAIL:
+                tail = " — " + RG._short(r["reason"], 90)
+                if pre and r["waiver"]:
+                    tail += f" (そのまま出すと決めた記録: {r['waiver']})"
+                elif pre:
+                    tail += " → 刷る・渡す・出す前に reopen → build"
+                elif r["stage"] == "submitted":
+                    tail += " (提出済み = 出し直すかは人が決める)"
+                else:
+                    tail += " (前の issue = 使わない)"
+            elif r["verdict"] == RG.NA:
+                tail = " — " + RG._clip(r["reason"], 90)
+            elif r.get("partial"):
+                tail = " (素刷りなし = 画像・箱は見ていない)"
+            print(f"   {mark} {r['doc']}/{r['group']} {r['issue']} {r['state']} {r['date']} {r['role']}={r['file']}{tail}")
+            if args.verbose and r["verdict"] == RG.FAIL:
+                for x in r["lines"]:
+                    if x.startswith("🔴"):
+                        print(f"        {x}")
+    pre_bad = [r for r in out if r["stage"] == "pre" and r["verdict"] == RG.FAIL and not r["waiver"]]
+    if args.json:
+        print(json.dumps([{k: v for k, v in r.items() if k != "cached"} for r in out], ensure_ascii=False, indent=1))
+    else:
+        sub = [r for r in out if r["stage"] == "submitted" and r["verdict"] == RG.FAIL]
+        print(f"regate: 窓口より手前で落ちる出力 {len(pre_bad)} 本 / 提出済みで落ちる出力 {len(sub)} 本 / 照合できない "
+              f"{sum(1 for r in out if r['verdict'] == RG.NA)} 本 / 通る {sum(1 for r in out if r['verdict'] == RG.PASS)} 本 "
+              f"(scope = {args.scope})")
+    return 1 if (bad or pre_bad) else 0
+
+
+def cmd_admit(args) -> int:
+    """刷る・添付する直前の 1 file の受け入れ。 exit 0 = 通す (formcase の出力でない場合も) / 1 = 止める / 3 = 照合できない。"""
+    import json
+
+    try:
+        res = RG.admit(args.file, excel=args.excel)
+    except Exception as e:  # noqa: BLE001  故障を違反と同じ終了値にしない (呼び元は 3 を「検査が走っていない」 と読む)
+        res = {"status": RG.UNKNOWN, "lines": [f"⚪ formcase admit の内部エラー: {type(e).__name__}: {e}"]}
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False))
+    else:
+        for x in res["lines"]:
+            print(x)
+    return {RG.OK: 0, RG.NOT_FORMCASE: 0, RG.BLOCK: 1}.get(res["status"], 3)
 
 
 def cmd_guard(args) -> int:
@@ -477,8 +574,30 @@ def cmd_audit(args) -> int:
     for p in probs:
         print(f"🔴 {p}")
     rc |= 1 if probs else 0
+    print("── formcase regate (窓口より手前の出力を今の関門に通す、 form-case-pipeline.md #regate)")
+    rc |= _audit_regate()
     if rc == 0:
         print("✅ formcase audit: 問題なし")
+    return rc
+
+
+def _audit_regate() -> int:
+    """窓口より手前 (draft / printed / sent / unknown) の出力を今の関門に通す。 落ちる出力 = 🔴 (rc 1)。 照合が走らない案件は ⚪ で通す
+    (故障を違反と同じにしない)。 提出済みで落ちる出力は件数だけ (一覧 = formcase.py regate --all --scope current)。"""
+    rc = 0
+    for case in discover():
+        label = case_label(case)
+        try:
+            m = M.load(case)
+            fs = RG.findings(m)
+        except M.Locked:
+            continue
+        except Exception as e:  # noqa: BLE001
+            print(f"   ⚪ {label}: 今の関門との照合が走らなかった ({type(e).__name__}: {e})")
+            continue
+        for lv, where, msg in fs:
+            print(f"   {lv} {label} {where}: {msg}")
+            rc |= 1 if lv == M.FAIL else 0
     return rc
 
 
@@ -511,9 +630,24 @@ def main(argv=None) -> int:
         if q is not p:
             q.add_argument("--outputs-ack", help="凍結 issue に出力 file の記録が無いことを確かめた記録 (どこを探したか)")
             q.add_argument("--note", help="issue の note を置き換える (draft も可。 状態の説明は README でなくここ)")
+            q.add_argument("--gate-waiver", help="今の関門に落ちる出力をそのまま出すと決めた人の言葉 (regate の 🔴 が 📄 になる。 空文字で消す)")
     p = sub.add_parser("reopen")
     p.add_argument("case"); p.add_argument("doc"); p.add_argument("group")
     p.add_argument("--reason", required=True); p.add_argument("--date")
+    p = sub.add_parser("regate", help="今ある出力を今の関門 (雛形との照合) に通し直す")
+    p.add_argument("cases", nargs="*")
+    p.add_argument("--all", action="store_true")
+    p.add_argument("--scope", choices=("pre", "current", "all"), default="pre",
+                   help="pre = 窓口より手前の今の issue (既定) / current = 今の issue 全部 / all = 前の issue も")
+    p.add_argument("--excel", action="store_true", help="素刷りの cache が無ければ Excel で作る (既定は cache だけ)")
+    p.add_argument("--no-cache", action="store_true", help="判定の cache を使わない")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--quiet", action="store_true", help="落ちる出力だけ出す")
+    p.add_argument("--verbose", action="store_true", help="落ちた行の内訳 (欠けた図形の字など) も出す")
+    p = sub.add_parser("admit", help="刷る・添付する直前の 1 file の受け入れ")
+    p.add_argument("file")
+    p.add_argument("--excel", action="store_true")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("guard")
     p.add_argument("--staged", action="store_true", required=True)
     p.add_argument("--repo")
@@ -565,7 +699,7 @@ def main(argv=None) -> int:
                 "reopen": cmd_reopen, "annotate": cmd_annotate, "guard": cmd_guard, "rules": cmd_rules,
                 "views": cmd_views, "lint": cmd_lint, "audit": cmd_audit,
                 "new": cmd_new, "add-group": cmd_add_group, "build": cmd_build, "markers": cmd_markers,
-                "normalize": cmd_normalize, "bind": cmd_bind}[args.cmd](args)
+                "normalize": cmd_normalize, "bind": cmd_bind, "regate": cmd_regate, "admit": cmd_admit}[args.cmd](args)
     except M.ManifestError as e:
         print(f"🔴 {e}", file=sys.stderr)
         return 2

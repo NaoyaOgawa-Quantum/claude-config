@@ -155,7 +155,7 @@ def freeze(m: M.Manifest, doc_id: str, group_id: str, state: str, date: str | No
     return cur
 
 
-HEAD_KEYS = ("state", "issue", "date", "date_ack", "outputs", "outputs_ack", "commit", "evidence") + PAPER_FIELDS
+HEAD_KEYS = ("state", "issue", "date", "date_ack", "outputs", "outputs_ack", "commit", "evidence") + PAPER_FIELDS + ("gate_waiver",)
 TAIL_KEYS = ("note", "reopened", "log", "frozen")
 
 
@@ -190,8 +190,10 @@ def issue_ref(g: dict, issue: str | None) -> dict:
 
 def annotate(m: M.Manifest, doc_id: str, group_id: str, issue: str | None = None, paper: str | None = None,
              paper_diff: str | None = None, paper_basis: str | None = None, paper_commit: str | None = None,
-             date_ack: str | None = None, outputs_ack: str | None = None, note: str | None = None) -> dict:
+             date_ack: str | None = None, outputs_ack: str | None = None, note: str | None = None,
+             gate_waiver: str | None = None) -> dict:
     """凍結 issue に「記録と紙の関係」「日付不明の確認済み」「出力 file が記録に無いことの確認済み」 を書く。
+    gate_waiver = 今の関門に落ちる出力をそのまま出すと決めた人の言葉 (regate.py。 空文字で消す)。 reopen した新しい issue には持ち越さない。
     note = issue の note を置き換える (draft も可。 状態の説明の置き場 = README に状態を書かない)。
     sha256 / sheet_digest / state / date は触らない (= 後から分かった事実の注記。 freeze を打ち直すと digest を今の
     tree で取り直してしまうので使わない)。"""
@@ -219,6 +221,11 @@ def annotate(m: M.Manifest, doc_id: str, group_id: str, issue: str | None = None
             it["note"] = note.strip()
         else:
             it.pop("note", None)
+    if gate_waiver is not None:
+        if gate_waiver.strip():
+            it["gate_waiver"] = f"{_today()} {gate_waiver.strip()}"
+        else:
+            it.pop("gate_waiver", None)
     _place(it)
     return it
 
