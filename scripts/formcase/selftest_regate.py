@@ -261,6 +261,13 @@ def run_regate_tests(tmp: Path, inst: Path, expect) -> None:
         rc_bad, out_bad = run_cli(["regate", str(case)])
         expect("CLI regate: 窓口より手前の出力が全部通れば exit 0 / 落ちる出力が在れば exit 1 + 🔴 の行と直し方",
                rc_clean == 0 and rc_bad == 1 and "🔴" in out_bad and "reopen → build" in out_bad, (rc_clean, rc_bad, out_bad[-300:]))
+        buf_a = io.StringIO()
+        with contextlib.redirect_stdout(buf_a):
+            rg = cli._audit_regate()
+        expect("audit: regate の段は窓口より手前で落ちる出力を 🔴 で出す。 終了値は記録の 🔴 = 1 / regate だけ = 4 / 両方 = 1 / 無し = 0",
+               rg == 1 and "🔴" in buf_a.getvalue() and "g1.pdf" in buf_a.getvalue()
+               and (cli.audit_exit(0, 1), cli.audit_exit(1, 0), cli.audit_exit(1, 1), cli.audit_exit(0, 0)) == (4, 1, 1, 0),
+               (rg, buf_a.getvalue()[-200:]))
 
         # --- 記入内容 gate: 窓口より手前の凍結 issue は、 今の spec の gate を免除しない (提出済みは裁かない) ------------
         cfg = CF.cfg()
