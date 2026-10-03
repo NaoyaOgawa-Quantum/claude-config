@@ -214,6 +214,7 @@ origin: 印刷の gate hook の test で、 無効化の env switch を立てた
 
 - Stop / SessionStart hook は、 同じ機械の全 session で毎 turn 裏で走る。 engine が tempdir の lock・state dir・cache のような machine-global な資源を使うとき、 test が同じ資源を使うと、 **本番の run と重なった回だけ落ちる** (engine は lock を見て黙って退き、 test は「写っていない」 で落ちる)。 単独で何度回しても通るので flaky に見える ([`debugging-discipline.md#flaky-is-a-symptom`](debugging-discipline.md#flaky-is-a-symptom) の (d) 資源)
 - 対策: `.test.sh` の冒頭で `export TMPDIR="$TMP"` とし、 state dir の env も使い捨ての dir に向ける。 engine の `--selftest` も `tempfile.tempdir` を selftest 用の dir に差し替える。 確かめ方 = 本番の lock を手で作った状態で test を回し、 緑になること
+- **hook が人や別の process に向けて書く出力 file も同じ資源** (session の冒頭に読む一覧、 通知の見張りが読む file): 書き先を test で差し替えないと、 test が走るたびに fixture の行が本物を上書きする (実測: 一覧の file が test の 1 行になり、 次の定時の書き直しまでそのまま読まれていた)。 対策 = 共通の test helper が、 書き先の env が未指定なら test の一時 dir に向ける (test が自分で向けていればそれを使う)。 回帰の検査 = 「出力 file を書く hook の test が、 書き先を指定するか helper を読み込んでいるか」 を静的に見る test を 1 本置く (新しい hook の test が helper を使わずに書かれても落ちる)
 - lock の書き方: **取れずに退く判定を `try:` の中に置かない** — `finally:` の unlink が他の run の lock を消し、 次の起動と 2 本が並走する。 退く判定は `try` の前に置き、 取得は `os.open(..., O_CREAT | O_EXCL)` で行う (実装例 = [`scripts/sync-built-pdfs.py`](../scripts/sync-built-pdfs.py) の `take_lock`)
 
 ### <a id="hook-cost-per-item"></a>§0 補足 12: hook の処理時間を入力の件数に比例させない — 件ごとに外部 process を呼ばない
