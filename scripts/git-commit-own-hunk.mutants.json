@@ -1,0 +1,74 @@
+{
+  "_comment": "git-commit-own-hunk.py の selftest の foil に歯があることを、 修正の一部を外した mutant 5 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。 各 mutant は docstring の「穴」 1〜5 の塞ぎを 1 つずつ外す。",
+  "target": "git-commit-own-hunk.py",
+  "run": "python3 {} --selftest",
+  "fail_marker": "FAIL ",
+  "pass_marker": "PASS ",
+  "mutants": [
+    {
+      "name": "commit の直後の親の照合と ref の巻き戻しを外す (穴 1 = HEAD が動いた後の commit が相手の commit の中身を戻す)",
+      "pairs": [
+        ["        if parents[:1] != [parent] or not touched <= set(built):", "        if False:"]
+      ],
+      "expect_fail": [
+        "HEAD が動いても相手の commit の中身が残る"
+      ],
+      "expect_pass": [
+        "自分の分だけが commit に入る",
+        "blob は path の clean filter を通る"
+      ]
+    },
+    {
+      "name": "commit する blob を作る時に --path を外す (穴 2 = clean filter が掛からず、 暗号化の path に平文が入る)",
+      "pairs": [
+        ["            blob = out(top, \"hash-object\", \"-w\", \"--path\", path, \"--stdin\", inp=mine).decode().strip()\n            out(top, \"update-index\", \"--add\", \"--cacheinfo\", f\"{mode},{blob},{path}\", env=env)\n        if out(top, \"rev-parse\", \"HEAD\").decode().strip() != parent:",
+         "            blob = out(top, \"hash-object\", \"-w\", \"--stdin\", inp=mine).decode().strip()\n            out(top, \"update-index\", \"--add\", \"--cacheinfo\", f\"{mode},{blob},{path}\", env=env)\n        if out(top, \"rev-parse\", \"HEAD\").decode().strip() != parent:"]
+      ],
+      "expect_fail": [
+        "blob は path の clean filter を通る"
+      ],
+      "expect_pass": [
+        "自分の分だけが commit に入る",
+        "実行 file の mode (100755) が落ちない"
+      ]
+    },
+    {
+      "name": "mode を 100644 に決め打ち (穴 3 = 実行権限が落ちる)",
+      "pairs": [
+        ["    mode = line.split()[0]\n", "    mode = '100644'\n"]
+      ],
+      "expect_fail": [
+        "実行 file の mode (100755) が落ちない"
+      ],
+      "expect_pass": [
+        "自分の分だけが commit に入る"
+      ]
+    },
+    {
+      "name": "commit の後に実 index を揃えない (穴 4 = 自分の commit を取り消す変更が stage 済みになる)",
+      "pairs": [
+        ["        out(top, \"reset\", \"-q\", \"--\", *built)\n", ""]
+      ],
+      "expect_fail": [
+        "実 index は新しい HEAD に揃う"
+      ],
+      "expect_pass": [
+        "自分の分だけが commit に入る"
+      ]
+    },
+    {
+      "name": "commit の前に作業 tree へ書く (穴 5 = 関門に止められた時に自分の変更が作業 tree に残る)",
+      "pairs": [
+        ["        state, val = commit_once(top, parent, built, msg_file, first=(attempt == 1))\n",
+         "        apply_worktree(top, specs)\n        state, val = commit_once(top, parent, built, msg_file, first=(attempt == 1))\n"]
+      ],
+      "expect_fail": [
+        "関門が止めたら作業 tree は 1 byte も変わらない"
+      ],
+      "expect_pass": [
+        "関門が止めたら終了値 1、 HEAD は動かない",
+        "blob は path の clean filter を通る"
+      ]
+    }
+  ]
+}
