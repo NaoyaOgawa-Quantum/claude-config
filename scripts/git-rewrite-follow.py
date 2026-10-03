@@ -118,6 +118,10 @@ def cmd_guard(a):
         ok, msgs = RF.guard_stdin(a.repo, lines, a.map, remote=remote, fetch=not a.no_fetch)
     except Exception as exc:  # 検査の失敗は違反と同じ値で返さない (3 = 走らなかった。 stub は 1 行出して通す)
         print(f"rewrite-follow guard: 検査できなかった ({type(exc).__name__}: {str(exc)[:120]})", file=sys.stderr)
+        try:
+            RF.log_event("guard-error", a.repo, type(exc).__name__)   # 止めずに通す出来事を、 他の machine から読める記録に残す
+        except Exception:
+            pass
         return 3
     for m in msgs:
         print(m, file=sys.stderr)
