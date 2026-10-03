@@ -21,7 +21,8 @@ Codex で default branch へ送る `HEAD:<branch>` refspec の execution-permiss
 
 - `--copy SRC:DST` (複数可) = SRC の中身を worktree の DST (repo 相対) に置く。 SRC は scratchpad でも live の
   tree でもよいが、 **file 全体が自分の変更であるときだけ**使う (相手の hunk が混ざった live の file を写すと、
-  相手の未 commit 変更を公開する。 その場合は正本の hash-object 手順)。
+  相手の未 commit 変更を公開する。 その場合は `--apply` に pair を渡すか、 手元の HEAD に commit するなら
+  [`git-commit-own-hunk.py`](git-commit-own-hunk.py) = 一時 index の手順の道具)。
   既定では、 DST の live HEAD 版と origin 版が違う (= upstream が変えた / live の未 push commit が触った) と拒否する
   (丸ごと置換は前者を黙って巻き戻し、 後者を公開する)。 `--apply` で origin 版に編集をやり直すか、 意図した置換なら
   `--allow-overwrite`。
