@@ -1,9 +1,12 @@
 """書き換えられた (force-push された) 履歴に手元の clone を **中身で** 揃え、 古い世代の commit / blob の push を止める共有部品。
 
-使い手 = scripts/git-rewrite-follow.py (CLI: follow / sweep / guard / ensure-prepush / status)、
+使い手 = scripts/git-rewrite-follow.py (CLI: follow / sweep / guard / guard-head / audit / forbidden / facts /
+ensure-prepush / status / map)、
 scripts/repo-sync-sweep.sh (session 開始の同期 engine: diverged の repo にだけ呼ぶ)、
-scripts/fleet-heartbeat.py (毎時の無人 commit+push: rebase の前に forced update を見る)。
-判定をここ 1 か所に置き、 3 者が同じ述語で話す。 直接実行 = selftest (fixture 6 種 + guard)。
+scripts/fleet-heartbeat.py (毎時の無人 commit+push: rebase の前に forced update を見る + 全 repo に pre-push stub を置き、
+repo ごとの事実を点呼の材料として載せる)。
+判定をここ 1 か所に置き、 呼び手が同じ述語で話す。 直接実行 = selftest (fixture: 書き換え 2 種 + manifest なしの書き換え +
+通常の分岐 + guard + stub を通した本物の push + audit + 点呼)。
 
 なぜ在るか (実測 2026-09-29): 履歴を書き換えた repo の追従 script が、 書き換えられる側の repo (個人層) の中に
 在った。 その repo 自身を書き換えると、 古い履歴の Mac は追従 script を pull できず、 毎時の無人 job は
@@ -19,6 +22,18 @@ scripts/fleet-heartbeat.py (毎時の無人 commit+push: rebase の前に forced
       blob で当たる)。
   I4  読むのは fetch 済みの remote-tracking ref (`<remote>/<branch>:<path>`) = worktree の pull 状態に依らない
       (conventions/hook-authoring.md#parallel-hooks-no-ordering)。
+  I5  push の検査は、 知らせが届いているかに依らない (実測: 書き換えの知らせを別の経路で配ると、 届く前の clone は
+      「する事が無い」 と区別がつかない)。 判定の材料は 2 つとも push の時点で手元に在る:
+      (a) **remote の今の先頭** = git が pre-push に渡す remote 側の sha。 手元の remote-tracking ref と違う / 手元に
+          無い object なら、 判定の前に fetch する (= 追従前の clone からの `push --force` も、 manifest を読んでから判定)。
+      (b) **この clone 自身の記憶** = remote-tracking ref の reflog。 過去に remote に在って今はどの ref からも届かない
+          commit (forced update で捨てられた履歴) と、 そこにしか無い tree・blob を、 manifest が無くても拒む
+          (discarded_objects。 書き換えの直後で manifest がまだ置かれていない窓と、 manifest を置かない書き換えを覆う。
+          reflog の entry が expire する 30 日より後は manifest が網)。
+  I6  commit 側: HEAD が捨てられた履歴の commit の上にある clone では commit を始めさせない (head_violations。
+      pre-commit の段が呼ぶ = 追従前の clone で仕事を積ませない)。
+  I7  remote 側の検出: upstream (と remote の他の branch) に対応表の旧 sha / forbidden の object が戻っていないかを
+      読む (audit_repo。 hook を持たない clone・host 上の merge から戻った分は、 ここでしか分からない)。
 
 追従の判定 (follow_repo):
   0. upstream が無い / detached / merge・rebase 進行中 → 触らない。 HEAD が upstream の祖先 (= behind か同じ) →
@@ -32,6 +47,10 @@ scripts/fleet-heartbeat.py (毎時の無人 commit+push: rebase の前に forced
      1 commit 1 回の rev-list で済む)。
   3. **volatile を除いた tree の一致**: ignore-paths が宣言されていれば、 その path を除いた署名で 2 と同じ比較
      (無人 job の commit が古い履歴の上に載っている Mac)。
+  2 と 3 で探すのは、 HEAD と upstream の共通の祖先 **より後** の upstream の commit だけ (実測: 共通の祖先までの
+  commit と tree が一致するのは、 手元の未 push の commit が古い状態へ戻しただけの時 = revert。 それを「upstream に
+  同じ中身が在る」 と読むと、 書き換えの無い通常の分岐で未 push の revert を黙って捨てる)。 共通の祖先から HEAD までの
+  差分が volatile path だけなら、 tree を探すまでもなく揃える (how = volatile-only)。
   4. どれも当たらない → 止まる (未 push の中身がある。 中身を確かめてから人が揃える)。
   揃えた後、 旧 sha を持つ手元の他 branch を名指しする (消さない = push しないよう知らせるだけ)。
 
@@ -43,6 +62,14 @@ manifest (`<repo>/.rewrite-follow/`、 repo 自身が運ぶ。 読むのは upst
   ignore-paths      volatile な path (1 行 1 つ、 dir は末尾 `/`、 `#` 以降は注釈)。 書き換えの **前** に通常 commit で置く
   commit-map*       filter-repo が出す `old new` (先頭に `old new` の見出し行があってもよい)。 書き換えの **後** に置く
   forbidden-blobs*  旧世代にしか無い blob の sha1 (書き換えで消した平文の版)。 pre-push が push 範囲の object と突合する
+                    (tree の sha も置ける = 消した file 名は tree に在る。 作り方 = forbidden_from_local / CLI forbidden)
+manifest は reflog の記憶 (I5 b) が消えた後と、 旧履歴を見たことのない clone のための網。 書き換えの直後は manifest が
+まだ無くても I5 が効くが、 置くまでが書き換えの 1 単位 (実測: 対応表だけを置き forbidden を置かなかった repo では、 消した
+中身を新しい sha で運ぶ push 〔rebase・cherry-pick〕 が manifest の網を通った)。
+
+点呼 (repo_facts / judge_fact): 各 machine は判定せず事実 (HEAD・見ている upstream) だけを載せ、 最新を fetch した machine が
+判定する。 「追従した」 という報告を集めても、 報告の無い machine は「追従の必要が無い」 と区別がつかない (実測) = 分母
+(全 machine × 書き換えた repo) を読む側が持つ。
 """
 from __future__ import annotations
 
@@ -141,6 +168,15 @@ def upstream_manifest_files(repo, upstream):
         body = git(repo, "show", f"{upstream}:{p}", check=False)
         files[name] = body
     return files
+
+
+def manifest_tree(repo, upstream):
+    """upstream の .rewrite-follow/ の tree の sha ('' = manifest 無し)。 中身を読まずに「在るか」「変わったか」 を 1 回の
+    git 呼び出しで答える (全 repo を回る sweep が、 manifest の無い repo で file を読みに行かないため)。"""
+    if not upstream:
+        return ""
+    out = git(repo, "rev-parse", "--verify", "-q", f"{upstream}:{MANIFEST_DIR}", check=False).strip()
+    return out if _SHA_RE.match(out) else ""
 
 
 def parse_ignore_paths(text):
@@ -356,8 +392,16 @@ def _find_target(repo, head, upstream, gen, max_count):
             if rev(repo, new) and is_ancestor(repo, new, up_sha):
                 return new, ("map" if a == head else "map+volatile")
             break
-    # 2. tree の一致 / 3. volatile を除いた tree の一致
-    lines = git(repo, "rev-list", f"--max-count={max_count}", "--format=%H %T", up_sha).splitlines()
+    # 共通の祖先 (無ければ '' = 根から書き換えられた)。 ここまでは手元と upstream が同じ履歴 = ここから先だけが「相手にしか無い」
+    mb = git(repo, "merge-base", head, up_sha, check=False).splitlines()
+    mb = mb[0] if mb and _SHA_RE.match(mb[0]) else ""
+    # 1.5 共通の祖先から HEAD までの差分が volatile path だけ = 手元にしか無い中身は無い (無人 job の commit だけ)
+    if mb and gen.ignore and diff_only_ignored(repo, mb, head, gen.ignore):
+        return up_sha, "volatile-only"
+    # 2. tree の一致 / 3. volatile を除いた tree の一致。 探すのは共通の祖先より後の upstream の commit だけ
+    #    (共通の祖先までの commit との一致は、 手元の未 push の commit が古い状態へ戻しただけ = 揃えると黙って捨てる)
+    rl = ["rev-list", f"--max-count={max_count}", "--format=%H %T", up_sha] + (["^" + mb] if mb else [])
+    lines = git(repo, *rl).splitlines()
     pairs = [l.split() for l in lines if not l.startswith("commit ")]
     head_tree = git(repo, "rev-parse", head + "^{tree}")
     for c, t in pairs:
@@ -369,6 +413,30 @@ def _find_target(repo, head, upstream, gen, max_count):
             if tree_signature(repo, t, gen.ignore) == want:
                 return c, "tree-ignoring-volatile"
     return None, None
+
+
+def _replay_hint(repo, head, upstream, gen):
+    """止まった時に添える 1 文: 手元だけの commit を新しい履歴へ載せ直す command (分かる時だけ)。
+    土台 A = HEAD の祖先のうち、 かつて remote に在った最後の commit (対応表の旧 sha か、 reflog から求めた fork point)。
+    `rebase --onto <upstream> A` は A より後の commit だけを運ぶ = 古い履歴は合流しない (`rebase <upstream>` と違う)。"""
+    try:
+        base = ""
+        for a in git(repo, "rev-list", "--first-parent", f"--max-count={MAP_WALK}", head).splitlines()[1:]:
+            new = gen.chase(a)
+            if new != a and rev(repo, new) and is_ancestor(repo, new, upstream):
+                base = a
+                break
+        if not base:
+            fp = git(repo, "merge-base", "--fork-point", "refs/remotes/" + upstream, head, check=False).strip()
+            if _SHA_RE.match(fp) and fp != head and not is_ancestor(repo, fp, upstream):
+                base = fp
+        if not base:
+            return ""
+        n = git(repo, "rev-list", "--count", f"{base}..{head}", check=False).strip() or "?"
+        return (f"。 手元だけの commit は {n} 個 ({base[:7]} より後)。 中身に消したものが無ければ、 それだけを載せ直す:"
+                f" git -C {repo} rebase --onto {upstream} {base[:12]}")
+    except (RuntimeError, subprocess.TimeoutExpired, OSError):
+        return ""
 
 
 def old_branches(repo, gen, upstream, current_branch):
@@ -415,10 +483,11 @@ def follow_repo(repo, cli_globs=(), fetch=True, max_count=DEFAULT_MAX, dry_run=F
     if not target:
         if forced_update_seen(repo, upstream) or gen.maps or gen.forbidden:
             # 書き換えの痕跡がある (fetch が forced-update を記録した / upstream が対応表を運ぶ) = 揃えられない理由は手元だけの中身
+            hint = _replay_hint(repo, head, upstream, gen)
             return Result("stopped",
                           f"{name}: upstream ({upstream}) は書き換えられ、 手元の HEAD ({head[:7]}) と同じ中身の commit が新しい履歴に無い"
-                          f" = 手元にしか無い commit がある。 中身を確かめてから人が揃える (git pull / merge / rebase はしない"
-                          f" = 古い履歴が合流して消した中身が push で戻る)", exit_code=1)
+                          f" = 手元にしか無い commit がある。 中身を確かめてから人が揃える (git pull / merge / rebase {upstream} はしない"
+                          f" = 古い履歴が合流して消した中身が push で戻る)" + hint, exit_code=1)
         # 痕跡が無い = 通常の分岐 (手元の commit + upstream の前進)。 追従の仕事ではない = 呼び元の従来の扱いに返す
         return Result("diverged", f"{name}: upstream ({upstream}) と分岐 (書き換えの痕跡は無い = 通常の分岐、 手で解決)", exit_code=1)
     branch = git(repo, "symbolic-ref", "--short", "-q", "HEAD", check=False)
@@ -428,9 +497,14 @@ def follow_repo(repo, cli_globs=(), fetch=True, max_count=DEFAULT_MAX, dry_run=F
     if not git_ok(repo, "reset", "-q", "--keep", up_sha):
         return Result("stopped", f"{name}: reset --keep が止まった (未 commit の変更が書き換えで変わった file に重なる) = 手で揃える"
                                  f" (git status で file を見て、 退避してから再実行)", exit_code=1)
-    res = Result("followed",
-                 f"{name}: 書き換えられた履歴に追従した (手元の HEAD {head[:7]} → 新履歴の {target[:7]} 〔{how}〕、 {branch or 'HEAD'} = {up_sha[:7]})",
-                 how=how, target=target)
+    if how == "volatile-only" and not (forced_update_seen(repo, upstream) or gen.maps or gen.forbidden):
+        # 書き換えではない: 手元にだけ在った commit は無人 job の書く path の差分だけ → upstream に揃えた、 と事実のとおりに言う
+        line = (f"{name}: 手元にだけ在った commit は volatile な path の差分だけ = upstream に揃えた"
+                f" (手元の HEAD {head[:7]} → {branch or 'HEAD'} = {up_sha[:7]})")
+    else:
+        line = (f"{name}: 書き換えられた履歴に追従した (手元の HEAD {head[:7]} → 新履歴の {target[:7]} 〔{how}〕、"
+                f" {branch or 'HEAD'} = {up_sha[:7]})")
+    res = Result("followed", line, how=how, target=target)
     olds = old_branches(repo, gen, upstream, branch)
     if olds:
         res.extra.append(f"  ⚠️ {name}: 古い履歴の commit を持つ手元 branch = {' '.join(olds)} (push しない。 要らなければ人が消す)")
@@ -449,9 +523,33 @@ def _log(line):
         pass
 
 
-def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False, prepush=True):
-    """root/*/ の repo を順に。 (Result, prepush line) の list。"""
+STUB_ALL_ENV = "GIT_REWRITE_FOLLOW_STUB_ALL"   # "1" = sweep が manifest の無い repo にも stub を置く (既定は manifest のある repo だけ)
+
+
+def ensure_prepush_all(root):
+    """root/*/ の upstream のある全 repo に pre-push stub を置く / 更新する (書き換えの **前から** 全 clone に在る状態にする)。
+    foreign な pre-push と、 hook が track されている repo は触らない。 (置いた・更新した repo 名の list, 置けなかった行の list)。
+    無人の定期 job が毎回呼ぶ = session を開かない machine にも届く。"""
+    placed, failed = [], []
+    for gd in sorted(globmod.glob(os.path.join(str(root), "*", ".git"))):
+        repo = Path(gd).parent
+        try:
+            if ensure_prepush(repo, only_with_manifest=False, quiet_foreign=True):
+                placed.append(repo.name)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+            failed.append(f"{repo.name}: pre-push stub を置けなかった ({str(exc)[:100]})")
+    return placed, failed
+
+
+def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False, prepush=True, audit=True, stub_all=None):
+    """root/*/ の repo を順に。 (Result, prepush line) の list。
+    - pre-push stub は manifest のある repo に置く。 stub_all=True (か env GIT_REWRITE_FOLLOW_STUB_ALL=1) なら upstream のある
+      全 repo に置き、 manifest の無い repo の分は 1 件ずつ言わず末尾の 1 行にまとめる (初回は repo の数だけ出るため)。
+    - manifest のある repo は remote 側も読む (audit_repo): 消した世代が戻っていれば stopped の行として返す。"""
     out = []
+    if stub_all is None:
+        stub_all = os.environ.get(STUB_ALL_ENV, "0") == "1"
+    quiet = []
     for gd in sorted(globmod.glob(os.path.join(str(root), "*", ".git"))):
         repo = Path(gd).parent
         try:
@@ -459,26 +557,177 @@ def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False,
         except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
             r = Result("stopped", f"{repo.name}: 追従の判定で失敗 ({type(exc).__name__}: {str(exc)[:120]})", exit_code=1)
         pl = ""
-        if prepush and r.state != "skipped":
+        has_manifest = False
+        if r.state != "skipped":
             try:
-                pl = ensure_prepush(repo, only_with_manifest=True)
+                has_manifest = bool(manifest_tree(repo, upstream_of(repo)))
+            except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                has_manifest = False
+        if prepush and r.state != "skipped" and not dry_run:
+            try:
+                if has_manifest:
+                    pl = ensure_prepush(repo, only_with_manifest=True)
+                elif stub_all:
+                    if ensure_prepush(repo, only_with_manifest=False, quiet_foreign=True):
+                        quiet.append(repo.name)
             except (RuntimeError, OSError) as exc:
                 pl = f"{repo.name}: pre-push stub を置けなかった ({str(exc)[:100]})"
         out.append((r, pl))
+        if audit and has_manifest:
+            try:
+                for line in audit_repo(repo, cli_globs):
+                    out.append((Result("stopped", line, exit_code=1), ""))
+            except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                pass
+    if quiet:
+        eg = "、 ".join(quiet[:3]) + (" ほか" if len(quiet) > 3 else "")
+        out.append((Result("skipped"), f"古い世代の push を止める pre-push stub を {len(quiet)} repo に置いた / 更新した"
+                                        f" (書き換えの前から全 clone に置く。 {eg})"))
     return out
+
+
+# ---------------------------------------------------------------- discarded history (この clone 自身の記憶)
+
+REMOVED_CACHE = "rewrite-follow-removed"      # <git common dir>/ の下。 捨てられた履歴にしか無い object の一覧の cache
+REMOVED_CACHE_KEEP = 4
+AUDIT_CACHE = "rewrite-follow-audit.json"     # <git common dir>/ の下。 audit_repo が最後に見た ref の状態と結果
+GUARD_HEADLINE = "push を止めた"               # pre-push stub がこの見出しで「違反」 と「検査の故障」 を見分ける
+HEAD_HEADLINE = "[rewrite-follow] BLOCK"      # pre-commit の段が同じ用途で見る
+
+
+def _common_dir(repo):
+    gd = Path(git(repo, "rev-parse", "--git-common-dir"))
+    return gd if gd.is_absolute() else Path(repo) / gd
+
+
+def _has(repo, sha, typ="commit"):
+    return bool(sha) and git_ok(repo, "cat-file", "-e", f"{sha}^{{{typ}}}")
+
+
+def _existing_commits(repo, shas):
+    """shas のうち、 手元に commit として在るもの (gc 済み・別の型は落とす)。"""
+    shas = sorted(shas)
+    if not shas:
+        return []
+    out = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                         input="\n".join(shas) + "\n", capture_output=True, text=True, env=_env(), timeout=120).stdout
+    return [l.split()[0] for l in out.splitlines() if l.endswith(" commit")]
+
+
+def tracked_refs(repo, remote):
+    """「remote の履歴」 として記憶を引く remote-tracking ref (full name)。 remote の既定 branch (`<remote>/HEAD` の指す先、
+    無ければ main / master のうち在るもの、 それも無ければ今の branch の upstream)。 既定 branch だけを見るのは、
+    作業 branch の rebase + force-push (普通の運用) を「捨てられた履歴」 と読まないため。"""
+    refs = []
+
+    def add(r):
+        if r and r not in refs and rev(repo, r):
+            refs.append(r)
+
+    add(git(repo, "symbolic-ref", "-q", f"refs/remotes/{remote}/HEAD", check=False).strip())
+    if not refs:
+        for b in ("main", "master"):
+            add(f"refs/remotes/{remote}/{b}")
+    if not refs:
+        up = upstream_of(repo)
+        if up and up.split("/", 1)[0] == remote:
+            add("refs/remotes/" + up)
+    return refs
+
+
+def _reflog_values(repo, ref):
+    """ref がこれまでに指した sha の集合。 reflog の各行の **前の値と後の値の両方** を読む (実測: clone は remote-tracking ref
+    の最初の値を entry として残さない = 最初の forced update の「前の値」 は、 その entry の前の値の欄にしか無い)。
+    reflog の file を直接読み、 無ければ (別の ref 保存形式) `git reflog show` の後の値だけで代える。"""
+    vals = set()
+    try:
+        with open(_common_dir(repo) / "logs" / ref, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                a = line.split(" ", 2)
+                if len(a) >= 2:
+                    vals.update(s for s in a[:2] if _SHA_RE.match(s) and s != ZERO)
+        return vals
+    except OSError:
+        out = git(repo, "reflog", "show", "--format=%H", ref, check=False)
+        return {l for l in out.splitlines() if _SHA_RE.match(l)}
+
+
+def discarded_commits(repo, refs):
+    """refs の reflog に残る過去の値から届き、 今の refs からは届かない commit (= forced update で remote から捨てられた履歴)。
+    (commit の list, 今の値の list)。 forced update が無ければ ([], 今の値)。 gc 済みの entry は飛ばす。"""
+    cur = [c for c in (rev(repo, r) for r in refs) if c]
+    seen = set()
+    for r in refs:
+        seen.update(_reflog_values(repo, r))
+    seen -= set(cur)
+    if not seen or not cur:
+        return [], cur
+    have = _existing_commits(repo, seen)
+    if not have:
+        return [], cur
+    out = git(repo, "rev-list", "--stdin", input="\n".join(have + ["^" + c for c in cur]) + "\n", check=False, timeout=120)
+    return [l for l in out.splitlines() if _SHA_RE.match(l)], cur
+
+
+def discarded_objects(repo, refs):
+    """(捨てられた履歴の commit の set, そこにしか無い object 〔commit・tree・blob〕 の sha の set)。 object の一覧は、 捨てられた
+    commit の集合を鍵に cache する (集合が変わらない間は walk し直さない。 今の履歴が進んでも「捨てられた履歴にしか無い」
+    は変わらない)。 **sha だけを持つ** (path は持たない・出さない = 消した file 名そのものが消した中身のことがある。
+    実測: 止めた理由に path を添えたら、 識別子の入った旧 file 名が端末と log に出た)。"""
+    commits, cur = discarded_commits(repo, refs)
+    if not commits:
+        return set(), set()
+    key = hashlib.sha1("\n".join(sorted(commits)).encode()).hexdigest()
+    cdir = _common_dir(repo) / REMOVED_CACHE
+    cf = cdir / key
+    objs = set()
+    try:
+        with open(cf, encoding="ascii", errors="replace") as f:
+            for line in f:
+                sha = line.split(None, 1)[0] if line.strip() else ""   # 行頭の sha だけを読む (後ろに何か付いた行でも落とさない)
+                if _SHA_RE.match(sha):
+                    objs.add(sha)
+    except OSError:
+        out = git(repo, "rev-list", "--objects", "--stdin", input="\n".join(commits + ["^" + c for c in cur]) + "\n",
+                  check=False, timeout=600)
+        for line in out.splitlines():
+            sha = line.split(" ", 1)[0]
+            if _SHA_RE.match(sha):
+                objs.add(sha)
+        try:
+            cdir.mkdir(parents=True, exist_ok=True)
+            tmp = cdir / (key + ".tmp")
+            with open(tmp, "w", encoding="ascii") as f:
+                f.write("".join(s + "\n" for s in sorted(objs)))
+            os.replace(tmp, cf)
+            old = sorted((p for p in cdir.iterdir() if p.name != key and not p.name.endswith(".tmp")),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+            for p in old[REMOVED_CACHE_KEEP - 1:]:
+                p.unlink()
+        except OSError:
+            pass
+    return set(commits), objs
 
 
 # ---------------------------------------------------------------- push guard
 
-def push_violations(repo, local_sha, exclude, gen):
-    """local_sha までの commit のうち exclude に無いものが、 旧 sha / 旧世代の blob を含むか。 違反の説明 list。"""
-    args = ["rev-list", "--objects", local_sha]
-    if exclude:
-        args += ["--not", exclude]
-    else:
-        args += ["--not", "--remotes"]
-    out = git(repo, *args, check=False)
-    ids = {l.split(" ", 1)[0] for l in out.splitlines() if l}
+def _range_ids(repo, positive, negative, objects=True, timeout=600):
+    """positive (sha) から届き negative (sha の list) から届かないものの sha の set。 objects=True なら commit・tree・blob、
+    False なら commit だけ。 path は読み捨てる (discarded_objects の注記)。"""
+    args = ["rev-list"] + (["--objects"] if objects else []) + [positive]
+    if negative:
+        args += ["--not"] + list(negative)
+    out = git(repo, *args, check=False, timeout=timeout)
+    return {l.split(" ", 1)[0] for l in out.splitlines() if l}
+
+
+def push_violations(repo, local_sha, exclude, gen, discarded=None):
+    """local_sha までの commit のうち exclude に無いものが、 旧 sha / 旧世代の blob / 捨てられた履歴の object を含むか。
+    違反の説明 list。 exclude = sha か sha の list ('' / [] = remote のどの ref にも無いもの全部)。
+    discarded = discarded_objects の返り値 (無ければ manifest だけで判定)。"""
+    if isinstance(exclude, str):
+        exclude = [exclude] if exclude else []
+    ids = _range_ids(repo, local_sha, exclude or ["--remotes"])
     hits = []
     olds = ids & gen.old_shas
     if olds:
@@ -486,41 +735,206 @@ def push_violations(repo, local_sha, exclude, gen):
     fb = ids & gen.forbidden
     if fb:
         hits.append(f"書き換えで消した版の blob {len(fb)} 個 (例 {sorted(fb)[0][:7]})")
+    if discarded and discarded[0]:
+        dcommits, dobjs = discarded
+        dc = (ids & dcommits) - olds
+        if dc:
+            hits.append(f"remote から捨てられた履歴の commit {len(dc)} 個 (この clone の fetch の記録から、 例 {sorted(dc)[0][:7]})")
+        do = (ids & dobjs) - dcommits - fb
+        if do:
+            # path は出さない (消した file 名そのものが消した中身のことがある)。 どの file かは手元で: git rev-list --objects <local> | grep <sha>
+            hits.append(f"捨てられた履歴にしか無い tree / blob {len(do)} 個 (例 {sorted(do)[0][:7]})")
     return hits
 
 
-def guard_stdin(repo, lines, cli_globs=()):
-    """git pre-push の stdin (local_ref local_sha remote_ref remote_sha) を検査。 (ok, messages)。"""
+def _remote_moved(repo, remote, rows):
+    """push の行 (lref lsha rref rsha) から見て、 remote の今の状態が手元の知識と違うか。 新しい ref の push (rsha = 0) は
+    比べる相手が無い = 既定 branch の知識が今かどうか分からないので、 違うものとして扱う (fetch してから判定)。"""
+    for _lref, _lsha, rref, rsha in rows:
+        if rsha == ZERO or not _has(repo, rsha):
+            return True
+        if rref.startswith("refs/heads/"):
+            tr = rev(repo, f"refs/remotes/{remote}/{rref[len('refs/heads/'):]}")
+            if tr and tr != rsha:
+                return True
+    return False
+
+
+def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
+    """git pre-push の stdin (local_ref local_sha remote_ref remote_sha) を検査。 (ok, messages)。
+    remote = pre-push の第 1 引数 (remote 名。 URL だけの push では無い = upstream の remote を使う)。
+    remote の今の先頭 (rsha) が手元の知識と違えば、 判定の前に fetch する (fetch=False で止める = test と、 直前に
+    fetch した呼び手)。 fetch の失敗は判定を止めない (その push 自体が同じ理由で失敗する)。"""
     repo = Path(repo)
     upstream = upstream_of(repo) or "origin/HEAD"
-    gen = Generation.load(repo, upstream if rev(repo, upstream) else "", cli_globs)
-    if not gen.maps and not gen.forbidden:
-        return True, []
-    msgs = []
+    rows = []
     for line in lines:
         a = line.split()
-        if len(a) != 4:
-            continue
-        _lref, lsha, rref, rsha = a
-        if lsha == ZERO:
-            continue  # delete
-        exclude = rsha if rsha != ZERO else ""
-        hits = push_violations(repo, lsha, exclude, gen)
+        if len(a) == 4 and a[1] != ZERO:   # lsha = 0 は ref の削除
+            rows.append(a)
+    if not rows:
+        return True, []
+    rname = remote if (remote and git_ok(repo, "remote", "get-url", remote)) else upstream.split("/", 1)[0]
+    if fetch and git_ok(repo, "remote", "get-url", rname) and _remote_moved(repo, rname, rows):
+        try:
+            git(repo, "fetch", "-q", rname, timeout=FETCH_TIMEOUT)
+        except (RuntimeError, subprocess.TimeoutExpired):
+            pass
+    gen = Generation.load(repo, upstream if rev(repo, upstream) else "", cli_globs)
+    refs = tracked_refs(repo, rname)
+    try:
+        discarded = discarded_objects(repo, refs) if refs else (set(), set())
+    except (RuntimeError, subprocess.TimeoutExpired, OSError):
+        discarded = (set(), set())
+    if not gen.maps and not gen.forbidden and not discarded[0]:
+        return True, []
+    base = [c for c in (rev(repo, r) for r in refs) if c]
+    msgs = []
+    for _lref, lsha, rref, rsha in rows:
+        # 既に remote に在る分は範囲から除く。 rsha が手元に無い (fetch できなかった) / 新しい ref なら、 既定 branch の今の値を除く
+        exclude = [rsha] if (rsha != ZERO and _has(repo, rsha)) else base
+        hits = push_violations(repo, lsha, exclude, gen, discarded)
         if hits:
-            msgs.append(f"{repo.name}: push を止めた ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
+            msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
                         f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す")
     return (not msgs), msgs
 
 
+def head_violations(repo, cli_globs=()):
+    """HEAD が、 upstream に無い commit として、 書き換えで捨てられた履歴の commit を抱えているか (= 追従前の clone)。
+    (ok, message)。 fetch はしない (commit のたびに呼ばれる = 今 remote-tracking ref が示す状態だけで判定する)。"""
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    if not upstream or not rev(repo, upstream):
+        return True, ""
+    local = _range_ids(repo, "HEAD", [upstream], objects=False, timeout=60)
+    if not local:
+        return True, ""
+    gen = Generation.load(repo, upstream, cli_globs)
+    dcommits = set(discarded_commits(repo, tracked_refs(repo, upstream.split("/", 1)[0]))[0])
+    hits = local & (gen.old_shas | dcommits)
+    if not hits:
+        return True, ""
+    return False, (f"{HEAD_HEADLINE}: {repo.name} の HEAD は、 remote から捨てられた (書き換えられた) 履歴の commit {len(hits)} 個の上に"
+                   f"ある (例 {sorted(hits)[0][:7]})。 この上に commit を積んでも push できない。 先に追従する:"
+                   f" python3 {engine_cli_path()} follow --repo {repo}")
+
+
+# ---------------------------------------------------------------- remote 側の検出 (消したものが戻っていないか)
+
+def audit_repo(repo, cli_globs=(), use_cache=True):
+    """manifest のある repo の remote-tracking ref を読み、 消した世代が戻っていないかを見る。 finding の行の list ([] = 無し)。
+      🔴 upstream に対応表の旧 sha の commit / forbidden の object が在る (= 戻った。 hook を持たない clone からの push・
+         host 上の merge は、 ここでしか分からない)
+      🟠 remote の他の branch が旧 sha の commit を抱えている (= merge すれば戻る)
+    fetch はしない (読むのは今の remote-tracking ref)。 ref の状態が前回と同じなら前回の結果を返し、 前回きれいだった
+    upstream は、 その先頭から先だけを見る。"""
+    import json
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    up_sha = rev(repo, upstream) if upstream else ""
+    if not up_sha:
+        return []
+    mtree = manifest_tree(repo, upstream)
+    extra = extra_map_paths(cli_globs)
+    if not mtree and not extra:
+        return []
+    rname = upstream.split("/", 1)[0]
+    refs = {}
+    fmt = "--format=%(refname) %(objectname) %(symref)"
+    for line in git(repo, "for-each-ref", fmt, f"refs/remotes/{rname}/", check=False).splitlines():
+        a = line.split()
+        if len(a) == 2:          # symref (<remote>/HEAD) は 3 欄 = 飛ばす
+            refs[a[0]] = a[1]
+    # 鍵 = remote の ref の状態 + manifest の tree (+ 外から渡す対応表の名前)。 一致すれば対応表を読まずに前回の結果を返す
+    mkey = mtree + "|" + "|".join(extra)
+    state = "\n".join(f"{r} {s}" for r, s in sorted(refs.items())) + "\n" + mkey
+    key = hashlib.sha1(state.encode()).hexdigest()
+    cf = _common_dir(repo) / AUDIT_CACHE
+    prev = {}
+    if use_cache:
+        try:
+            with open(cf, encoding="utf-8") as f:
+                prev = json.load(f)
+        except (OSError, ValueError):
+            prev = {}
+        if prev.get("key") == key:
+            return list(prev.get("findings") or [])
+    gen = Generation.load(repo, upstream, cli_globs)
+    if not gen.old_shas and not gen.forbidden:
+        return []
+    name = repo.name
+    findings = []
+    since = prev.get("clean_upto") or ""
+    neg = [since] if (since and not prev.get("findings") and prev.get("manifest") == mkey
+                      and _has(repo, since) and is_ancestor(repo, since, up_sha)) else []
+    ids = set(_range_ids(repo, up_sha, neg, objects=bool(gen.forbidden)))
+    back = ids & gen.old_shas
+    if back:
+        findings.append(f"🔴 {name}: {upstream} に、 書き換えで消した世代の commit が {len(back)} 個在る (例 {sorted(back)[0][:7]}) = 戻っている。"
+                        f" どの push で入ったかを見る: git -C {repo} log --oneline --merges -5 {upstream}")
+    fb = ids & gen.forbidden
+    if fb:
+        findings.append(f"🔴 {name}: {upstream} に、 書き換えで消した版の object が {len(fb)} 個在る (例 {sorted(fb)[0][:7]}) = 戻っている")
+    for ref, sha in sorted(refs.items()):
+        if sha == up_sha or ref == "refs/remotes/" + upstream:
+            continue
+        c = _range_ids(repo, sha, [up_sha], objects=False, timeout=120) & gen.old_shas
+        if c:
+            short = ref[len("refs/remotes/"):]
+            findings.append(f"🟠 {name}: remote の branch {short} が書き換え前の履歴を抱えている (commit {len(c)} 個) = merge すれば戻る。"
+                            f" 要らなければ remote から消す、 要るなら新しい履歴に載せ直す")
+    if use_cache:
+        try:
+            tmp = cf.with_name(cf.name + ".tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"key": key, "findings": findings, "clean_upto": "" if findings else up_sha,
+                           "manifest": mkey}, f, ensure_ascii=False)
+            os.replace(tmp, cf)
+        except OSError:
+            pass
+    return findings
+
+
+def forbidden_from_local(repo, cli_globs=()):
+    """対応表の旧 sha のうち手元に在る commit から届き、 upstream からは届かない tree / blob (= 旧世代にしか無い object) を集める。
+    (sha の sorted list, 手元に在った旧 commit の数, 対応表の旧 sha の数)。 書き換えた clone (旧 object がまだ在る) で回し、
+    結果を `.rewrite-follow/forbidden-blobs*` に置く。 旧 commit が手元に無い分は拾えない = 数を見て被覆を判断する。"""
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    up_sha = rev(repo, upstream) if upstream else ""
+    if not up_sha:
+        return [], 0, 0
+    gen = Generation.load(repo, upstream, cli_globs)
+    olds = gen.old_shas
+    if not olds:
+        return [], 0, 0
+    have = _existing_commits(repo, olds)
+    if not have:
+        return [], 0, len(olds)
+    inp = "\n".join(have + ["^" + up_sha]) + "\n"
+    out = git(repo, "rev-list", "--objects", "--stdin", input=inp, check=False, timeout=900)
+    commits = set(git(repo, "rev-list", "--stdin", input=inp, check=False, timeout=300).split())
+    objs = sorted({l.split(" ", 1)[0] for l in out.splitlines() if l} - commits)
+    return objs, len(have), len(olds)
+
+
 def stub_text(engine_path, repo):
+    """pre-push stub。 止めるのは「engine が exit 1 かつ違反の見出しを出した」 時だけ = engine の故障 (python の異常終了も
+    exit 1) を違反と読んで全 push を止めない。 検査が走らなかった時は 1 行出して通す (黙って通さない)。"""
     return (
         "#!/bin/sh\n"
         f"# {STUB_MARK} — installed by git-rewrite-follow.py ensure-prepush (do not edit; re-run ensure-prepush)\n"
-        "# Refuses a push that carries commits / blobs of a rewritten-away generation "
+        "# Refuses a push that carries commits / objects of a rewritten-away generation "
         "(conventions/multi-machine-state.md#history-rewrite-follow).\n"
         "command -v python3 >/dev/null 2>&1 || { echo 'rewrite-follow pre-push: python3 が無いので検査せず通す' >&2; exit 0; }\n"
         f"[ -f \"{engine_path}\" ] || {{ echo 'rewrite-follow pre-push: engine が無いので検査せず通す' >&2; exit 0; }}\n"
-        f"exec python3 \"{engine_path}\" guard --repo \"{repo}\" --hook \"$@\"\n"
+        f"out=\"$(python3 \"{engine_path}\" guard --repo \"{repo}\" --hook \"$@\" 2>&1)\"\n"
+        "rc=$?\n"
+        "[ -n \"$out\" ] && printf '%s\\n' \"$out\" >&2\n"
+        f"if [ \"$rc\" -eq 1 ]; then case \"$out\" in *'{GUARD_HEADLINE}'*) exit 1 ;; esac; fi\n"
+        "[ \"$rc\" -eq 0 ] || echo \"rewrite-follow pre-push: 検査が走らなかった (rc=$rc) ので通す\" >&2\n"
+        "exit 0\n"
     )
 
 
@@ -533,15 +947,37 @@ def engine_cli_path():
     return str(Path(__file__).resolve().parent.parent / "git-rewrite-follow.py")
 
 
-def ensure_prepush(repo, only_with_manifest=True, engine=None):
-    """pre-push stub を置く / 更新する。 置いた・更新した時だけ 1 行、 それ以外は ''。 foreign な pre-push は触らず 1 行。"""
+def _hooks_tracked_in_worktree(repo):
+    """core.hooksPath が repo の中 (相対 path) を指すか = hook が git に track されている repo。 そこへ機械ごとの絶対 path を
+    持つ stub を書くと worktree を汚す (commit されれば他の clone で壊れる) = 置かない。"""
+    hp = git(repo, "config", "--get", "core.hooksPath", check=False).strip()
+    return bool(hp) and not os.path.isabs(os.path.expanduser(hp))
+
+
+def prepush_state(repo):
+    """'stub' (本部品の stub) / 'foreign' (別の pre-push か、 track された hooks dir) / 'none'。"""
+    try:
+        p = hooks_dir(repo) / "pre-push"
+        if p.exists():
+            return "stub" if STUB_MARK in p.read_text(encoding="utf-8", errors="replace") else "foreign"
+        return "foreign" if _hooks_tracked_in_worktree(repo) else "none"
+    except (OSError, RuntimeError):
+        return "none"
+
+
+def ensure_prepush(repo, only_with_manifest=True, engine=None, quiet_foreign=False):
+    """pre-push stub を置く / 更新する。 置いた・更新した時だけ 1 行、 それ以外は ''。 foreign な pre-push (と、 hook が
+    track されている repo) は触らず 1 行 (quiet_foreign=True なら無音 = manifest の無い repo を毎回名指ししない)。
+    only_with_manifest=False = manifest の無い repo にも置く (書き換えの **前から** 全 clone に在る = 書き換えてから配る
+    のでは、 届く前の clone が無防備になる)。 upstream の無い repo には置かない (push 先が無い)。"""
     repo = Path(repo)
     if not (repo / ".git").exists():
         return ""
     upstream = upstream_of(repo)
-    if only_with_manifest:
-        if not upstream or not upstream_manifest_files(repo, upstream):
-            return ""
+    if not upstream:
+        return ""
+    if only_with_manifest and not manifest_tree(repo, upstream):
+        return ""
     engine = engine or engine_cli_path()
     hd = hooks_dir(repo)
     dst = hd / "pre-push"
@@ -552,9 +988,11 @@ def ensure_prepush(repo, only_with_manifest=True, engine=None):
         except OSError:
             cur = ""
         if STUB_MARK not in cur:
-            return f"{repo.name}: 既存の pre-push hook があるので rewrite-follow の stub を置かない ({dst})"
+            return "" if quiet_foreign else f"{repo.name}: 既存の pre-push hook があるので rewrite-follow の stub を置かない ({dst})"
         if cur == want:
             return ""
+    elif _hooks_tracked_in_worktree(repo):
+        return "" if quiet_foreign else f"{repo.name}: hook が repo に track されている (core.hooksPath) ので rewrite-follow の stub を置かない ({hd})"
     hd.mkdir(parents=True, exist_ok=True)
     tmp = dst.with_name("pre-push.rewrite-follow.tmp")
     tmp.write_text(want, encoding="utf-8")
@@ -564,11 +1002,7 @@ def ensure_prepush(repo, only_with_manifest=True, engine=None):
 
 
 def has_prepush_stub(repo):
-    try:
-        p = hooks_dir(repo) / "pre-push"
-        return p.exists() and STUB_MARK in p.read_text(encoding="utf-8", errors="replace")
-    except (OSError, RuntimeError):
-        return False
+    return prepush_state(repo) == "stub"
 
 
 def status(repo, cli_globs=()):
@@ -576,14 +1010,76 @@ def status(repo, cli_globs=()):
     repo = Path(repo)
     up = upstream_of(repo) if (repo / ".git").exists() else ""
     d = {"repo": str(repo), "upstream": up, "manifest": False, "prepush_stub": has_prepush_stub(repo),
-         "forced_update_seen": False, "relation": "unknown"}
+         "prepush": prepush_state(repo), "forced_update_seen": False, "relation": "unknown", "on_discarded_history": False}
     if up and rev(repo, up):
         d["manifest"] = bool(upstream_manifest_files(repo, up))
         d["forced_update_seen"] = forced_update_seen(repo, up)
         head, u = rev(repo, "HEAD"), rev(repo, up)
         if head and u:
             d["relation"] = ("current" if is_ancestor(repo, head, u) else "ahead" if is_ancestor(repo, u, head) else "diverged")
+        try:
+            d["on_discarded_history"] = not head_violations(repo, cli_globs)[0]
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            pass
     return d
+
+
+# ---------------------------------------------------------------- 点呼 (各 machine の事実を、 知っている側が判定する)
+
+def repo_facts(root):
+    """root/*/ の repo ごとの事実 (判定はしない): {name: {head, up (この machine が見ている upstream の sha), prepush}}。
+    無人の定期 job がこれを毎回 machine ごとの記録に載せる。 判定は読む側 (最新を fetch した machine) が judge_fact で行う
+    = 書き換えをまだ知らない machine の自己申告 (「最新です」) を当てにしない。 sha は 12 桁。"""
+    out = {}
+    for gd in sorted(globmod.glob(os.path.join(str(root), "*", ".git"))):
+        repo = Path(gd).parent
+        try:
+            up = upstream_of(repo)
+            if not up:
+                continue
+            out[repo.name] = {"head": rev(repo, "HEAD")[:12], "up": rev(repo, up)[:12], "prepush": prepush_state(repo)}
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            continue
+    return out
+
+
+def judge_fact(repo, fact, cli_globs=(), _memo=None):
+    """別の machine が載せた事実 (repo_facts の 1 件) を、 この clone の今の知識で判定する。 (状態, 説明)。
+      followed   その machine の HEAD は今の upstream の履歴の上 (追従済み、 または書き換えの後に clone した)
+      unpushed   HEAD はこの clone に無いが、 その machine の見ている upstream は今の履歴の上 (新しい履歴の上の未 push)
+      stale      HEAD かその machine の見ている upstream が、 捨てられた履歴の commit (= 未追従。 up も古ければ未 fetch)
+      unknown    どちらも判定できない (この clone が古い / その machine にしか無い commit)
+    書き換えの痕跡 (対応表か、 この clone の reflog の forced update) が無い repo は ('n/a', '')。"""
+    repo = Path(repo)
+    upstream = upstream_of(repo)
+    up_sha = rev(repo, upstream) if upstream else ""
+    if not up_sha:
+        return "n/a", ""
+    memo = _memo if _memo is not None else {}
+    key = str(repo)
+    if key not in memo:
+        gen = Generation.load(repo, upstream, cli_globs)
+        dc = set(discarded_commits(repo, tracked_refs(repo, upstream.split("/", 1)[0]))[0])
+        memo[key] = gen.old_shas | dc
+    removed = memo[key]
+    if not removed:
+        return "n/a", ""
+
+    def full(short):
+        return rev(repo, short) if short else ""
+
+    def in_removed(short):
+        return bool(short) and any(s.startswith(short) for s in removed)
+
+    head, up = fact.get("head") or "", fact.get("up") or ""
+    hf, uf = full(head), full(up)
+    if in_removed(head) or in_removed(up):
+        return "stale", ("未追従 (remote の書き換えをまだ fetch していない)" if in_removed(up) else "未追従 (fetch 済み、 HEAD が古い履歴の上)")
+    if hf and is_ancestor(repo, hf, up_sha):
+        return "followed", ""
+    if uf and is_ancestor(repo, uf, up_sha):
+        return "unpushed", "新しい履歴の上に未 push の commit"
+    return "unknown", "この clone からは判定できない (先に fetch。 それでも不明なら、 その machine にしか無い commit)"
 
 
 # ---------------------------------------------------------------- selftest
@@ -834,6 +1330,222 @@ def _selftest():
     check("sweep: visits both, follows the old one silently passes the current", "current" in states and ("followed" in states or "current" in states))
     check("sweep: the followed clone landed on the new tip", rev(root / "r-old", "HEAD") == mf)
     check("follow log written", os.path.exists(os.environ[LOG_ENV]) and "followed" in open(os.environ[LOG_ENV]).read())
+
+    def bare(name):
+        p = tmp / name
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(p)], check=True, env=_env())
+        return p
+
+    def clone_of(rem, name):
+        p = tmp / name
+        subprocess.run(["git", "clone", "-q", str(rem), str(p)], check=True, env=_env())
+        return p
+
+    def run_git(p, *args):
+        return subprocess.run(["git", "-C", str(p), *args], capture_output=True, text=True, env=_env(), timeout=120)
+
+    # --- 通常の分岐で、 未 push の commit が古い状態へ戻しただけ (revert) の時: tree の一致で捨てない
+    rv_remote = bare("rv.git")
+    rv_a = tmp / "rv-a"
+    init(rv_a)
+    commit(rv_a, {"f.txt": "1\n"}, "r1")
+    commit(rv_a, {"f.txt": "2\n"}, "r2")
+    git(rv_a, "remote", "add", "origin", str(rv_remote))
+    git(rv_a, "push", "-q", "-u", "origin", "main")
+    rv_b = clone_of(rv_remote, "rv-b")
+    commit(rv_b, {"f.txt": "1\n"}, "revert r2 locally (tree = r1)")
+    commit(rv_a, {"other.txt": "x\n"}, "r3")
+    git(rv_a, "push", "-q", "origin", "main")
+    r = follow_repo(rv_b)
+    check("unpushed revert on an ordinary divergence is not dropped (tree equals a commit of the shared history)",
+          r.state == "diverged" and git(rv_b, "log", "-1", "--format=%s").startswith("revert r2"), f"{r.state} {r.line}")
+
+    # --- 通常の分岐で、 手元だけの commit が volatile path の差分だけ: upstream が中身で進んでいても揃える (書き換えとは言わない)
+    vo_remote = bare("vo.git")
+    vo_a = tmp / "vo-a"
+    init(vo_a)
+    commit(vo_a, {"a.txt": "1\n", "status/x.json": "{}\n", ".rewrite-follow/ignore-paths": "status/\n"}, "v1")
+    git(vo_a, "remote", "add", "origin", str(vo_remote))
+    git(vo_a, "push", "-q", "-u", "origin", "main")
+    vo_b = clone_of(vo_remote, "vo-b")
+    commit(vo_b, {"status/x.json": '{"beat": 1}\n'}, "beat (volatile only)")
+    v2 = commit(vo_a, {"a.txt": "2\n"}, "v2 real work upstream")
+    git(vo_a, "push", "-q", "origin", "main")
+    r = follow_repo(vo_b)
+    check("volatile-only local commits on an ordinary divergence: aligned to upstream, reported as such",
+          r.state == "followed" and r.how == "volatile-only" and rev(vo_b, "HEAD") == v2 and "volatile" in r.line and "書き換え" not in r.line,
+          f"{r.state} {r.how} {r.line}")
+
+    # --- 捨てられた履歴を clone 自身の reflog から知る (manifest なしの書き換え)
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-03T00:00:00 +0000"
+    dx_remote = bare("dx.git")
+    dx = tmp / "dx-src"
+    init(dx)
+    d1 = commit(dx, {"a.txt": "one\n"}, "d1")
+    d2 = commit(dx, {"secret.txt": "plaintext that the rewrite drops\n", "b.txt": "b\n"}, "d2")
+    d3 = commit(dx, {"c.txt": "c\n"}, "d3")
+    git(dx, "remote", "add", "origin", str(dx_remote))
+    git(dx, "push", "-q", "-u", "origin", "main")
+    s_merge, s_revive, s_force, s_branch, s_stub, s_head, s_local = (
+        clone_of(dx_remote, n) for n in ("s-merge", "s-revive", "s-force", "s-branch", "s-stub", "s-head", "s-local"))
+    commit(s_local, {"mine.txt": "local work\n"}, "local work on the old history")
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-04T00:00:00 +0000"
+    git(dx, "reset", "-q", "--hard", d1)
+    commit(dx, {"b.txt": "b\n"}, "d2")
+    commit(dx, {"c.txt": "c\n"}, "d3")
+    e4 = commit(dx, {"e.txt": "e\n"}, "d4 after the rewrite")
+    git(dx, "push", "-q", "--force", "origin", "main")          # manifest は置かない
+    check("fixture: the rewrite shares its root with the old history and has no manifest",
+          is_ancestor(dx, d1, e4) and not upstream_manifest_files(dx, "origin/main"))
+    # (a) 古い履歴を merge した push
+    git(s_merge, "fetch", "-q")
+    git(s_merge, "merge", "-q", "--no-edit", "origin/main")
+    dc, _cur = discarded_commits(s_merge, tracked_refs(s_merge, "origin"))
+    check("discarded history is read from the clone's own reflog", set(dc) == {d2, d3}, " ".join(x[:7] for x in dc))
+    ok, msgs = guard_stdin(s_merge, [f"refs/heads/main {rev(s_merge, 'HEAD')} refs/heads/main {e4}"], fetch=False)
+    check("guard without a manifest: a merge of the discarded history is refused", not ok and "捨てられた履歴の commit" in " ".join(msgs), " ".join(msgs))
+    check("discarded-object list is cached under the git dir", any((_common_dir(s_merge) / REMOVED_CACHE).iterdir()))
+    ok2, msgs2 = guard_stdin(s_merge, [f"refs/heads/main {rev(s_merge, 'HEAD')} refs/heads/main {e4}"], fetch=False)
+    check("guard: same verdict from the cache", not ok2 and msgs2 == msgs)
+    # (b) 消した中身が新しい sha で戻る (rebase / cherry-pick の形)
+    git(s_revive, "fetch", "-q")
+    git(s_revive, "reset", "-q", "--hard", "origin/main")
+    commit(s_revive, {"secret.txt": "plaintext that the rewrite drops\n"}, "revived under a fresh sha")
+    ok, msgs = guard_stdin(s_revive, [f"refs/heads/main {rev(s_revive, 'HEAD')} refs/heads/main {e4}"], fetch=False)
+    check("guard without a manifest: dropped content under a fresh sha is refused (blob only in the discarded history)",
+          not ok and "tree / blob" in " ".join(msgs), " ".join(msgs))
+    check("guard: the refusal names no path (a dropped file name can itself be the dropped content)",
+          "secret.txt" not in " ".join(msgs)
+          and "secret.txt" not in "".join(p.read_text() for p in (_common_dir(s_revive) / REMOVED_CACHE).iterdir()))
+    commit(s_revive, {"secret.txt": "new, different content\n"}, "a new file with the same name is fine")
+    git(s_revive, "reset", "-q", "--hard", "origin/main")
+    commit(s_revive, {"fresh.txt": "new work\n"}, "legit")
+    ok, msgs = guard_stdin(s_revive, [f"refs/heads/main {rev(s_revive, 'HEAD')} refs/heads/main {e4}"], fetch=False)
+    check("guard without a manifest: a legitimate commit on the new history passes", ok and not msgs, " ".join(msgs))
+    # (c) fetch していない clone からの force push: remote の今の先頭 (pre-push が渡す) が手元に無い → fetch してから判定
+    ok, _m = guard_stdin(s_force, [f"refs/heads/main {d3} refs/heads/main {e4}"], remote="origin", fetch=False)
+    check("precondition: without fetching, a never-fetched clone knows nothing (this is why the guard fetches)", ok)
+    ok, msgs = guard_stdin(s_force, [f"refs/heads/main {d3} refs/heads/main {e4}"], remote="origin")
+    check("guard: a force push from a never-fetched clone is refused (fetches when the remote tip is unknown)",
+          not ok and GUARD_HEADLINE in " ".join(msgs), " ".join(msgs))
+    # (d) fetch していない clone が古い履歴を新しい branch として push
+    ok, msgs = guard_stdin(s_branch, [f"refs/heads/backup {d3} refs/heads/backup {ZERO}"], remote="origin")
+    check("guard: pushing the old history as a new branch from a never-fetched clone is refused", not ok, " ".join(msgs))
+    # (e) 本物の git push を stub 越しに (manifest の無い repo にも stub を置く)
+    line = ensure_prepush(s_stub, only_with_manifest=False)
+    check("ensure-prepush: installs without a manifest when asked", "置いた" in line and prepush_state(s_stub) == "stub", line)
+    pr = run_git(s_stub, "push", "--force", "origin", "main")
+    check("stub end to end: git push --force from a stale clone fails with the headline and the remote is untouched",
+          pr.returncode != 0 and GUARD_HEADLINE in pr.stderr and rev(dx, "origin/main") == e4
+          and git(dx, "ls-remote", "origin", "refs/heads/main").split()[0] == e4, pr.stderr[-300:])
+    fake = tmp / "fake-engine.py"
+    fake.write_text("import sys\nsys.exit(1)\n")
+    s_fake = clone_of(dx_remote, "s-fake")
+    commit(s_fake, {"g.txt": "g\n"}, "legit with a broken engine")
+    hooks_dir(s_fake).mkdir(parents=True, exist_ok=True)
+    (hooks_dir(s_fake) / "pre-push").write_text(stub_text(str(fake), str(s_fake)))
+    os.chmod(hooks_dir(s_fake) / "pre-push", 0o755)
+    pr = run_git(s_fake, "push", "origin", "main")
+    check("stub: an engine failure (exit 1 without the headline) does not block the push, and says so",
+          pr.returncode == 0 and "検査が走らなかった" in pr.stderr, pr.stderr[-300:])
+    e5 = git(dx, "ls-remote", "origin", "refs/heads/main").split()[0]
+    # (f) commit 側: 追従前の clone は HEAD が捨てられた履歴の上
+    git(s_head, "fetch", "-q")
+    ok, msg = head_violations(s_head)
+    check("head check: a stale clone (fetched, not followed) is refused before committing", not ok and HEAD_HEADLINE in msg, msg)
+    check("head check: a clone on the new history passes", head_violations(s_revive)[0])
+    check("status reports the stale clone", status(s_head)["on_discarded_history"] and not status(s_revive)["on_discarded_history"])
+    # (g) 止まった時の載せ直しの案内: 手元だけの commit を土台 (かつて remote に在った最後の commit) から運ぶ
+    r = follow_repo(s_local)
+    check("stopped with a local commit on the old history: the message carries a rebase --onto command",
+          r.state == "stopped" and f"rebase --onto origin/main {d3[:12]}" in r.line, r.line)
+    pr = run_git(s_local, "rebase", "-q", "--onto", "origin/main", d3)
+    lh = rev(s_local, "HEAD")
+    check("the suggested rebase carries only the local commit and the push passes the guard",
+          pr.returncode == 0 and git(s_local, "rev-list", "--count", "origin/main..HEAD") == "1"
+          and guard_stdin(s_local, [f"refs/heads/main {lh} refs/heads/main {rev(s_local, 'origin/main')}"], fetch=False)[0], pr.stderr[-200:])
+
+    # --- sweep: manifest の無い repo にも stub (まとめて 1 行)、 track された hooks dir と foreign は触らない、 kill switch
+    root2 = tmp / "root2"
+    root2.mkdir()
+    for nm in ("p-plain", "p-tracked", "p-foreign"):
+        subprocess.run(["git", "clone", "-q", str(dx_remote), str(root2 / nm)], check=True, env=_env())
+    git(root2 / "p-tracked", "config", "core.hooksPath", ".githooks")
+    (hooks_dir(root2 / "p-foreign")).mkdir(parents=True, exist_ok=True)
+    (hooks_dir(root2 / "p-foreign") / "pre-push").write_text("#!/bin/sh\nexit 0\n")
+    res = sweep(root2, fetch=False)
+    check("sweep: by default a repo without a manifest gets no stub and no line",
+          prepush_state(root2 / "p-plain") == "none" and not [pl for _r, pl in res if pl])
+    res = sweep(root2, fetch=False, stub_all=True)
+    lines = [pl for _r, pl in res if pl]
+    check("sweep(stub_all): stub on a repo without a manifest, summarised in one line",
+          prepush_state(root2 / "p-plain") == "stub" and len(lines) == 1 and "1 repo" in lines[0], " | ".join(lines))
+    check("sweep(stub_all): a repo whose hooks are tracked (core.hooksPath inside the worktree) gets no stub file",
+          not (root2 / "p-tracked" / ".githooks").exists() and prepush_state(root2 / "p-tracked") == "foreign")
+    check("sweep(stub_all): a foreign pre-push is left alone, silently", "exit 0" in (hooks_dir(root2 / "p-foreign") / "pre-push").read_text())
+    check("sweep(stub_all): second run is silent", not [pl for _r, pl in sweep(root2, fetch=False, stub_all=True) if pl])
+    root3 = tmp / "root3"
+    root3.mkdir()
+    subprocess.run(["git", "clone", "-q", str(dx_remote), str(root3 / "q-plain")], check=True, env=_env())
+    os.environ[STUB_ALL_ENV] = "1"
+    sweep(root3, fetch=False)
+    os.environ.pop(STUB_ALL_ENV, None)
+    check("sweep: the env switch turns the all-repo stub on", prepush_state(root3 / "q-plain") == "stub")
+    root5 = tmp / "root5"
+    root5.mkdir()
+    for nm in ("u-plain", "u-foreign"):
+        subprocess.run(["git", "clone", "-q", str(dx_remote), str(root5 / nm)], check=True, env=_env())
+    hooks_dir(root5 / "u-foreign").mkdir(parents=True, exist_ok=True)
+    (hooks_dir(root5 / "u-foreign") / "pre-push").write_text("#!/bin/sh\nexit 0\n")
+    placed, failed = ensure_prepush_all(root5)
+    check("ensure_prepush_all: places on every repo with an upstream, skips a foreign hook, idempotent",
+          placed == ["u-plain"] and not failed and ensure_prepush_all(root5) == ([], []), f"{placed} {failed}")
+
+    # --- forbidden の生成: 旧 object が残る clone から、 旧世代にしか無い tree / blob を集める
+    objs, have, total = forbidden_from_local(a_cont)
+    check("forbidden_from_local: finds the old blob and counts coverage", old_blob_b2 in objs and have == total == len(gen.old_shas),
+          f"{len(objs)} objs, {have}/{total}")
+    check("forbidden_from_local: lists no commit", not (set(objs) & {o1, o2, o3, o0}))
+
+    # --- 点呼: 別の machine の事実を、 最新を知っている clone が判定する
+    reader = clone_of(dx_remote, "reader")
+    git(reader, "fetch", "-q")
+    check("judge: no rewrite trace in this clone → n/a (a fresh clone has no memory and no manifest)",
+          judge_fact(reader, {"head": d3[:12], "up": d3[:12]})[0] == "n/a")
+    memo = {}
+    check("judge: a machine still on the discarded history and unaware of the rewrite → stale (not fetched)",
+          judge_fact(s_merge, {"head": d3[:12], "up": d3[:12]}, _memo=memo) == ("stale", "未追従 (remote の書き換えをまだ fetch していない)"))
+    check("judge: fetched but not followed → stale", judge_fact(s_merge, {"head": d3[:12], "up": e4[:12]}, _memo=memo)[0] == "stale")
+    check("judge: on the new history → followed", judge_fact(s_merge, {"head": e4[:12], "up": e4[:12]}, _memo=memo)[0] == "followed")
+    check("judge: unknown head on a known new upstream → unpushed",
+          judge_fact(s_merge, {"head": "0123456789ab", "up": e4[:12]}, _memo=memo)[0] == "unpushed")
+    check("judge: nothing known → unknown", judge_fact(s_merge, {"head": "0123456789ab", "up": "ba9876543210"}, _memo=memo)[0] == "unknown")
+    facts = repo_facts(root2)
+    check("repo_facts: one entry per repo with head / up / prepush",
+          set(facts) == {"p-plain", "p-tracked", "p-foreign"} and facts["p-plain"]["prepush"] == "stub"
+          and facts["p-foreign"]["prepush"] == "foreign" and len(facts["p-plain"]["head"]) == 12, json.dumps(facts))
+
+    # --- remote 側の検出: hook を通らずに戻った旧世代を、 remote-tracking ref から読む
+    aud_before = audit_repo(a_ok)
+    check("audit: a clean remote yields nothing", aud_before == [], " | ".join(aud_before))
+    if rev(a_merge, "HEAD") != mf and git_ok(a_merge, "cat-file", "-e", o0):
+        git(a_merge, "push", "-q", str(remote), f"{o2}:refs/heads/leftover")  # 旧履歴を抱えた別 branch (main はまだきれい)
+        git(a_ok, "fetch", "-q")
+        aud = audit_repo(a_ok)
+        check("audit: a remote branch carrying the old history is named (upstream itself still clean)",
+              len(aud) == 1 and aud[0].startswith("🟠") and "leftover" in aud[0], " | ".join(aud))
+        git(a_merge, "push", "-q", str(remote), "HEAD:main")                 # hook を持たない clone からの push を模す
+        git(a_ok, "fetch", "-q")
+        aud = audit_repo(a_ok)
+        check("audit: old-generation commits back on upstream are reported",
+              any(x.startswith("🔴") and "commit" in x for x in aud), " | ".join(aud))
+        check("audit: the forbidden object back on upstream is reported", any(x.startswith("🔴") and "object" in x for x in aud), " | ".join(aud))
+        check("audit: unchanged refs answer from the cache", audit_repo(a_ok) == aud and (_common_dir(a_ok) / AUDIT_CACHE).exists())
+        root4 = tmp / "root4"
+        root4.mkdir()
+        subprocess.run(["git", "clone", "-q", str(remote), str(root4 / "r-back")], check=True, env=_env())
+        res = sweep(root4, fetch=False)
+        check("sweep: a resurrection on the remote surfaces as a stopped line", any(r.state == "stopped" and "🔴" in r.line for r, _ in res))
 
     print(f"selftest: {'PASS' if not fails else 'FAIL'} ({len(fails)} failing)")
     return 0 if not fails else 1

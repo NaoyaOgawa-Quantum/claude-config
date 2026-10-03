@@ -57,7 +57,9 @@ usage:
     job_python_modules: [module, ...],                           # 同上
     engine_head: <本 engine の repo の HEAD sha>,                  # 「この Mac の層1 は何版か」 を他マシンから読む (essence 外)
     harness_hooks: [hook file 名, ...],                          # ~/.claude/settings.json に配線された hook の名前だけ
-    rewrite_follow: {capable, state, upstream, manifest, prepush_stub, forced_update_seen} }  # 下記
+    rewrite_follow: {capable, state, upstream, manifest, prepush_stub, forced_update_seen},  # 下記
+    repos: {heads: {repo 名: {head, up, prepush}}, stale: [repo 名], no_stub: [repo 名],
+            stub_placed, stub_failed} }                          # --repos-root 指定時のみ、 下記
 
 書き換えられた履歴への追従 (rewrite_follow、 部品 = lib/git_rewrite_follow.py、 2026-09-29):
   heartbeat repo の remote が force-push で書き換えられた後、 従来の `pull --rebase` は古い commit を新しい履歴に
@@ -74,6 +76,19 @@ usage:
     no-upstream / unknown
   - capable = True は「この Mac の engine が追従を知っている」 の印 = 書き換えを push する前の gate が全マシン分を読む
   - 追従の記録 = ~/.claude/state/rewrite-follow.log (lib が書く)
+
+repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_rewrite_follow.py):
+  履歴を書き換えた repo は、 各 machine の clone が追従するまで危ない (追従前の clone からの push で消した中身が戻る)。
+  「全 machine が追従したか」 を、 書き換えの知らせが各 machine に届いたかに頼らずに読めるようにする:
+  - 毎 beat、 DIR/*/ の upstream のある全 repo に pre-push stub を置く (lib.ensure_prepush_all)。 書き換えの **前から** 全
+    clone に在る = 書き換えてから配るのでは、 届く前の clone が無防備になる。 session を開かない machine にも届く
+    (beat は無人で回る)
+  - heads = repo ごとの **事実** (HEAD の sha・この machine が見ている upstream の sha・pre-push の状態)。 判定は載せない:
+    書き換えをまだ fetch していない machine は自分を「最新」 と思っている = 自己申告は当てにならない。 最新を fetch した
+    machine の reader (lib.judge_fact) が、 各 machine の事実を自分の知識で判定する
+  - stale = この machine 自身が「HEAD は捨てられた履歴の上」 と分かっている repo (fetch 済み・未追従)。 変化は即 commit
+  - no_stub = stub が無い repo (別の pre-push hook がある / hook が repo に track されている)。 変化は即 commit
+  heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
 
 config_dirs の読み方 (実測):
   - pinned の alias (`~/.claude-<acct>`) = その設定フォルダの `.claude.json` の oauthAccount の email = その
@@ -532,6 +547,8 @@ def essence(d: dict):
             # engine_head は essence に入れない (層1 は日に何度も進む = beat の commit が増えるだけ)
             "harness_hooks": d.get("harness_hooks"),
             "rewrite_follow": {k: (d.get("rewrite_follow") or {}).get(k) for k in ("capable", "state", "manifest", "prepush_stub")},
+            # repo ごとの点呼: 「捨てられた履歴の上に居る repo」 と「stub の無い repo」 の変化は即 commit (heads は入れない)
+            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub")},
         },
         sort_keys=True,
     )
@@ -595,6 +612,28 @@ def rewrite_preflight(repo: Path, subdir: str):
     return out
 
 
+def repos_rollcall(root: Path):
+    """root/*/ の全 repo に pre-push stub を置き、 repo ごとの事実と、 この machine 自身が分かっている未追従を返す
+    (docstring「repo ごとの点呼」)。 部品が古い / 失敗 = None (beat は止めない)。"""
+    if _rf is None or not hasattr(_rf, "repo_facts"):
+        return None
+    try:
+        placed, failed = _rf.ensure_prepush_all(root)
+        heads = _rf.repo_facts(root)
+        stale = []
+        for name in heads:
+            try:
+                if not _rf.head_violations(root / name)[0]:
+                    stale.append(name)
+            except Exception:
+                pass
+        return {"heads": heads, "stale": sorted(stale),
+                "no_stub": sorted(n for n, f in heads.items() if f.get("prepush") != "stub"),
+                "stub_placed": len(placed), "stub_failed": failed[:5]}
+    except Exception:
+        return None
+
+
 def sync_after_commit(repo: Path, pre: dict):
     """commit の後・push の前。 upstream が普通に進んでいれば自分の commit を載せ直す (旧 pull --rebase と同じ)。 preflight から
     ここまでの間に forced update が来ていれば載せ直さない (次の beat が中身で揃える)。 push 範囲に旧世代の commit / blob が在れば
@@ -627,7 +666,7 @@ def git(repo: Path, *args, timeout=60):
 
 
 def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_prefix,
-         inventory_specs=None, job_prefixes=None, job_modules=None):
+         inventory_specs=None, job_prefixes=None, job_modules=None, repos_root=None):
     data = collect(rc_prefix, cron_prefix, inventory_specs, job_prefixes, job_modules)
     data["engine_head"] = engine_head()
     hh = harness_hooks(Path.home())
@@ -640,6 +679,10 @@ def beat(repo: Path, subdir: str, min_interval_h: float, rc_prefix: str, cron_pr
         data["rewrite_follow"] = {k: pre[k] for k in ("capable", "state", "upstream", "manifest", "prepush_stub", "forced_update_seen")}
         if pre["state"] == "stopped":
             return "deferred (rewrite follow stopped; no commit, no rebase): " + pre["line"]
+    if repos_root:
+        rr = repos_rollcall(Path(repos_root).expanduser())
+        if rr is not None:
+            data["repos"] = rr
     rel = f"{subdir}/{data['host']}.json"
     fpath = repo / rel
     fpath.parent.mkdir(parents=True, exist_ok=True)
@@ -840,6 +883,32 @@ def selftest():
         assert essence({"harness_hooks": ["a.sh"]}) != essence({"harness_hooks": ["a.sh", "b.py"]}), "配線された hook の変化は commit する"
         assert essence({"rewrite_follow": {"capable": True, "state": "current"}}) != essence({}), "追従の能力が届いたら commit する"
         ok += 1
+        # repo ごとの点呼: heads の変化は commit の理由にしない、 stale / no_stub の変化は理由にする
+        h1 = {"repos": {"heads": {"x": {"head": "a" * 12}}, "stale": [], "no_stub": []}}
+        h2 = {"repos": {"heads": {"x": {"head": "b" * 12}}, "stale": [], "no_stub": []}}
+        h3 = {"repos": {"heads": {"x": {"head": "b" * 12}}, "stale": ["x"], "no_stub": []}}
+        assert essence(h1) == essence(h2), "HEAD が進んだだけでは commit しない"
+        assert essence(h2) != essence(h3), "未追従の repo が現れたら commit する"
+        ok += 1
+        if _rf is not None and hasattr(_rf, "repo_facts"):
+            rc_root = Path(td) / "rollcall"
+            rc_root.mkdir()
+            rc_remote = Path(td) / "rollcall-remote.git"
+            sh(["git", "init", "-q", "--bare", "-b", "main", str(rc_remote)])
+            seed = rc_root / "one"
+            sh(["git", "init", "-q", "-b", "main", str(seed)])
+            git(seed, "config", "user.email", "t@" + "example.invalid")
+            git(seed, "config", "user.name", "t")
+            (seed / "f.txt").write_text("1\n")
+            git(seed, "add", "f.txt")
+            git(seed, "commit", "-q", "-m", "c1")
+            git(seed, "remote", "add", "origin", str(rc_remote))
+            git(seed, "push", "-q", "-u", "origin", "main")
+            rr = repos_rollcall(rc_root)
+            assert rr and set(rr["heads"]) == {"one"} and rr["heads"]["one"]["prepush"] == "stub", rr
+            assert rr["stale"] == [] and rr["no_stub"] == [] and rr["stub_placed"] == 1, rr
+            assert repos_rollcall(rc_root)["stub_placed"] == 0, "2 回目は置き直さない"
+            ok += 1
         if _rf is not None:
             ok += _selftest_rewrite(Path(td))
         # inventory: name = 最初の `*` 以降の最初の path 要素 (= 親 dir 名 / file 名の両形)
@@ -945,6 +1014,9 @@ def main():
                     help="この prefix の launchd job ごとに最後の終了コードと、 job の PATH での python3 の健康を記録 (repeatable)")
     ap.add_argument("--job-python-modules", default="",
                     help="ジョブの python3 が import できるべき module (カンマ区切り、 例 yaml)")
+    ap.add_argument("--repos-root", default=None,
+                    help="この dir の直下の全 repo に pre-push stub を置き、 repo ごとの事実 (HEAD・見ている upstream) を記録する "
+                         "(履歴を書き換えた repo の追従を、 最新を知る machine の reader が判定するための点呼)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -957,7 +1029,8 @@ def main():
         msg = beat(Path(args.repo).expanduser(), args.subdir,
                    args.min_commit_interval_hours, args.rc_label_prefix,
                    args.cron_label_prefix, args.inventory, args.job_label_prefix,
-                   [m.strip() for m in args.job_python_modules.split(",") if m.strip()])
+                   [m.strip() for m in args.job_python_modules.split(",") if m.strip()],
+                   repos_root=args.repos_root)
         print(msg)
     except Exception as e:
         print(f"fail-open: {e}", file=sys.stderr)
