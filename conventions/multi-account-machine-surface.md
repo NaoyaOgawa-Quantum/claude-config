@@ -72,7 +72,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 
 **範囲**: workspace base (= 本 repo の親 dir) の外の cwd では全段が黙る — 盲検 sandbox は base の外に作る規約 ([cold-eyes-isolation.md](cold-eyes-isolation.md)) なので注入が汚染源にならない。 Claude の headless (`CLAUDE_CODE_ENTRYPOINT=sdk-*`) と Codex の sub-agent rollout は後ろ 2 段の対象外。 全段の opt-out = env `FIRST_REPLY_STAMP=off`。
 
-**Stop 段の mode**: `DEFAULT_STOP_MODE` (導入時 = observe) を env `FIRST_REPLY_STAMP_STOP` (off / observe / block) で上書きできる。 observe の記録は `<config dir>/state/first-reply-stamp/stop-log.jsonl` (Codex は `~/.codex/state/claude-config-first-reply-stamp/`)。 block に上げるのは、 記録と audit で誤発火が無いのを確かめてから (= 値の変更を commit で残す)。 1 session につき評価は最初の Stop の 1 回だけで、 以後の turn では transcript を読まない。
+**Stop 段の mode**: `DEFAULT_STOP_MODE` (導入時 = observe、 2026-10-03 から block = observe の記録 52 件に誤発火 0 件) を env `FIRST_REPLY_STAMP_STOP` (off / observe / block) で上書きできる。 observe の記録は `<config dir>/state/first-reply-stamp/stop-log.jsonl` (Codex は `~/.codex/state/claude-config-first-reply-stamp/`)。 block に上げるのは、 記録と audit で誤発火が無いのを確かめてから (= 値の変更を commit で残す)。 1 session につき評価は最初の Stop の 1 回だけで、 以後の turn では transcript を読まない。
 
 **desktop で届くもの・届かないもの** (2026-09-11 実測 = [hook-authoring.md #desktop-hook-honor-remeasure](hook-authoring.md#desktop-hook-honor-remeasure)): UserPromptSubmit の additionalContext と Stop の block は届く。 `systemMessage` は会話に表示されないので、 user 向けの表示には使えない。 `sessionTitle` (hook 出力) は CLI が受け付けるが、 desktop の題名に反映されるかは未確認で、 AI 自動題名や spawn の題名を潰すので採らない。
 
