@@ -29,7 +29,8 @@ repo ごとの事実を点呼の材料として載せる)。
       (b) **この clone 自身の記憶** = remote-tracking ref の reflog。 過去に remote に在って今はどの ref からも届かない
           commit (forced update で捨てられた履歴) と、 そこにしか無い tree・blob を、 manifest が無くても拒む
           (discarded_objects。 書き換えの直後で manifest がまだ置かれていない窓と、 manifest を置かない書き換えを覆う。
-          reflog の entry は expire する = 定期 job が、 覚えているうちに object の一覧を clone の中に書き (remember_discarded)、
+          reflog の entry は expire する = 定期 job が、 覚えているうちに object の一覧を clone の中に書き (repo_facts → stale_branches
+          が discarded_objects を呼ぶ = 点呼の走査に畳む、 別の書き手を持たない)、
           expire の後は guard と audit がその記録を読む (remembered_discarded)。 manifest の無い repo の、 reflog より長い網)。
   I6  commit 側: HEAD が捨てられた履歴の commit の上にある clone では commit を始めさせない (head_violations。
       pre-commit の段が呼ぶ = 追従前の clone で仕事を積ませない)。
@@ -824,17 +825,6 @@ def remembered_discarded(repo):
         except OSError:
             continue
     return out
-
-
-def remember_discarded(repo):
-    """捨てられた履歴を今 reflog が覚えているなら、 その object の一覧を cache に書いておく (既に在れば読むだけ)。 定期 job が
-    毎回呼ぶ = push や検出の機会が来る前に reflog が expire しても、 記憶が残る。"""
-    upstream = upstream_of(repo)
-    if not upstream:
-        return
-    refs = tracked_refs(repo, upstream.split("/", 1)[0])
-    if refs:
-        discarded_objects(repo, refs)
 
 
 # ---------------------------------------------------------------- push guard
