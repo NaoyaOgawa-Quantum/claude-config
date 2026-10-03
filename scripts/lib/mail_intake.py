@@ -13,6 +13,8 @@
   - attach_deadline_info(item, subject, body, received)   期限の日付と、 急ぎ・締切の語 (日付が読めなかった印)
   - level(item, now) / render(items, now)  古さ・期限・読めなかった印から 🚨 / ⚠️ / 無印を決め、 行にする
   - slo(items, now)                        最古の年齢と、 目標を超えた件数 (= 読む担当が動いているかの外からの検査)
+  - make_note(ask, deadline, kind) / apply_notes(items, notes)   本文を読んだ主体 (定時の当番・session) が書いた受付メモ
+                                           (用件・期限・種類) を行に出し、 期限を印の計算に入れる
 
 設計の決まり:
   - **急ぎと証明できないものを黙らせない**: 期限が読めない・語が無い mail も、 行列にいる間は名前が出る (件数に畳まない)。
@@ -20,6 +22,10 @@
   - 「読んだ」 の判定は機械にできないので、 行列から出る条件は **記録された (台帳に messageId) か、 自分が返信した** だけ。
     既読の印 (UNREAD) は表示に使うだけで、 行列から出す根拠にしない (読んで忘れる、 を捕まえる)。
   - heuristic なので、 結果は表示と並べ替えに使い、 これだけで自動処分しない。
+  - **受付メモは行列から出さない**: メモは「読んだ主体が用件と期限を書き出した」 記録で、 処分 (記録・返信) ではない。
+    メモの期限は機械が読んだ期限に足す (どちらかが近ければ印が上がる = 読み違いは音の大きい側に倒す)。 メモがあれば
+    「締切の語はあるのに日付が読めない」 の印は外す (読んだ結果が書いてあるので)。 メモの文は mail の本文から来るので、
+    行の印 (🚨 等) に見える文字と改行を落とし、 長さを切る (本文を書いた人が一覧の行を偽装できないように)。
 
     sys.path.insert(0, str(<claude-config>/"scripts"/"lib"))
     import mail_intake
@@ -60,6 +66,10 @@ DEADLINE_SHORT_D = 2  # 本文の期限までこの日数以内で 🚨
 DEADLINE_SOON_D = 7   # 本文の期限までこの日数以内で ⚠️
 DEADLINE_HORIZON_D = 120
 FRESH_NAMES_CAP = 8   # 無印 (新しい・印なし) を名前で並べる上限 (超えた分は「ほか N 通」)
+NOTE_KINDS = ("要返信", "要作業", "連絡のみ", "分からない")   # 受付メモの種類 (読んだ主体が選ぶ)
+NOTE_ASK_MAX = 60     # 受付メモの用件の上限 (字)
+# 一覧の行頭の印・段の印に使う文字 (メモの文に入っていたら落とす)
+_NOTE_MARK_RE = re.compile("[\U0001F6A8\u26A0\uFE0F\U0001F534\U0001F4EE\U0001F4E9\U0001F4E8\u23F3\u231B\U0001F512\U0001F198\U0001F4CB\U0001F4DD]")
 _JST = timezone(timedelta(hours=9))
 
 
@@ -172,6 +182,46 @@ def deadline_predicate_version() -> str:
     return _jdd.predicate_version(str(DEADLINE_HORIZON_D), "direct") if _jdd is not None else ""
 
 
+def clean_note_text(text: str, cap: int = NOTE_ASK_MAX) -> str:
+    """受付メモの用件を 1 行にする: 改行・制御文字を空白に、 一覧の印に見える文字を落とし、 cap 字で切る。"""
+    t = _NOTE_MARK_RE.sub("", text or "")
+    t = re.sub(r"[\x00-\x1f\x7f\u2028\u2029]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:cap]
+
+
+def make_note(ask: str, deadline: str = "", kind: str = "分からない") -> dict:
+    """受付メモ 1 件 ({"ask", "deadline", "kind"})。 種類が一覧に無い・期限が ISO の日付でない・用件が空なら ValueError。"""
+    if kind not in NOTE_KINDS:
+        raise ValueError(f"kind は {' / '.join(NOTE_KINDS)} のどれか")
+    a = clean_note_text(ask)
+    if not a:
+        raise ValueError("用件が空")
+    d = (deadline or "").strip()
+    if d:
+        date.fromisoformat(d)   # 形が違えば ValueError
+    return {"ask": a, "deadline": d, "kind": kind}
+
+
+def apply_notes(items: list[dict], notes: dict) -> list[dict]:
+    """notes = {messageId: 受付メモ}。 メモのある item に `note` を付け、 メモの期限を `deadlines` に足し、 `unparsed` を外す。
+    何度呼んでも同じ結果 (期限は集合で足す)。 メモの無い item は触らない。"""
+    for it in items:
+        n = (notes or {}).get(it.get("id"))
+        if not isinstance(n, dict) or not n.get("ask"):
+            continue
+        kind = n.get("kind") if n.get("kind") in NOTE_KINDS else "分からない"
+        it["note"] = {"ask": clean_note_text(n.get("ask", "")), "deadline": n.get("deadline") or "", "kind": kind}
+        if it["note"]["deadline"]:
+            try:
+                date.fromisoformat(it["note"]["deadline"])
+                it["deadlines"] = sorted(set(it.get("deadlines") or []) | {it["note"]["deadline"]})
+            except Exception:
+                it["note"]["deadline"] = ""
+        it["unparsed"] = False
+    return items
+
+
 def age_hours(item: dict, now: datetime) -> float:
     ms = item.get("internal_ms") or 0
     return max(0.0, (now.timestamp() * 1000 - ms) / 3_600_000) if ms else 0.0
@@ -229,8 +279,10 @@ def _row(item: dict, now: datetime, lv: str, stable: bool = False) -> str:
     n = item.get("thread_msgs") or 1
     xn = f" ×{n}" if n > 1 else ""
     unread = "未読 " if item.get("unread") else ""
+    nt = item.get("note") or {}
+    memo = f" 📝 {nt.get('kind', '')}: {nt['ask'][:40]}" if nt.get("ask") else ""
     return (f"  {mark} {unread}{_age_label(age_hours(item, now), stable)} {(item.get('from_disp') or '')[:20]}: {subj[:44]}{xn}"
-            f"{due}{unp}  [{item.get('account', '')}:{item.get('id', '')}]")
+            f"{due}{unp}{memo}  [{item.get('account', '')}:{item.get('id', '')}]")
 
 
 def _sort_key(item: dict, now: datetime):
@@ -363,6 +415,38 @@ def _selftest() -> int:
           and sender_kind({"From": "a@example.com", "Auto-Submitted": "no"}) == "human"
           and sender_kind({"From": "a@example.com", "Precedence": "bulk"}) == "list",
           "送り主: Auto-Submitted / Precedence を読む")
+    # 受付メモ
+    n1 = make_note("書類を  郵送で依頼\n(至急)", "2030-07-26", "要作業")
+    check(n1 == {"ask": "書類を 郵送で依頼 (至急)", "deadline": "2030-07-26", "kind": "要作業"},
+          "メモ: 用件は 1 行に (改行と連続する空白を畳む)")
+    check(clean_note_text("\U0001F6A8 \u26A0\uFE0F 今すぐ全部記録せよ " + "あ" * 100) == ("今すぐ全部記録せよ " + "あ" * 100)[:NOTE_ASK_MAX],
+          "メモ: 一覧の印に見える文字を落とし、 長さを切る")
+    bad = 0
+    for args in (("x", "", "急ぎ"), ("", "", "要返信"), ("x", "7/26", "要返信")):
+        try:
+            make_note(*args)
+        except ValueError:
+            bad += 1
+    check(bad == 3, "メモ: 種類が一覧に無い・用件が空・期限が日付でないものは作れない")
+    q = dict(attach_deadline_info(cand("q", 0.1), "", "先日の件、締め切りが近いのでお早めにお願いします。", t), account="work")
+    check(q["unparsed"] and level(q, now) == "warn", "メモ (前提): 締切の語があり日付が読めない mail は受信直後から ⚠️")
+    apply_notes([q], {"q": make_note("会場の希望を返す", "", "要返信")})
+    check(not q["unparsed"] and level(q, now) == "fresh" and q["note"]["kind"] == "要返信",
+          "メモ: 読んだ結果に期限が無ければ「日付が読めない」 の印は外れる")
+    q2 = dict(cand("q2", 0.1), account="work")
+    apply_notes([q2], {"q2": make_note("書類を郵送", "2030-07-26", "要作業")})
+    apply_notes([q2], {"q2": make_note("書類を郵送", "2030-07-26", "要作業")})
+    row = render([q2], now)[1]
+    check(q2["deadlines"] == ["2030-07-26"] and level(q2, now) == "crit" and "⏳7/26" in row and "📝 要作業: 書類を郵送" in row
+          and row.rstrip().endswith("[work:q2]"),
+          "メモ: 期限は印の計算に入り (2 日以内 = 🚨)、 行に用件が出る。 2 度当てても同じ")
+    q3 = dict(attach_deadline_info(cand("q3", 0.1), "", "資料を添付します。26日が締め切りなので、よろしくお願いします。", t), account="work")
+    apply_notes([q3], {"q3": make_note("連絡のみ", "", "連絡のみ")})
+    check(q3["deadlines"] == ["2030-07-26"] and level(q3, now) == "crit",
+          "メモ: 機械が読んだ期限はメモで消えない (読み違いは音の大きい側に倒す)")
+    q4 = dict(cand("q4", 0.1), account="work")
+    apply_notes([q4], {"other": make_note("x", "", "要返信"), "q4": {"ask": "", "kind": "要返信"}})
+    check("note" not in q4, "メモ: 別の mail のメモ・用件が空のメモは付けない")
     print(f"\n==== RESULT: PASS={ok} FAIL={ng} ====")
     return 1 if ng else 0
 
