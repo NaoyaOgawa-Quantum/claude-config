@@ -677,6 +677,14 @@ sections:
     legacy: "19.8"
     level: 3
     title: "19.8 見送った防御には、 それを戻す観測を書く — 宣言した盲点は次の再発の予測として読む"
+  - id: verdict-expires-with-the-gate
+    legacy: "19.9"
+    level: 3
+    title: "19.9 合格は関門と一緒に古くなる — 判定は成果物でなく「外へ出す操作」 に付ける"
+  - id: recall-waiver-is-not-quarantine
+    legacy: "19.10"
+    level: 3
+    title: "19.10 回収と隔離は別の操作 — 「出し直さない」 は「これからも使ってよい」 ではない"
   - id: premise-bound-rule-expiry
     legacy: "20"
     level: 2
