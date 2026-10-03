@@ -22,6 +22,8 @@ usage:
       前に fetch する (--no-fetch で止める)。 exit 3 = 検査が走らなかった (stub は 1 行出して通す)。
       書き換えに依らない 2 つも同じ入口で見る: git-crypt の対象の path の平文の blob (止める = CLAUDE_CRYPT_PUSH_GUARD=0) /
       commit message の識別子の検査 (commit-msg と同じ engine を push 範囲に。 止める = その engine の escape hatch)。
+      中身を持たない object (空の blob など) は検査しない。 止まった object が、 消した中身でなく同じ中身の新しい file だった時は、
+      持ち主の判断を受けてから GIT_REWRITE_FOLLOW_ALLOW=<止まった sha> を付けて push する (名指しした object だけが通り、 記録に残る)。
       remote の既定 branch を fast-forward でなく動かす push (履歴の書き換え) の前には、 複製の側の備えを点呼する command
       (env GIT_REWRITE_READY_HOOK か ~/.claude/rewrite-ready-check、 引数 = repo の path) を呼ぶ: exit 1 + 「NOT READY」 =
       止める / それ以外の非 0 = 1 行出して通す / command が無ければ何もしない。 持ち主の判断で進める = GIT_REWRITE_READY_OVERRIDE=1。

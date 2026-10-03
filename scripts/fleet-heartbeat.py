@@ -89,7 +89,8 @@ repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_re
   - stale = この machine 自身が「HEAD は捨てられた履歴の上」 と分かっている repo (fetch 済み・未追従)。 変化は即 commit
   - no_stub = push の検査が通らない repo (hook の dir が repo に track されていて pre-push を持たない / 鎖にしない設定)。 変化は即 commit
   - events = 直近 24 時間に、 止めずに通した出来事 {種類: [repo]} (push の検査が例外で走らなかった guard-error / 書き換える push の前の
-    点呼が走らなかった ready-skip / 備えの無いまま書き換えを通した ready-override。 部品 = lib の log_event)。 変化は即 commit
+    点呼が走らなかった ready-skip / 備えの無いまま書き換えを通した ready-override / 止まるはずの object を名指しで通した guard-allow。
+    部品 = lib の log_event)。 変化は即 commit
   - error = この集計そのものが失敗した時の理由 (他の欄は無い)。 「報告なし」 と区別して、 他の machine から原因を読む
   - heads の各 repo の old_branches = 捨てられた履歴の commit を抱えた手元の branch (今の branch を除く。 在る時だけ載る)
   heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
