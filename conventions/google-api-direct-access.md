@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: Google API を Python から直接叩く setup をするとき + ML (Google Groups) 宛に送る前に、 購読者一覧を読めない ML に入っていない人を見分けるとき (#group-membership-without-owner)
 category: infra
-summary: Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx、 Drive folder 一括 download 〔list pagination + native-export map + 再帰 + manifest、 #drive-folder-bulk-download〕、 他人から共有された folder を読み続ける 〔宛先 account の token (別 account では 404) + 台帳 + id/modifiedTime の差分 + 共有通知メールの照合、 #shared-folder-watch〕、 Gmail 一括掃除 〔batchModify TRASH 30日undo + レビュー済み ID list 駆動 + 送信者別集計 + 本文入り通知の salvage、 判断基準 = 唯一の機械検索可能な記録か、 #gmail-bulk-cleanup〕、 storage quota 監視 〔Drive about.get storageQuota = Gmail+フォト+Drive 合算容量の唯一の API 監視点、 最小 scope drive.metadata.readonly、 反映ラグ + ゴミ箱 usage 込みの解釈 gotcha、 #storage-quota-monitoring〕、 Cloud Identity Groups API は group OWNER level で memberships CRUD 可能で Admin SDK の Workspace admin 制約を回避、 loopback OAuth consent フローの CSRF/横取り対策 〔state nonce + PKCE S256 + request-loop + 手動貼付の state 検証 + 補償制御 hard-fail + 識別子 charset 検証、 #oauth-loopback-hardening〕) + #drive-xlsx-inplace-update (= 他人 owner の共有 xlsx に書く: full drive 別 token / revisions.get_media が truth / openpyxl round-trip の損失 / files.update 同 ID / 再 download literal verify)
+summary: Google API を Python から直接アクセスする setup pattern (= GCP project の 3 layer 構造、 API enable + propagate、 OAuth scope 設計、 mimeType 判別 Sheets vs xlsx、 Drive の検索 query に入れる値のエスケープ 〔' と \ を逃がさないと 400 → 同名なし扱いで重複を作る、 #drive-query-escaping〕、 Drive folder 一括 download 〔list pagination + native-export map + 再帰 + manifest、 #drive-folder-bulk-download〕、 他人から共有された folder を読み続ける 〔宛先 account の token (別 account では 404) + 台帳 + id/modifiedTime の差分 + 共有通知メールの照合、 #shared-folder-watch〕、 Gmail 一括掃除 〔batchModify TRASH 30日undo + レビュー済み ID list 駆動 + 送信者別集計 + 本文入り通知の salvage、 判断基準 = 唯一の機械検索可能な記録か、 #gmail-bulk-cleanup〕、 storage quota 監視 〔Drive about.get storageQuota = Gmail+フォト+Drive 合算容量の唯一の API 監視点、 最小 scope drive.metadata.readonly、 反映ラグ + ゴミ箱 usage 込みの解釈 gotcha、 #storage-quota-monitoring〕、 Cloud Identity Groups API は group OWNER level で memberships CRUD 可能で Admin SDK の Workspace admin 制約を回避、 loopback OAuth consent フローの CSRF/横取り対策 〔state nonce + PKCE S256 + request-loop + 手動貼付の state 検証 + 補償制御 hard-fail + 識別子 charset 検証、 #oauth-loopback-hardening〕) + #drive-xlsx-inplace-update (= 他人 owner の共有 xlsx に書く: full drive 別 token / revisions.get_media が truth / openpyxl round-trip の損失 / files.update 同 ID / 再 download literal verify)
 -->
 # Google API を Python から直接アクセスする setup
 
@@ -140,6 +140,21 @@ elif mime == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     buf.seek(0)
     wb = openpyxl.load_workbook(buf, data_only=True)
     # wb.sheetnames + wb[name].iter_rows(values_only=True)
+```
+
+## <a id="drive-query-escaping"></a>Drive の検索 query (`files.list` の `q`) に値を入れるときはエスケープする
+
+`q` の文字列リテラルは `'…'` で囲む。 中に入れる値 (file 名・フォルダ名など人が付けた名前) は **`\` を `\\`、 `'` を `\'` に置き換えてから**埋める (順序はこの順 = 先に `\`)。 しないと名前に `'` がある file で `files.list` が 400 を返す (実測)。
+
+- **壊れ方が見えない**: 「同名を探して、 あれば上書き・無ければ新規」 の code が 400 の HttpError を握って None を返すと、 「同名なし」 と同じ道に入り、 上書きされずに**同名の file を新しく作る** (共有の URL も変わる)。 エラーが出ないので気づかない
+- Drive の file / folder ID (英数字と `-` `_`) を `'<id>' in parents` に入れるだけなら壊れないが、 外から来た値を入れるなら同じ関数を通す
+- selftest は `'` と `\` を含む名前で、 組み上がった `q` を文字列で見る (fake の client は 400 を返さないので、 query の形を見ないと検出できない)
+
+```python
+def _q(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+q = f"name = '{_q(name)}' and trashed = false"
 ```
 
 ## <a id="drive-xlsx-inplace-update"></a>共有 xlsx の in-place 更新 (= 他人 owner の Office file に自分の行を書く)
