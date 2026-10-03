@@ -95,7 +95,8 @@ issue は `paper: same | differs | unverified` を必須にする。
 `build` は、 gate が通らなければ**何も書かない**。 段は 5 つ:
 
 1. **記入内容 gate** (spec ⊢ workbook): 埋める欄 / 空が正の欄 / 排他選択 / 数式 cache の生存。
-   凍結 group の sheet は今日の spec で裁かず 🧊 と表示する (= 過去の提出物を今の規則で FAIL にしない)
+   凍結 group の sheet は build では今日の spec で裁かず 🧊 と表示する (= 提出した記録を今の規則で FAIL にしない。
+   刷った・送っただけの issue の中身と、 凍結した出力をこれから刷る・送る操作は [regate / admit](#regate) が今の関門で見る)
 2. **体裁** ([下記 §3](#layout-3)) を使い捨ての temp にだけ当てて Excel に PDF を作らせる
 3. **字の切れ・はみ出し gate** を PDF に当て、 引っかかった欄を折り返し → 行を伸ばして刷り直す (上限つき)。
    残れば出力を書かずに止める
