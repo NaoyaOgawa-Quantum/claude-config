@@ -1,0 +1,51 @@
+{
+  "_comment": "short-answer-themes.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 7 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。",
+  "target": "short-answer-themes.py",
+  "run": "python3 {} --selftest",
+  "fail_marker": "FAIL ",
+  "pass_marker": "PASS ",
+  "mutants": [
+    {
+      "name": "まとまりの人数をテーマの和集合でなく最後のテーマだけにする",
+      "pairs": [["            bset |= tset", "            bset = tset"]],
+      "expect_fail": ["まとまりの人数 = テーマの和集合"],
+      "expect_pass": ["項目の人数 = 当たった人の数", "テーマの人数 = 項目の和集合"]
+    },
+    {
+      "name": "0 人の項目も docx に出す",
+      "pairs": [["for l, n in sorted(labs, key=lambda x: -x[1]) if n > 0]", "for l, n in sorted(labs, key=lambda x: -x[1]) if True]"]],
+      "expect_fail": ["docx の項目は 0 人を出さない"],
+      "expect_pass": ["項目の人数 = 当たった人の数"]
+    },
+    {
+      "name": "項目を人数の順に並べない",
+      "pairs": [["for l, n in sorted(labs, key=lambda x: -x[1]) if n > 0]", "for l, n in labs if n > 0]"]],
+      "expect_fail": ["docx の項目は人数の多い順"],
+      "expect_pass": ["docx の項目は 0 人を出さない"]
+    },
+    {
+      "name": "抜粋の key が 2 人に当たっても止めない",
+      "pairs": [["        if len(hit) != 1:", "        if not hit:"]],
+      "expect_fail": ["抜粋の key が 0 人・2 人に当たれば止まる"],
+      "expect_pass": ["抜粋 = key で 1 人に特定"]
+    },
+    {
+      "name": "どの項目にも入らない語を、 語でなく回答全体に当てて判定する",
+      "pairs": [["            if not any(rx.search(t) for rx in rxs):", "            if not any(rx.search(a) for rx in rxs):"]],
+      "expect_fail": ["どの項目にも入らない語 = 語ごとに当て"],
+      "expect_pass": ["語の切り出し", "どの項目にも当たらない回答の人数"]
+    },
+    {
+      "name": "対象の人数を回答した人数で数える",
+      "pairs": [["    return out, len(raw)", "    return out, len(out)"]],
+      "expect_fail": ["空・null は回答から除き、 対象の人数には数える"],
+      "expect_pass": ["項目の人数 = 当たった人の数"]
+    },
+    {
+      "name": "差し込みの名前が表に無くても止めない",
+      "pairs": [["            raise TableError(f\"差し込み {{{kind}:{name}}} の名前が表に無い\")", "            return m.group(0)"]],
+      "expect_fail": ["差し込みの名前が表に無ければ止まる"],
+      "expect_pass": ["差し込み: {answers} {targets} {n:} {block:} を人数に"]
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-// Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address; takes a googleapis classroom client, no imports.
+// Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address, coursework list, short answers without names; takes a googleapis classroom client, no imports.
 //
 // Every function takes the `classroom` client (googleapis `google.classroom({version: "v1", auth})`) as its
 // first argument, so the caller owns the credentials and the googleapis install; this module needs neither.
@@ -166,6 +166,43 @@ export async function gradeHistory(classroom, courseId, courseWorkId) {
   }
   stamps.sort();
   return { submissions: subs.length, byState, changes, noHistory, span: stamps.length ? [stamps[0], stamps.at(-1)] : null };
+}
+
+// Coursework of a course (id, title, type, state, due date), newest first, to find the id that
+// shortAnswers / gradeHistory take. Read-only.
+export async function listCourseWork(classroom, courseId) {
+  if (!courseId) throw new Error("courseId is required");
+  const out = [];
+  let pageToken;
+  do {
+    const res = await classroom.courses.courseWork.list({ courseId, pageSize: 100, pageToken });
+    for (const w of res.data.courseWork || []) {
+      const d = w.dueDate;
+      out.push({ id: w.id, title: w.title, workType: w.workType, state: w.state, creationTime: w.creationTime,
+        due: d ? `${d.year}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}` : null });
+    }
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+  return out.sort((a, b) => String(b.creationTime).localeCompare(String(a.creationTime)));
+}
+
+// Short-answer texts of a coursework without names or user ids, one entry per submission, for counting
+// answers by theme (scripts/short-answer-themes.py reads this array). A submission that is not turned in
+// (CREATED / RECLAIMED_BY_STUDENT) gives "", so the length is the number of students the work is assigned
+// to and the non-empty entries are the answers. Read-only.
+export async function shortAnswers(classroom, courseId, courseWorkId) {
+  if (!courseId || !courseWorkId) throw new Error("courseId and courseWorkId are required");
+  const out = [];
+  let pageToken;
+  do {
+    const res = await classroom.courses.courseWork.studentSubmissions.list({ courseId, courseWorkId, pageSize: 100, pageToken });
+    for (const s of res.data.studentSubmissions || []) {
+      const done = s.state === "TURNED_IN" || s.state === "RETURNED";
+      out.push(done ? (s.shortAnswerSubmission?.answer ?? "") : "");
+    }
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+  return out;
 }
 
 // Addresses from a roster CSV whose last column is the e-mail (header row skipped, quotes stripped,
