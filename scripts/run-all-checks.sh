@@ -83,12 +83,13 @@ for py in scripts/*.py; do
 done
 
 # 3a. scripts/lib/*.py の selftest (発見条件 = `if __name__ == "__main__"` の行か直後 2 行に selftest の語。
-#     lib の module は --selftest 引数を取らず、 直接実行が selftest になっている。 web_driver.py のように
-#     直接実行が CLI の module は対象外)
+#     直接実行が selftest の module と、 --selftest を渡したときだけ selftest を回す module の両方があるので、
+#     いつも --selftest を付けて呼ぶ (前者は引数を見ないので同じ結果、 後者は付けないと説明を出して 0 で終わる =
+#     selftest を回さずに緑になる)。 web_driver.py のように直接実行が CLI の module は対象外)
 for py in scripts/lib/*.py; do
     [ -f "$py" ] || continue
     if grep -A2 '__name__ == "__main__"' "$py" | grep -q selftest; then
-        run "selftest: lib/$(basename "$py")" python3 "$py"
+        run "selftest: lib/$(basename "$py")" python3 "$py" --selftest
     fi
 done
 
