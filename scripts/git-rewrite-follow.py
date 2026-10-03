@@ -39,8 +39,11 @@ usage:
   git-rewrite-follow.py facts --root DIR
       DIR/*/ の repo ごとの事実 (HEAD・見ている upstream・pre-push の状態) を JSON で (点呼の材料。 判定は読む側)。
   git-rewrite-follow.py ensure-prepush (--repo PATH | --root DIR) [--force]
-      manifest (`<upstream>:.rewrite-follow/`) のある repo に pre-push stub を置く (既存の別の pre-push は触らない)。
+      manifest (`<upstream>:.rewrite-follow/`) のある repo に pre-push stub を置く。
       --force = manifest の無い repo にも置く (書き換えの前から全 clone に置く)。
+      別の pre-push hook が在る clone では、 その hook を残したまま検査を先に通す (pdf-publish の hook はその鎖の口に、
+      他は元の hook を pre-push.rewrite-follow-chained に写して検査の後に呼ぶ)。 包まない = GIT_REWRITE_FOLLOW_CHAIN=0 か
+      その clone で git config rewritefollow.chain false。 戻す = mv pre-push.rewrite-follow-chained pre-push
   git-rewrite-follow.py status --repo PATH [--json]
       upstream / manifest の有無 / stub の有無 / forced-update の痕跡 / HEAD と upstream の関係 / HEAD が捨てられた履歴の
       上か。 heartbeat と gate が読む。
