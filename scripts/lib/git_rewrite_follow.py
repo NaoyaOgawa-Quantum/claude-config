@@ -29,7 +29,8 @@ repo ごとの事実を点呼の材料として載せる)。
       (b) **この clone 自身の記憶** = remote-tracking ref の reflog。 過去に remote に在って今はどの ref からも届かない
           commit (forced update で捨てられた履歴) と、 そこにしか無い tree・blob を、 manifest が無くても拒む
           (discarded_objects。 書き換えの直後で manifest がまだ置かれていない窓と、 manifest を置かない書き換えを覆う。
-          reflog の entry が expire する 30 日より後は manifest が網)。
+          reflog の entry は expire する = 定期 job が、 覚えているうちに object の一覧を clone の中に書き (remember_discarded)、
+          expire の後は guard と audit がその記録を読む (remembered_discarded)。 manifest の無い repo の、 reflog より長い網)。
   I6  commit 側: HEAD が捨てられた履歴の commit の上にある clone では commit を始めさせない (head_violations。
       pre-commit の段が呼ぶ = 追従前の clone で仕事を積ませない)。
   I7  remote 側の検出: upstream (と remote の他の branch) に対応表の旧 sha / forbidden の object が戻っていないかを
@@ -51,7 +52,7 @@ repo ごとの事実を点呼の材料として載せる)。
 
 公開 repo には manifest を置かない: 対応表の旧 sha と forbidden の sha は、 host が旧 object を gc するまで、 消した中身を
 sha で取り出す鍵になる (host は、 どの ref からも届かない commit も sha を知っていれば見せる)。 公開 repo の網は、 clone 自身の
-reflog の記憶 (I5 b) と、 外から渡す対応表 (非公開の置き場。 `--map` / maps file / env) にする。
+reflog の記憶と、 それを書き留めた clone の中の記録 (I5 b)、 外から渡す対応表 (非公開の置き場。 `--map` / maps file / env) にする。
 
 別の pre-push hook が在る clone (ensure_prepush / _prepush_plan): その hook を残したまま、 検査を先に通す。
   - pdf-publish の hook (templates/shared-project/pdf-publish) は、 自分の後に `pre-push.before-pdf-publish` を呼ぶ作り =
@@ -638,7 +639,7 @@ def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False,
             except (RuntimeError, OSError) as exc:
                 pl = f"{repo.name}: pre-push stub を置けなかった ({str(exc)[:100]})"
         out.append((r, pl))
-        if audit and has_manifest:
+        if audit and (has_manifest or (_common_dir(repo) / REMOVED_CACHE).is_dir()):
             try:
                 for line in audit_repo(repo, cli_globs):
                     out.append((Result("stopped", line, exit_code=1), ""))
@@ -654,7 +655,7 @@ def sweep(root, cli_globs=(), fetch=False, max_count=DEFAULT_MAX, dry_run=False,
 # ---------------------------------------------------------------- discarded history (この clone 自身の記憶)
 
 REMOVED_CACHE = "rewrite-follow-discarded"    # <git common dir>/ の下。 捨てられた履歴にしか無い object の一覧の cache
-REMOVED_CACHE_KEEP = 4
+REMOVED_CACHE_KEEP = 8       # 世代の数。 file は reflog の entry が expire した後も残り、 remembered_discarded が記憶として読む
 AUDIT_CACHE = "rewrite-follow-audit.json"     # <git common dir>/ の下。 audit_repo が最後に見た ref の状態と結果
 GUARD_HEADLINE = "push を止めた"               # pre-push stub がこの見出しで「違反」 と「検査の故障」 を見分ける
 HEAD_HEADLINE = "[rewrite-follow] BLOCK"      # pre-commit の段が同じ用途で見る
@@ -802,6 +803,40 @@ def discarded_objects(repo, refs):
     return set(commits), objs
 
 
+def remembered_discarded(repo):
+    """この clone が以前に「remote から捨てられた履歴にしか無い」 と記録した object の sha の set (cache の file 全部の和)。
+    reflog の entry は expire する (unreachable は既定 30 日) が、 この file は残る = manifest の無い repo の、 reflog より長い記憶
+    (公開 repo には manifest を置かないので、 そこではこれが唯一の長い網)。 捨てられた object が remote に正当に戻された後は、
+    push の範囲 (remote に既に在る分を除く) に入らないので、 この記憶で止まることは無い。"""
+    out = set()
+    cdir = _common_dir(repo) / REMOVED_CACHE
+    try:
+        files = [q for q in cdir.iterdir() if q.is_file() and not q.name.endswith(".tmp")]
+    except OSError:
+        return out
+    for q in files:
+        try:
+            with open(q, encoding="ascii", errors="replace") as f:
+                for line in f:
+                    sha = line.split(None, 1)[0] if line.strip() else ""
+                    if _SHA_RE.match(sha):
+                        out.add(sha)
+        except OSError:
+            continue
+    return out
+
+
+def remember_discarded(repo):
+    """捨てられた履歴を今 reflog が覚えているなら、 その object の一覧を cache に書いておく (既に在れば読むだけ)。 定期 job が
+    毎回呼ぶ = push や検出の機会が来る前に reflog が expire しても、 記憶が残る。"""
+    upstream = upstream_of(repo)
+    if not upstream:
+        return
+    refs = tracked_refs(repo, upstream.split("/", 1)[0])
+    if refs:
+        discarded_objects(repo, refs)
+
+
 # ---------------------------------------------------------------- push guard
 
 def _range_ids(repo, positive, negative, objects=True, timeout=600):
@@ -828,7 +863,7 @@ def _range_objects(repo, positive, negative, timeout=600):
     return out
 
 
-def push_violations(repo, local_sha, exclude, gen, discarded=None, ids=None):
+def push_violations(repo, local_sha, exclude, gen, discarded=None, ids=None, remembered=None):
     """local_sha までの commit のうち exclude に無いものが、 旧 sha / 旧世代の blob / 捨てられた履歴の object を含むか。
     違反の説明 list。 exclude = sha か sha の list ('' / [] = remote のどの ref にも無いもの全部)。
     discarded = discarded_objects の返り値 (無ければ manifest だけで判定)。 ids = 呼び手が既に求めた範囲の sha の set。"""
@@ -852,6 +887,11 @@ def push_violations(repo, local_sha, exclude, gen, discarded=None, ids=None):
         if do:
             # path は出さない (消した file 名そのものが消した中身のことがある)。 どの file かは手元で: git rev-list --objects <local> | grep <sha>
             hits.append(f"捨てられた履歴にしか無い tree / blob {len(do)} 個 (例 {sorted(do)[0][:7]})")
+    if remembered:
+        seen = set(discarded[0]) | set(discarded[1]) if discarded else set()
+        rm = (ids & remembered) - gen.old_shas - gen.forbidden - seen
+        if rm:
+            hits.append(f"この clone が以前に「remote から捨てられた履歴にしか無い」 と記録した object {len(rm)} 個 (例 {sorted(rm)[0][:7]})")
     return hits
 
 
@@ -961,7 +1001,8 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
         discarded = discarded_objects(repo, refs) if refs else (set(), set())
     except (RuntimeError, subprocess.TimeoutExpired, OSError):
         discarded = (set(), set())
-    rewritten = bool(gen.maps or gen.forbidden or discarded[0])
+    remembered = remembered_discarded(repo)
+    rewritten = bool(gen.maps or gen.forbidden or discarded[0] or remembered)
     base = [c for c in (rev(repo, r) for r in refs) if c]
     msgs = []
     notes = []      # 止めない知らせ (stub が表示して通す)
@@ -978,7 +1019,7 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
         exclude = [rsha] if (rsha != ZERO and _has(repo, rsha)) else base
         objs = _range_objects(repo, lsha, exclude or ["--remotes"])
         if rewritten:
-            hits = push_violations(repo, lsha, exclude, gen, discarded, ids={s for s, _p in objs})
+            hits = push_violations(repo, lsha, exclude, gen, discarded, ids={s for s, _p in objs}, remembered=remembered)
             if hits:
                 msgs.append(f"{repo.name}: {GUARD_HEADLINE} ({rref}): {'、 '.join(hits)} = 古い履歴が混ざっている。 "
                             f"追従 (git-rewrite-follow.py follow --repo {repo}) してから、 必要な commit だけ cherry-pick で載せ直す")
@@ -1141,7 +1182,12 @@ def audit_repo(repo, cli_globs=(), use_cache=True):
         return []
     mtree = manifest_tree(repo, upstream)
     extra = extra_map_paths(cli_globs)
-    if not mtree and not extra:
+    cdir = _common_dir(repo) / REMOVED_CACHE
+    try:
+        mem_names = sorted(q.name for q in cdir.iterdir() if q.is_file() and not q.name.endswith(".tmp"))
+    except OSError:
+        mem_names = []
+    if not mtree and not extra and not mem_names:
         return []
     rname = upstream.split("/", 1)[0]
     refs = {}
@@ -1151,7 +1197,7 @@ def audit_repo(repo, cli_globs=(), use_cache=True):
         if len(a) == 2:          # symref (<remote>/HEAD) は 3 欄 = 飛ばす
             refs[a[0]] = a[1]
     # 鍵 = remote の ref の状態 + manifest の tree (+ 外から渡す対応表の名前)。 一致すれば対応表を読まずに前回の結果を返す
-    mkey = mtree + "|" + "|".join(extra)
+    mkey = mtree + "|" + "|".join(extra) + "|" + ",".join(mem_names)
     state = "\n".join(f"{r} {s}" for r, s in sorted(refs.items())) + "\n" + mkey
     key = hashlib.sha1(state.encode()).hexdigest()
     cf = _common_dir(repo) / AUDIT_CACHE
@@ -1165,7 +1211,8 @@ def audit_repo(repo, cli_globs=(), use_cache=True):
         if prev.get("key") == key:
             return list(prev.get("findings") or [])
     gen = Generation.load(repo, upstream, cli_globs)
-    if not gen.old_shas and not gen.forbidden:
+    remembered = (remembered_discarded(repo) - gen.old_shas - gen.forbidden) if mem_names else set()
+    if not gen.old_shas and not gen.forbidden and not remembered:
         return []
     name = repo.name
     findings = []
@@ -1180,10 +1227,15 @@ def audit_repo(repo, cli_globs=(), use_cache=True):
     fb = ids & gen.forbidden
     if fb:
         findings.append(f"🔴 {name}: {upstream} に、 書き換えで消した版の object が {len(fb)} 個在る (例 {sorted(fb)[0][:7]}) = 戻っている")
+    rb = ids & remembered
+    if rb:
+        findings.append(f"🔴 {name}: {upstream} に、 この clone が「remote から捨てられた」 と記録した履歴の commit / object が {len(rb)} 個在る"
+                        f" (例 {sorted(rb)[0][:7]}) = 戻っている (意図して戻したのでなければ、 どの push で入ったかを見る:"
+                        f" git -C {repo} log --oneline --merges -5 {upstream})")
     for ref, sha in sorted(refs.items()):
         if sha == up_sha or ref == "refs/remotes/" + upstream:
             continue
-        c = _range_ids(repo, sha, [up_sha], objects=False, timeout=120) & gen.old_shas
+        c = _range_ids(repo, sha, [up_sha], objects=False, timeout=120) & (gen.old_shas | remembered)
         if c:
             short = ref[len("refs/remotes/"):]
             findings.append(f"🟠 {name}: remote の branch {short} が書き換え前の履歴を抱えている (commit {len(c)} 個) = merge すれば戻る。"
@@ -1473,6 +1525,10 @@ def repo_facts(root):
             if not up:
                 continue
             out[repo.name] = {"head": rev(repo, "HEAD")[:12], "up": rev(repo, up)[:12], "prepush": prepush_state(repo)}
+            try:
+                remember_discarded(repo)        # reflog が覚えているうちに、 捨てられた履歴の object の一覧を cache に書く
+            except (RuntimeError, subprocess.TimeoutExpired, OSError):
+                pass
             ob = stale_branches(repo)
             if ob:
                 out[repo.name]["old_branches"] = ob
@@ -2345,6 +2401,56 @@ def _selftest():
     git(ck, "config", "core.hooksPath", ".githooks")
     check("tracked hooks dir without a pre-push: nothing is written into the worktree (a later pre-push of the repo's own would collide)",
           "置けない" in ensure_prepush(ck, only_with_manifest=False) and not (ck / ".githooks").exists() and prepush_state(ck) == "foreign")
+
+    # --- reflog の記憶が消えた後も、 この clone の記録 (cache の file) で止める / remote 側で検出する (manifest なし)
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-05T00:00:00 +0000"
+    mm_remote = bare("mm.git")
+    mm = tmp / "mm-src"
+    init(mm)
+    m1 = commit(mm, {"a.txt": "one\n"}, "m1")
+    commit(mm, {"secret.txt": "content the rewrite removes\n", "b.txt": "b\n"}, "m2")
+    m3 = commit(mm, {"c.txt": "c\n"}, "m3")
+    git(mm, "remote", "add", "origin", str(mm_remote))
+    git(mm, "push", "-q", "-u", "origin", "main")
+    mm_c = clone_of(mm_remote, "mm-clone")           # 書き換えの前から在る clone
+    mm_o = clone_of(mm_remote, "mm-outside")         # 検査を持たない clone (fleet の外)
+    os.environ["GIT_AUTHOR_DATE"] = os.environ["GIT_COMMITTER_DATE"] = "2000-01-06T00:00:00 +0000"
+    git(mm, "reset", "-q", "--hard", m1)
+    commit(mm, {"b.txt": "b\n"}, "m2")
+    n3 = commit(mm, {"c.txt": "c\n"}, "m3")
+    git(mm, "push", "-q", "--force", "origin", "main")
+    git(mm_c, "fetch", "-q")
+    repo_root_mm = tmp / "root-mm"
+    repo_root_mm.mkdir()
+    check("memory: nothing is remembered before the periodic job has looked", remembered_discarded(mm_c) == set())
+    remember_discarded(mm_c)
+    mem = remembered_discarded(mm_c)
+    check("memory: the periodic job writes the discarded history down while the reflog still knows it", m3 in mem and n3 not in mem and len(mem) >= 3,
+          str(len(mem)))
+    lg = _common_dir(mm_c) / "logs" / "refs" / "remotes" / "origin" / "main"
+    lg.write_text("")                                 # reflog の entry が expire した後を模す
+    check("memory fixture: with the reflog gone the clone no longer derives the discarded history",
+          discarded_commits(mm_c, tracked_refs(mm_c, "origin"))[0] == [])
+    git(mm_c, "merge", "-q", "--no-edit", "origin/main")
+    ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {rev(mm_c, 'HEAD')} refs/heads/main {n3}"], fetch=False)
+    check("memory: after the reflog expired, a push that carries the discarded history is still refused (no manifest)",
+          not ok and "以前に" in " ".join(msgs) and "secret.txt" not in " ".join(msgs), " ".join(msgs))
+    git(mm_c, "reset", "-q", "--hard", "origin/main")
+    commit(mm_c, {"new.txt": "legit\n"}, "legit work on the new history")
+    ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {rev(mm_c, 'HEAD')} refs/heads/main {n3}"], fetch=False)
+    check("memory: ordinary work on the new history passes", ok and not msgs, " ".join(msgs))
+    git(mm_c, "reset", "-q", "--hard", "origin/main")
+    check("memory audit: a clean remote yields nothing", audit_repo(mm_c) == [], " | ".join(audit_repo(mm_c)))
+    git(mm_o, "pull", "-q", "--no-rebase", "--no-edit", "origin", "main")     # 外の clone が古い履歴を merge して push する
+    git(mm_o, "push", "-q", "origin", "main")
+    git(mm_c, "fetch", "-q")
+    aud = audit_repo(mm_c)
+    check("memory audit: discarded history that came back through a clone without the check is reported (no manifest)",
+          any(x.startswith("🔴") and "戻っている" in x for x in aud), " | ".join(aud))
+    git(mm_c, "merge", "-q", "--ff-only", "origin/main")
+    commit(mm_c, {"after.txt": "work on top of what is now on the remote\n"}, "work after the remote took the old history back")
+    ok, msgs = guard_stdin(mm_c, [f"refs/heads/main {rev(mm_c, 'HEAD')} refs/heads/main {rev(mm_c, 'origin/main')}"], fetch=False)
+    check("memory: once the remote itself holds those objects again, a push on top is not refused for them", ok, " ".join(msgs))
 
     print(f"selftest: {'PASS' if not fails else 'FAIL'} ({len(fails)} failing)")
     return 0 if not fails else 1
