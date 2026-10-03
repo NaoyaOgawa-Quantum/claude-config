@@ -33,8 +33,8 @@ repo ごとの事実を点呼の材料として載せる)。
           expire の後は guard と audit がその記録を読む (remembered_discarded)。 manifest の無い repo の、 reflog より長い網)。
   I6  commit 側: HEAD が捨てられた履歴の commit の上にある clone では commit を始めさせない (head_violations。
       pre-commit の段が呼ぶ = 追従前の clone で仕事を積ませない)。
-  I7  remote 側の検出: upstream (と remote の他の branch) に対応表の旧 sha / forbidden の object が戻っていないかを
-      読む (audit_repo。 hook を持たない clone・host 上の merge から戻った分は、 ここでしか分からない)。
+  I7  remote 側の検出: upstream (と remote の他の branch) に対応表の旧 sha / forbidden の object / この clone が記録した
+      捨てられた履歴の commit が戻っていないかを読む (audit_repo。 manifest が無くても、 記録が在れば見る。 hook を持たない clone・host 上の merge から戻った分は、 ここでしか分からない)。
   I8  push 範囲の中身の検査 (書き換えに依らない。 content_violations): remote の中身についての不変条件は、 remote への
       入口で検査しないと網にならない (commit 時の検査は、 rebase・merge・cherry-pick で運ばれる commit を通らない)。
       (1) git-crypt の対象の path に平文の blob を push しない = 暗号化の対象を広げた .gitattributes が届く前の clone で
@@ -1525,10 +1525,6 @@ def repo_facts(root):
             if not up:
                 continue
             out[repo.name] = {"head": rev(repo, "HEAD")[:12], "up": rev(repo, up)[:12], "prepush": prepush_state(repo)}
-            try:
-                remember_discarded(repo)        # reflog が覚えているうちに、 捨てられた履歴の object の一覧を cache に書く
-            except (RuntimeError, subprocess.TimeoutExpired, OSError):
-                pass
             ob = stale_branches(repo)
             if ob:
                 out[repo.name]["old_branches"] = ob
@@ -1552,7 +1548,13 @@ def stale_branches(repo, cli_globs=()):
     upstream = upstream_of(repo)
     if not upstream or not rev(repo, upstream):
         return []
-    dc = set(discarded_commits(repo, tracked_refs(repo, upstream.split("/", 1)[0]))[0])
+    refs = tracked_refs(repo, upstream.split("/", 1)[0])
+    dc = set(discarded_commits(repo, refs)[0])
+    if dc:
+        try:
+            discarded_objects(repo, refs)   # reflog が覚えているうちに、 object の一覧を clone の中に書いておく (remembered_discarded が読む)
+        except (RuntimeError, subprocess.TimeoutExpired, OSError):
+            pass
     if not dc and not manifest_tree(repo, upstream):
         return []
     removed = Generation.load(repo, upstream, cli_globs).old_shas | dc
@@ -2423,7 +2425,7 @@ def _selftest():
     repo_root_mm = tmp / "root-mm"
     repo_root_mm.mkdir()
     check("memory: nothing is remembered before the periodic job has looked", remembered_discarded(mm_c) == set())
-    remember_discarded(mm_c)
+    stale_branches(mm_c)                              # 定期 job の経路 (repo_facts → stale_branches)
     mem = remembered_discarded(mm_c)
     check("memory: the periodic job writes the discarded history down while the reflog still knows it", m3 in mem and n3 not in mem and len(mem) >= 3,
           str(len(mem)))

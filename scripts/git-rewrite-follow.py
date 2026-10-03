@@ -13,7 +13,7 @@ usage:
       --tsv = repo-sync-sweep.sh 向け (F<TAB>行 = 揃えた / S<TAB>行 = 止まった / 無音 = 何もしない)
   git-rewrite-follow.py sweep --root DIR [--fetch] [--map GLOB]... [--max N] [--dry-run] [--no-prepush] [--stub-all]
       DIR/*/ の repo を順に follow (既定は fetch しない = 直前の sync が fetch した ref を読む) + manifest のある repo に
-      pre-push stub を置く (--stub-all = manifest の無い repo にも) + manifest のある repo の remote 側を読む (audit、 戻って
+      pre-push stub を置く (--stub-all = manifest の無い repo にも) + manifest か clone の記録のある repo の remote 側を読む (audit、 戻って
       いれば止まった行)。 exit 0 (何かで止まった repo があれば 1)。
   git-rewrite-follow.py guard --repo PATH --hook [remote url]      (git pre-push の stdin を読む。 stub が呼ぶ)
   git-rewrite-follow.py guard --repo PATH --range LOCAL..REMOTE     (手で確かめる)
