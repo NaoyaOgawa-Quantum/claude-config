@@ -1417,8 +1417,17 @@ def ensure_prepush(repo, only_with_manifest=True, engine=None, quiet_foreign=Fal
         os.replace(tmp, chained)
         _place_executable(dst, want)
         return f"{repo.name}: 既存の pre-push hook を残し ({chained.name})、 push の検査を先に通す stub を置いた ({dst})"
+    moved = False
+    if kind == "slot":
+        # 包んだ stub が、 後から入った pdf-publish の installer に口へ移された clone: stub は「自分の名前 + CHAIN_SUFFIX」 を呼ぶので、
+        # 前の名前で残った退避 (pre-push.rewrite-follow-chained) は呼ばれなくなる = 元の hook が黙って止まる。 口の名前に付け替える
+        orphan = dst.with_name("pre-push" + CHAIN_SUFFIX)
+        mine = dst.with_name(dst.name + CHAIN_SUFFIX)
+        if (orphan.exists() or orphan.is_symlink()) and not (mine.exists() or mine.is_symlink()):
+            os.replace(orphan, mine)
+            moved = True
     if dst.exists() and _read_text(dst) == want:
-        return ""
+        return f"{repo.name}: 包んでいた元の pre-push hook の退避を、 鎖の口の名前に付け替えた ({dst.name}{CHAIN_SUFFIX})" if moved else ""
     _place_executable(dst, want)
     if kind == "slot":
         if _hooks_tracked_in_worktree(repo):
@@ -2320,6 +2329,18 @@ def _selftest():
         check("pdf-publish hook in a tracked hooks dir: the slot file is placed and kept out of git status (info/exclude)",
               (ct / ".githooks" / ("pre-push" + PDFPUB_SLOT)).exists() and prepush_state(ct) == "stub"
               and git(ct, "status", "--porcelain") == "", line + " | " + git(ct, "status", "--porcelain"))
+    if pdf_installer.is_file():
+        cl = clone_of(ch_remote, "c-wrap-then-pdf")
+        llog = tmp / "chained-then-pdf.log"
+        foreign_hook(cl, llog)
+        ensure_prepush(cl, only_with_manifest=False)                         # まず包む (LFS などの hook が先に在った clone)
+        subprocess.run(["sh", str(pdf_installer)], cwd=str(cl), capture_output=True, env=_env())   # 後から pdf-publish が入る
+        line = ensure_prepush(cl, only_with_manifest=False)
+        commit(cl, {"l.txt": "l\n"}, "work after both tools were installed")
+        pr = run_git(cl, "push", "origin", "main")
+        check("wrapped first, pdf-publish installed later: the kept original hook is re-attached to the stub's new name and still runs",
+              "付け替えた" in line and prepush_state(cl) == "stub" and pr.returncode == 0 and llog.exists() and "args=origin " in llog.read_text(),
+              line + " | " + pr.stderr[-200:])
     ck = clone_of(ch_remote, "c-tracked-plain")
     git(ck, "config", "core.hooksPath", ".githooks")
     check("tracked hooks dir without a pre-push: nothing is written into the worktree (a later pre-push of the repo's own would collide)",
