@@ -50,9 +50,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 2026-09-12 導入時は observe。 観測 (stop-log.jsonl + check-first-reply-stamp.py) で誤発火が
-# 無いのを確かめてから block に上げる (= 値を変えて commit。 全マシンに pull で行き渡る)。
-DEFAULT_STOP_MODE = "observe"
+# 2026-09-12 導入時は observe。 2026-10-03 に block へ上げた: 家 MacBook の observe 記録 52 件
+# (09-12〜10-03、 全部 desktop) は、 stamp が出たのがどれも最初の Stop より後 (= 別の Stop hook の
+# 差し戻しの後か次の発言の後) で、 誤発火は 0 件。 1 件は stamp を書いたのに transcript に残らなかった
+# session で、 block でも stamp 1 行を出し直すだけで害は無い。
+DEFAULT_STOP_MODE = "block"
 STOP_MODES = ("off", "observe", "block")
 
 STAMP_MARK = "🖥"
@@ -506,6 +508,8 @@ def selftest() -> int:
         prompts, texts = claude_first_turn(miss)
         check("claude: harness 行と meta 行は prompt に数えない", prompts == 1 and len(texts) == 2)
 
+        check("stop: env 未設定の既定は block", stop_mode() == "block")
+        os.environ["FIRST_REPLY_STAMP_STOP"] = "observe"
         ev = {"hook_event_name": "Stop", "session_id": "s-miss-1", "cwd": cwd,
               "transcript_path": str(miss), "stop_hook_active": False}
         check("stop observe: 無出力", handle_stop("claude", ev) is None)

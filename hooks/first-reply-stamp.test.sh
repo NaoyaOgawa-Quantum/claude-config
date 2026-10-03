@@ -44,17 +44,19 @@ out="$(printf '%s' 'not json' | python3 "$HERE/first-prompt-stamp.py")"; rc=$?
 [ -z "$out" ] && [ "$rc" -eq 0 ] && ok || ng "UPS: 壊れた stdin は fail-open" "$out rc=$rc"
 
 ST="{\"hook_event_name\":\"Stop\",\"session_id\":\"t-st-1\",\"cwd\":\"$BASE\",\"transcript_path\":\"$TMP/miss.jsonl\",\"stop_hook_active\":false}"
-out="$(printf '%s' "$ST" | python3 "$HERE/first-turn-stamp-check.py")"
+out="$(printf '%s' "$ST" | FIRST_REPLY_STAMP_STOP=observe python3 "$HERE/first-turn-stamp-check.py")"
 [ -z "$out" ] && grep -q '"t-st-1"' "$TMP/state/stop-log.jsonl" 2>/dev/null && ok \
-  || ng "Stop (既定 = observe): 無出力で記録だけ" "$out"
+  || ng "Stop (observe): 無出力で記録だけ" "$out"
+out="$(printf '%s' "${ST/t-st-1/t-st-4}" | python3 "$HERE/first-turn-stamp-check.py")"
+if printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["decision"]=="block"' 2>/dev/null; then ok; else ng "Stop (既定 = block): 差し戻す" "$out"; fi
 out="$(printf '%s' "${ST/t-st-1/t-st-2}" | FIRST_REPLY_STAMP_STOP=block python3 "$HERE/first-turn-stamp-check.py")"
 if printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["decision"]=="block" and "🖥 " in d["reason"]' 2>/dev/null; then ok; else ng "Stop (block): decision=block + stamp" "$out"; fi
 out="$(printf '%s' "${ST/t-st-1/t-st-3}" | FIRST_REPLY_STAMP_STOP=off python3 "$HERE/first-turn-stamp-check.py")"
 [ -z "$out" ] && ok || ng "Stop (off): 沈黙" "$out"
 
-# 既定 mode は observe (block へ上げるのは観測の後 = 値の変更は commit で残す)
-grep -q '^DEFAULT_STOP_MODE = "observe"' "$ROOT/scripts/first_reply_stamp.py" && ok \
-  || ng "DEFAULT_STOP_MODE が observe でない (上げたなら本 test も更新する)"
+# 既定 mode は block (2026-10-03 に observe から上げた = 値の変更は commit で残す)
+grep -q '^DEFAULT_STOP_MODE = "block"' "$ROOT/scripts/first_reply_stamp.py" && ok \
+  || ng "DEFAULT_STOP_MODE が block でない (変えたなら本 test も更新する)"
 
 echo "pass=$pass fail=$fail"
 [ "$fail" -eq 0 ]
