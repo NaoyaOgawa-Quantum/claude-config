@@ -50,10 +50,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 2026-09-12 導入時は observe。 2026-10-03 に block へ上げた: 家 MacBook の observe 記録 52 件
-# (09-12〜10-03、 全部 desktop) は、 stamp が出たのがどれも最初の Stop より後 (= 別の Stop hook の
-# 差し戻しの後か次の発言の後) で、 誤発火は 0 件。 1 件は stamp を書いたのに transcript に残らなかった
-# session で、 block でも stamp 1 行を出し直すだけで害は無い。
+# 導入時は observe。 observe の記録を transcript と突き合わせ、 stamp が出たのがどれも最初の Stop
+# より後 (= 別の Stop hook の差し戻しの後か次の発言の後) で誤発火が無いのを確かめてから block に
+# 上げた (実測)。 stamp を書いたのに transcript に残らない session もあるが、 block でも stamp 1 行を
+# 出し直すだけで害は無い。
 DEFAULT_STOP_MODE = "block"
 STOP_MODES = ("off", "observe", "block")
 
