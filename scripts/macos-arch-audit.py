@@ -357,9 +357,13 @@ def selftest() -> int:
     m2 = GC_RE.search("\tsmudge = /opt/homebrew/bin/git-crypt smudge\n")
     ok &= bool(m2) and m2.group(2) == "/opt/homebrew/bin/git-crypt"
     print(f"  {'✅' if m2 else '❌'} git-crypt filter の path を拾う (quote なし)")
-    a = archs_of("/bin/ls")
-    ok &= a is not None and hardware_arch() in a
-    print(f"  {'✅' if a and hardware_arch() in a else '❌'} /bin/ls はこの Mac でネイティブ ({a})")
+    if sys.platform == "darwin":
+        a = archs_of("/bin/ls")
+        ok &= a is not None and hardware_arch() in a
+        print(f"  {'✅' if a and hardware_arch() in a else '❌'} /bin/ls はこの Mac でネイティブ ({a})")
+    else:
+        # lipo と Mach-O は macOS だけ。 他の OS (CI の Linux) では、 上の述語の検査だけを見る
+        print(f"  ⏭  /bin/ls の arch の検査は macOS だけ (この機は {sys.platform})")
     print("selftest:", "ALL PASS" if ok else "FAIL")
     return 0 if ok else 1
 
