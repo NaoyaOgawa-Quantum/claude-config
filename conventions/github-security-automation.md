@@ -214,6 +214,14 @@ build step を持たない runtime project (= 自作 MCP server、 CLI、 script
 
 依存の版上げ PR を merge / pull しても、 git が運ぶのは `package.json` と `package-lock.json` だけで、 各マシンの `node_modules` は最後に install した版のまま残る = lockfile の版と実際に動く版が黙ってずれる (検証した版が本番で動いていない)。 自作 stdio MCP server なら session 開始の bootstrap が、 lockfile と npm の hidden lockfile (`node_modules/.package-lock.json`) の版を突き合わせ、 ずれていれば `npm install` する ([`scripts/bootstrap-stdio-mcps.sh`](../scripts/bootstrap-stdio-mcps.sh)。 他 platform 用で入っていない package は数えない)。 registry に載らない dir (OAuth の consent だけの helper 等) は追従の射程外 = その dir の script を走らせる直前に `npm install`。
 
+### <a id="requirement-floor-vs-python"></a>pip の「update X requirement」 は下限と一緒に Python の版の下限も上げることがある (2026-10-03)
+
+`requirements.txt` の `>=` の下限を最新へ引き上げる PR は、 CI (新しい Python) では緑でも、 新しい下限の版が `requires_python` で古い Python を切っていれば、 その Python の利用者は `pip install -r` が通らなくなる (実測: numpy `>=2.5.3` = Python 3.12 以上、 Pillow `>=12.3.0` = 3.10 以上、 fonttools `>=4.66.0` = 3.11 以上。 macOS の `/usr/bin/python3` は 3.9)。 merge の前に `https://pypi.org/pypi/<pkg>/<ver>/json` の `requires_python` を見る。 下限を上げる理由 (security alert・使う API) が無いなら閉じ、 繰り返し来るなら dependabot.yml の pip に `versioning-strategy: increase-if-necessary` (= 今の範囲で満たせるなら下限を動かさない)。
+
+### <a id="local-bump-respects-cooldown"></a>手元でまとめて上げる時も cooldown を守る (2026-10-03)
+
+lockfile が重なる monorepo の PR を手元の `npm install <pkg>@^X` でまとめて当てると、 npm は範囲内の最新を解決するので、 Dependabot が cooldown で見送った公開直後の版が入る (実測: `@modelcontextprotocol/sdk@^1.30.1` が前日公開の 1.32.0 に解決)。 当てた後に、 変わった package の公開日 (`npm view <pkg> time`) を cooldown 日数と突き合わせ、 新しすぎるものは Dependabot の提案した版に固定する。 Dependabot は main に同じ版が入ると元の PR を自分で閉じる。
+
 ### Dependabot security-update PR は monorepo の全 manifest を cover しないことがある
 
 `directories:` 設定の monorepo で、 同一脆弱 package が複数 subdir の lockfile に出ても、 Dependabot の **security-update PR は一部 dir のみ生成される** ことがある (= rate-limit / batching)。 partial PR だけ merge すると残 dir の alert を見逃す。 → **全 affected dir 横断の local `npm audit fix` (non-`--force`) の方が完全**。 local fix → push → 残った partial PR は supersede として close、 が確実 (= §10 cascading loop に乗せて PR を 1 件ずつ追う より速い)。
@@ -274,6 +282,10 @@ fi
 ```
 
 `CLEAN`, `UNSTABLE`, `HAS_HOOKS` は merge 可。 `DIRTY` は conflict (= 別対応)、 `BLOCKED` は required check failing (= 別対応)。
+
+### <a id="workflow-file-pr-merge-scope"></a>workflow file を変える PR の merge と `workflow` scope (2026-10-03)
+
+`gh pr merge` は token に `workflow` scope が無くても workflow file (`.github/workflows/*`) を変える PR を merge できる — merge 結果の workflow file が PR の head と同じ内容になる時は。 同じ workflow file を変える PR を続けて merge して base 側も変わると、 GitHub が 3-way で新しい内容を作ることになり `refusing to allow an OAuth App to create or update workflow ... without workflow scope` で止まる。 その PR に `@dependabot rebase` を comment し、 head が base を含んでから merge すれば通る。
 
 ### `gh search prs --author=app/dependabot` で横断検索
 
