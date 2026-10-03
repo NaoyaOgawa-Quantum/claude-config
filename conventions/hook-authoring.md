@@ -292,6 +292,21 @@ done)"
 - **回避**: パターンを `(a) ...;;` / `(*) ...;;` と書く (POSIX の書き方で、 どの shell でも同じ意味)。 または `case` を関数に出し、 置換の中からは関数を呼ぶだけにする
 - **検出**: 静的に拾うには shell の字句解析 (quote・入れ子・heredoc) が要り、 正規表現の近似は誤検出だらけになる (実測)。 macOS 向けの script は test を `/bin/sh` で回すのが安い網
 
+### <a id="bash32-brace-expansion-in-cmdsub"></a>`"$(f "...")"` の中の二重引用の文字列が brace 展開される (test の入力 JSON が黙って壊れる)
+
+同じ bash 3.2 の `$(...)` の弱点の 3 つめの形。 二重引用の置換の中で、 さらに二重引用した文字列に `{` `,` `}` が並ぶと、 bash 3.2 はその文字列を brace 展開して複数の語に割る。 引用されているのに展開される。
+
+```sh
+run() { printf '%s' "$1"; }
+echo "$(run "{\"a\":1,\"b\":2}")"   # bash 3.2 → "a":1 "b":2  (bash 5 → {"a":1,"b":2})
+J="{\"a\":1,\"b\":2}"; echo "$(run "$J")"   # どちらの bash でも {"a":1,"b":2}
+```
+
+- **症状**: hook の `.test.sh` で合成の JSON を `"$(run "{\"tool_name\":...}")"` の形で渡すと、 hook は JSON でない入力を受け取る。 入力が壊れたら止める側に倒す hook (fail-closed) では、 **「止まるはず」 の case が入力の壊れで止まり、 test は緑のまま** = 判定を一度も通っていない (実測。 判定を抜いた版で赤くなるかを見て初めて分かる)。
+- **`bash -n` は通り、 bash 5 の CI では起きない** = macOS の `/bin/bash` で test を回す時だけ出る。
+- **回避**: 入力は `printf` の関数で組む (`mk() { printf '{"tool_name":"%s","tool_input":%s}' "$1" "$2"; }`) か、 先に変数に入れてから `"$(run "$J")"` で渡す。 `$(...)` の中に引用の入れ子を書かない。
+- **test の側の防御**: 止まった case は終了値だけでなく、 止めた理由の文言 (その検査が出す語) まで照合する = 入力の壊れで止まった偽の合格を拾う (一般則 = [「止まった」 は対照にならない](../docs/convention-design-principles.md#failure-exit-equals-violation-exit))。
+
 ### <a id="bash32-vs-runtime-backtick-expansion"></a>bash 3.2 parser bug と runtime backtick 展開を同じ事故にしない
 
 どちらも「backtickを含む文面が壊れた」と見えるが、発生時点・症状・修復先が異なる。
