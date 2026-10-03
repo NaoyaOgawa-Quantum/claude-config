@@ -25,7 +25,11 @@ $CLAUDE_UNPUBLISHED_SOURCES, or ~/.claude/unpublished-sources.txt). One directiv
     include: ~/Dropbox/drafts/**/*.tex    extra sources (glob, ** allowed)
     exclude: */published-articles/*       fnmatch on the absolute path (published or third-party text)
 No config, or no readable source = not armed = exit 0 (fail-open). `--check-wiring` says which, via canaries.
-The index is cached per source file under ~/.cache/claude-unpublished-index (hashes only, never text).
+The index is cached per source file under ~/.cache/claude-unpublished-index (hashes only, never text). Every cache
+file is written to a temp name and renamed into place and carries its payload's length + digest, so gates running at
+the same time (parallel commits, the tree inventory, a check runner replaying several repos) never read a half-written
+index as a shorter one; a torn or mismatched file is a cache miss, recomputed from the source (measured: a cold rebuild
+of a few hundred sources takes seconds).
 
 Exit: 0 = nothing matched or not armed / 1 = verbatim unpublished text in a public commit / 3 = internal error
 (the runners do not block on 3). The matched text is never printed, only file, line, source and kind.
@@ -58,6 +62,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -78,7 +83,8 @@ QUOTE_K = 5
 QUOTE_MIN_WORDS = 5
 QUOTE_MIN_CONTENT = 3
 REPO_DF_MAX = 3
-INDEX_VERSION = 4
+INDEX_VERSION = 5            # 5: cache files are atomic + self-describing (length + digest), see Index
+UNION_MAGIC = b"UQIDX5\n"
 MARKER = Path(".claude") / "public-repo.marker"
 CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "claude-unpublished-index"
 POINTER = Path.home() / ".claude" / "unpublished-sources.txt"
@@ -230,25 +236,72 @@ class Index:
         self.per_file = {f: {} for f in FAMILIES}
         self.union = {f: array.array("Q") for f in FAMILIES}
 
+    # Cache files are shared by every gate on the machine: parallel commits, the public-tree inventory and a
+    # check runner that replays several repos at once all read and write the same directory. Two rules keep a
+    # reader from ever seeing a shorter index than the writer meant: (1) every file is written to a temp name in
+    # the same directory and renamed into place (os.replace is atomic), so a path holds either the old or the new
+    # content, never a prefix; (2) every file carries the length and digest of its payload (meta names the bin's,
+    # the union file has a header), so a stale/mismatched pair or a file torn by anything else reads as a miss and
+    # is recomputed. A torn index is dangerous precisely because it fails open: fewer shingles = fewer blocks.
+    def _write_atomic(self, path: Path, data: bytes) -> None:
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        try:
+            tmp.write_bytes(data)
+            os.replace(tmp, path)
+        except OSError:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _read_pair(meta_p: Path, bin_p: Path, stamp) -> "array.array | None":
+        try:
+            meta = json.loads(meta_p.read_bytes())
+            raw = bin_p.read_bytes()
+            if meta["stamp"] != stamp or meta["n"] != len(raw) or meta["sha1"] != hashlib.sha1(raw).hexdigest():
+                return None
+        except (ValueError, KeyError, TypeError, OSError):
+            return None
+        a = array.array("Q")
+        a.frombytes(raw)
+        return a
+
     def _file_hashes(self, path: str, family: str) -> array.array:
         st = os.stat(path)
         key = hashlib.sha1(f"{INDEX_VERSION}:{family}:{self.k[family]}:{path}".encode()).hexdigest()
         meta_p, bin_p = self.cache / f"{key}.json", self.cache / f"{key}.bin"
         stamp = [st.st_size, st.st_mtime_ns]
-        if meta_p.is_file() and bin_p.is_file():
-            try:
-                if json.loads(meta_p.read_text())["stamp"] == stamp:
-                    a = array.array("Q")
-                    a.frombytes(bin_p.read_bytes())
-                    return a
-            except (ValueError, KeyError, OSError):
-                pass
+        a = self._read_pair(meta_p, bin_p, stamp)
+        if a is not None:
+            return a
         text = Path(path).read_text(encoding="utf-8", errors="replace")
         stream = tokens(text, latex=path.endswith(".tex"), family=family)
         a = array.array("Q", sorted({h for _, h in shingles(stream, self.k[family], family)}))
-        self.cache.mkdir(parents=True, exist_ok=True)
-        bin_p.write_bytes(a.tobytes())
-        meta_p.write_text(json.dumps({"stamp": stamp}))
+        raw = a.tobytes()
+        try:
+            self.cache.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return a
+        self._write_atomic(bin_p, raw)   # bin first, then the meta that vouches for it
+        self._write_atomic(meta_p, json.dumps({"stamp": stamp, "n": len(raw), "sha1": hashlib.sha1(raw).hexdigest()}).encode())
+        return a
+
+    @staticmethod
+    def _pack_union(a: array.array) -> bytes:
+        raw = a.tobytes()
+        return UNION_MAGIC + len(raw).to_bytes(8, "big") + hashlib.sha1(raw).digest() + raw
+
+    @staticmethod
+    def _unpack_union(data: bytes) -> "array.array | None":
+        n = len(UNION_MAGIC)
+        if len(data) < n + 28 or data[:n] != UNION_MAGIC:
+            return None
+        size, digest, raw = int.from_bytes(data[n:n + 8], "big"), data[n + 8:n + 28], data[n + 28:]
+        if size != len(raw) or hashlib.sha1(raw).digest() != digest:
+            return None
+        a = array.array("Q")
+        a.frombytes(raw)
         return a
 
     def _manifest(self) -> str:
@@ -265,11 +318,17 @@ class Index:
     def build(self):
         manifest = self._manifest()
         cached = {fam: self.cache / f"union-{fam}-{manifest}.bin" for fam in FAMILIES}
-        if all(p.is_file() for p in cached.values()):
-            for fam, p in cached.items():
-                a = array.array("Q")
-                a.frombytes(p.read_bytes())
-                self.union[fam] = a
+        loaded = {}
+        for fam, p in cached.items():
+            try:
+                a = self._unpack_union(p.read_bytes())
+            except OSError:          # vanished between the stat and the read (another gate rebuilt): rebuild
+                a = None
+            if a is None:
+                break
+            loaded[fam] = a
+        if len(loaded) == len(FAMILIES):
+            self.union = loaded
             return self          # per-file arrays are loaded only when a hit needs its source (sources_of)
         for family in FAMILIES:
             by_top = {}
@@ -293,13 +352,38 @@ class Index:
             self.union[family] = out
         try:
             self.cache.mkdir(parents=True, exist_ok=True)
-            for old in self.cache.glob("union-*.bin"):
-                old.unlink()
-            for fam, p in cached.items():
-                p.write_bytes(self.union[fam].tobytes())
         except OSError:
-            pass
+            return self
+        keep = {p.name for p in cached.values()}
+        for old in self.cache.glob("union-*.bin"):
+            if old.name not in keep:     # only stale manifests: a parallel builder of the same manifest keeps its files
+                try:
+                    old.unlink()
+                except OSError:
+                    pass
+        for fam, p in cached.items():
+            self._write_atomic(p, self._pack_union(self.union[fam]))
+        self._prune_per_file()
         return self
+
+    def _prune_per_file(self, max_age_days: int = 30) -> None:
+        """Drop per-file cache pairs of sources that are gone or re-keyed (older INDEX_VERSION, moved file) once
+        they have not been touched for a month. Runs only after a union rebuild, so it costs nothing on a hit."""
+        live = {hashlib.sha1(f"{INDEX_VERSION}:{fam}:{self.k[fam]}:{f}".encode()).hexdigest()
+                for fam in FAMILIES for f in self.files}
+        cutoff = time.time() - max_age_days * 86400
+        try:
+            entries = list(self.cache.iterdir())
+        except OSError:
+            return
+        for p in entries:
+            if p.suffix not in (".bin", ".json") or p.name.startswith("union-") or p.stem in live:
+                continue
+            try:
+                if p.stat().st_mtime < cutoff:
+                    p.unlink()
+            except OSError:
+                pass
 
     def armed(self) -> bool:
         return bool(self.union["prose"]) or bool(self.union["quote"])
@@ -701,6 +785,41 @@ Then those numbers come from one careful toy run.
         expect("unchanged sources are read from the cache", stamp == stamp2 and list(idx.union["prose"]) == list(idx2.union["prose"]))
         expect("... the merged index is reused and per-file data loads only for attribution",
                not idx2.per_file["prose"] and bool(idx2.sources_of("prose", idx2.union["prose"][0])))
+        # torn or mismatched cache files must read as a miss, never as a shorter index (a shorter index fails open)
+        paper = next(f for f in idx.files if f.endswith("paper.tex"))
+        pkey = hashlib.sha1(f"{INDEX_VERSION}:prose:{PROSE_K}:{paper}".encode()).hexdigest()
+        pbin, pmeta = cache / f"{pkey}.bin", cache / f"{pkey}.json"
+        full = list(idx2._file_hashes(paper, "prose"))
+        whole = pbin.read_bytes()
+        pbin.write_bytes(whole[:(len(whole) // 16) * 8])            # a prefix that is still a valid array length
+        torn = list(Index(cfg, cache_dir=cache)._file_hashes(paper, "prose"))
+        expect("a torn per-file cache (valid array length, wrong digest) is recomputed and repaired, not trusted",
+               len(full) > 2 and torn == full and pbin.read_bytes() == whole)
+        pmeta.write_text(json.dumps({"stamp": json.loads(pmeta.read_text())["stamp"]}))   # a meta without length/digest
+        expect("a meta that does not vouch for its bin is a miss",
+               list(Index(cfg, cache_dir=cache)._file_hashes(paper, "prose")) == full and "sha1" in json.loads(pmeta.read_text()))
+        up = next(cache.glob("union-prose-*.bin"))
+        ubytes = up.read_bytes()
+        up.write_bytes(ubytes[:-8])
+        idx_t = Index(cfg, cache_dir=cache).build()
+        expect("a torn union file is rebuilt (same shingles) and rewritten valid",
+               list(idx_t.union["prose"]) == list(idx.union["prose"]) and up.read_bytes() == ubytes)
+        expect("no temp file is left behind", not list(cache.glob("*.tmp")))
+        # several gates building one cold cache at the same time (parallel commits, a parallel check runner)
+        import shutil
+        shutil.rmtree(cache)
+        code = (f"import importlib.util; s = importlib.util.spec_from_file_location('m', {str(Path(__file__).resolve())!r}); "
+                f"m = importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                f"i = m.Index(m.read_config({str(conf)!r}), cache_dir={str(cache)!r}).build(); "
+                f"print(len(i.union['prose']), len(i.union['quote']))")
+        procs = [subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                 for _ in range(4)]
+        outs = [p.communicate()[0].strip() for p in procs]
+        again = Index(cfg, cache_dir=cache).build()
+        want = f"{len(again.union['prose'])} {len(again.union['quote'])}"
+        expect("4 builders racing on one cold cache all get the full index and leave only valid files",
+               all(p.returncode == 0 for p in procs) and all(o == want for o in outs)
+               and list(again.union["prose"]) == list(idx.union["prose"]) and not list(cache.glob("*.tmp")))
         (base / "privproj" / "extra.tex").write_text("Brand new sentences about crystalline violins humming beneath frozen lighthouses tonight.\n")
         idx3 = Index(cfg, cache_dir=cache).build()
         new = tokens("crystalline violins humming beneath frozen lighthouses tonight")
