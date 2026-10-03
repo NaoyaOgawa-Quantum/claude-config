@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: shell で多バイト文字列を truncate・加工するとき + **grep / sed の角括弧に非 ASCII を書くとき** + **git が出す file path (log --name-only / diff --name-only / ls-files / status) を script が文字列で判定するとき** (#git-quoted-paths)
+when: shell で多バイト文字列を truncate・加工するとき + **grep / sed の角括弧に非 ASCII を書くとき・`.{0,N}` で非 ASCII の語の間の距離を限るとき** + **git が出す file path (log --name-only / diff --name-only / ls-files / status) を script が文字列で判定するとき** (#git-quoted-paths)
 category: infra
 summary: シェルの多バイト UTF-8 切り詰め gotchas (= cut -c/head -c/bash 部分文字列は byte 単位で多バイト文字を割り invalid UTF-8 → osascript 等下流で文字列全体が文字化け、 launchd は LANG 空で C locale ゆえ特に注意、 安全策=python 文字単位 truncate + valid UTF-8 検証 1-liner、 2026-06-24 osascript 通知 RCA)
 -->
@@ -44,6 +44,7 @@ except UnicodeDecodeError as e: print('INVALID', e)"
 
 - 実例: 挿入した一文を `/usr/bin/grep -o '…[^。]*。'` で表示してから commit する `&&` chain を書いた。表示が 0 件で exit 1 になって commit は走らず、`;` の後ろに置いた検査の出力だけが出た。同じ pattern は先頭に `LC_ALL=en_US.UTF-8` を付けると一致した。
 - 書き方: 非 ASCII を含む pattern は python で書くか、`LC_ALL=en_US.UTF-8` を明示する。表示のための grep を gate の chain に入れない ([shell-env.md#test-gate-no-pipe](shell-env.md#test-gate-no-pipe))。
+- <a id="wildcard-window-counts-bytes"></a>同じ環境では `.` も 1 byte に一致する。 語と語の間の距離を限る窓 `.{0,30}` は 30 字でなく 30 byte (全角なら 10 字) になり、 離れた入力に**一致しないだけで error は出ない** (実測: 「30 字以内」 のつもりの hook の pattern が、 14 字離れた入力に一致しなかった)。 test も同じ環境で回るので、 距離の短い case だけだと通ってしまう = **窓の上限に近い距離の case を 1 つ入れ、 locale の指定を外した版でそれが赤くなることを見る**。 書き方は上と同じ (python で書くか、 その grep に `LC_ALL=en_US.UTF-8` を明示)。
 
 ## <a id="git-quoted-paths"></a>git が出す path は、 非 ASCII の file 名を引用符つき 8 進にする
 
