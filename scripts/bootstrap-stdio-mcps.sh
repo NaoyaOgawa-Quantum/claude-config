@@ -119,13 +119,17 @@ while IFS=: read -r subdir mcpname; do
   [ -z "$mcpname" ] && continue
 
   # 登録済でも node_modules を lockfile に追従させる (= 上の docstring 3)
+  # 無人で全マシンに入るので install script は走らせない (--ignore-scripts)。 lockfile に
+  # install script を持つ package があれば自動では入れず、 1 行出して人の確認に回す。
   pair_dir="$BASE_DIR/$subdir"
   if [ -f "$pair_dir/package-lock.json" ] && [ -d "$pair_dir/node_modules" ] \
      && command -v npm >/dev/null 2>&1 && lock_drift "$pair_dir"; then
-    if [ "${CLAUDE_BOOTSTRAP_NO_ADD:-0}" = "1" ]; then
+    if grep -q '"hasInstallScript": *true' "$pair_dir/package-lock.json" 2>/dev/null; then
+      printf '%s: node_modules が package-lock.json とずれているが、 install script を持つ package があるので自動では入れない (中身を確かめて %s で npm install)\n' "$mcpname" "$pair_dir"
+    elif [ "${CLAUDE_BOOTSTRAP_NO_ADD:-0}" = "1" ]; then
       printf '%s (dry-run, would npm install: node_modules が package-lock.json とずれている)\n' "$mcpname"
     else
-      (cd "$pair_dir" && npm install --silent --no-audit --no-fund) >/dev/null 2>&1 || true
+      (cd "$pair_dir" && npm install --silent --no-audit --no-fund --ignore-scripts) >/dev/null 2>&1 || true
       if ! lock_drift "$pair_dir"; then
         printf '%s: node_modules を package-lock.json の版に合わせた (npm install。 動いている server は再起動まで旧版)\n' "$mcpname"
       fi
