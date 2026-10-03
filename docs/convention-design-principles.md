@@ -3550,6 +3550,7 @@ origin: 実測 (返事に書かせる行の照合を直した後、 直す前に
 
 - 姉妹: [§8.24](#surfaced-not-consumed) (表示は消費でない) / [§8.55](#elapsed-time-urgency-inversion) (経過日数の印は期限の短い依頼に逆向き。 本文の期限を読む対策は、 読めた場合にしか効かない) / [§8.56](#surface-reader-is-not-the-owner) (表示を読むのは agent) / [§8.59](#narrowing-makes-input-load-bearing) (表示を絞ると、 絞る述語の正しさに全部が掛かる)。 本節はこれらを積んだ後に残る因子を扱う
 - 実装例: [`scripts/lib/mail_intake.py`](../scripts/lib/mail_intake.py) (行列の判定・印・年齢)、 [`scripts/lib/ja_deadline_dates.py`](../scripts/lib/ja_deadline_dates.py) の `urgency_signals` (日付が読めなかった印)
+- 受付メモの実装例: 同 `mail_intake.py` の `make_note` / `apply_notes` (読んだ主体が書いた用件・期限・種類を行に出し、 期限を印の計算に入れる。 メモは行列から出さない)、 表示への畳み方 = [`hook-authoring.md#injection-digest-and-relay`](../conventions/hook-authoring.md#injection-digest-and-relay)
 
 origin: 実測 (検出には掛かっていた依頼が、 開始時の一覧では件数に畳まれたまま読まれなかった。 同じ種類の事故の過去の対策を分類すると、 処理する主体を決めたものが無かった)
 
