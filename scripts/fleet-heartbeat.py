@@ -88,6 +88,8 @@ repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_re
     machine の reader (lib.judge_fact) が、 各 machine の事実を自分の知識で判定する
   - stale = この machine 自身が「HEAD は捨てられた履歴の上」 と分かっている repo (fetch 済み・未追従)。 変化は即 commit
   - no_stub = push の検査が通らない repo (hook の dir が repo に track されていて pre-push を持たない / 鎖にしない設定)。 変化は即 commit
+  - events = 直近 24 時間に、 止めずに通した出来事 {種類: [repo]} (push の検査が例外で走らなかった guard-error / 書き換える push の前の
+    点呼が走らなかった ready-skip / 備えの無いまま書き換えを通した ready-override。 部品 = lib の log_event)。 変化は即 commit
   - heads の各 repo の old_branches = 捨てられた履歴の commit を抱えた手元の branch (今の branch を除く。 在る時だけ載る)
   heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
   --repos-follow (opt-in): 毎 beat、 全 repo を fetch し、 書き換えられた履歴に揃えられる clone を揃える (lib.follow_repo =
@@ -553,7 +555,7 @@ def essence(d: dict):
             "harness_hooks": d.get("harness_hooks"),
             "rewrite_follow": {k: (d.get("rewrite_follow") or {}).get(k) for k in ("capable", "state", "manifest", "prepush_stub")},
             # repo ごとの点呼: 「捨てられた履歴の上に居る repo」 と「stub の無い repo」 の変化は即 commit (heads は入れない)
-            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub", "stopped")},
+            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub", "stopped", "events")},
         },
         sort_keys=True,
     )
@@ -671,6 +673,10 @@ def repos_rollcall(root: Path, follow=False, skip=()):
                "stub_placed": len(placed), "stub_failed": failed[:5]}
         if follow:
             out["followed"], out["stopped"] = sorted(followed), sorted(stopped)
+        if hasattr(_rf, "recent_events"):
+            ev = _rf.recent_events(24)      # 止めずに通した出来事 (検査・点呼が走らなかった / override) = その場の 1 行は誰も読まない
+            if ev:
+                out["events"] = ev
         return out
     except Exception:
         return None

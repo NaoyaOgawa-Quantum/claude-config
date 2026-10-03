@@ -553,6 +553,40 @@ def _log(line):
         pass
 
 
+EVENT_KINDS = ("guard-error", "ready-skip", "ready-override")
+
+
+def log_event(kind, repo, detail=""):
+    """検査が走らなかった・点呼を飛ばした、 を追従の記録 (LOG_ENV の file) に 1 行残す。 止めずに通した出来事は、 その場の 1 行を
+    誰も読まなければ無かったことになる = 無人の定期 job が recent_events で拾い、 machine ごとの記録に載せて他の machine から読む。
+      guard-error     push の検査が例外で走らなかった (stub は通した)
+      ready-skip      履歴を書き換える push の前の点呼が走らなかった (通した)
+      ready-override  備えの無い複製が在るまま、 履歴を書き換える push を通した (GIT_REWRITE_READY_OVERRIDE=1)"""
+    _log(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {kind} {Path(str(repo)).name} {detail}".rstrip())
+
+
+def recent_events(hours=24):
+    """記録の直近 hours 時間の log_event を {kind: [repo 名 (出た順、 重複なし)]} で返す (該当なしは {})。"""
+    p = os.environ.get(LOG_ENV) or os.path.join(os.path.expanduser("~"), ".claude", "state", "rewrite-follow.log")
+    since = time.time() - hours * 3600
+    out = {}
+    try:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                a = line.split()
+                if len(a) < 3 or a[1] not in EVENT_KINDS:
+                    continue
+                try:
+                    ts = time.mktime(time.strptime(a[0], "%Y-%m-%dT%H:%M:%S"))
+                except ValueError:
+                    continue
+                if ts >= since and a[2] not in out.setdefault(a[1], []):
+                    out[a[1]].append(a[2])
+    except OSError:
+        return {}
+    return out
+
+
 STUB_ALL_ENV = "GIT_REWRITE_FOLLOW_STUB_ALL"   # "1" = sweep が manifest の無い repo にも stub を置く (既定は manifest のある repo だけ)
 
 
@@ -883,17 +917,20 @@ def ready_gate(repo, rrefs):
     try:
         r = subprocess.run([str(hook), str(repo)], capture_output=True, text=True, timeout=READY_TIMEOUT, env=dict(os.environ))
     except (OSError, subprocess.TimeoutExpired) as exc:
+        log_event("ready-skip", repo, type(exc).__name__)
         return False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった ({type(exc).__name__}) = 点呼なしで通す"]
     out = [l for l in (r.stdout + "\n" + r.stderr).splitlines() if l.strip()]
     if r.returncode == 1 and any(READY_HEADLINE in l for l in out):
         body = "\n".join("    " + l for l in out[:READY_MAX_LINES])
         if os.environ.get(READY_OVERRIDE_ENV) == "1":
+            log_event("ready-override", repo, " ".join(rrefs))
             return False, [f"{repo.name}: 備えの無い複製が在るまま、 履歴を書き換える push を通す ({READY_OVERRIDE_ENV}=1):\n{body}"]
         return True, [f"{repo.name}: {GUARD_HEADLINE} ({' '.join(rrefs)}): この push は remote の既定 branch の履歴を書き換える"
                       f" (fast-forward でない)。 備え (push の検査・無人の追従) の無い複製が在る:\n{body}\n"
                       f"  備えは各 machine の定期 job が置く = 揃うのを待つ。 待てない時は、 持ち主の判断を受けてから"
                       f" {READY_OVERRIDE_ENV}=1 を付けて push する"]
     if r.returncode != 0:
+        log_event("ready-skip", repo, f"rc={r.returncode}")
         return False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった (rc={r.returncode}) = 点呼なしで通す"]
     return False, []
 
@@ -933,6 +970,7 @@ def guard_stdin(repo, lines, cli_globs=(), remote=None, fetch=True):
         try:
             stop, said = ready_gate(repo, forced)
         except Exception as exc:  # 点呼の故障は push を止めない
+            log_event("ready-skip", repo, type(exc).__name__)
             stop, said = False, [f"{repo.name}: 履歴を書き換える push の前の点呼が走らなかった ({type(exc).__name__}) = 点呼なしで通す"]
         (msgs if stop else notes).extend(said)
     for _lref, lsha, rref, rsha in rows:
@@ -2130,6 +2168,12 @@ def _selftest():
     ok, msgs = guard_stdin(rg, [line], fetch=False)
     check("ready gate: a command that cannot be started does not stop the push, and is reported",
           ok and len(msgs) == 1 and "点呼が走らなかった" in msgs[0], " | ".join(msgs))
+    ev = recent_events()
+    check("events: a roll call that could not run and an override are recorded, and read back by kind and repo",
+          ev.get("ready-skip") == ["rg"] and ev.get("ready-override") == ["rg"] and "guard-error" not in ev, json.dumps(ev))
+    log_event("guard-error", "/somewhere/else/repo-x", "ValueError")
+    check("events: only recent ones are returned, by repo name",
+          recent_events().get("guard-error") == ["repo-x"] and recent_events(hours=-1) == {})
     # 本物の git push を stub 越しに: 備えが揃うまで remote の履歴は動かない / 揃えば通る
     ensure_prepush(rg, only_with_manifest=False)
     os.environ[READY_HOOK_ENV] = hook("ready-no-e2e", "echo 'NOT READY: fixture'; echo '  - mac-b: no stub'; exit 1\n")
