@@ -311,3 +311,12 @@ Overleaf の git bridge は、 git 側から push を受けた瞬間に **web ed
 - 二例目 (2026-06-08): 別の物理共著 note repo で **direct nested clone 変種** (= Overleaf が唯一の source、 GitHub linking 無し) が発生 → 上の §「変種: direct nested clone」 を新設。 ID を gitignore 除外 clone 内だけに置いて失われた RCA を反映。
 - 三例目 (2026-06-12): 別の物理共著 paper repo で **direct remote + 手動 merge 変種**の二重事故が発覚。 (a) 過去の merge を実施した clone が消えて **project ID の記録がゼロ** (= 二例目と同型の ID 喪失が、 規約制定後に別 repo で再発 — 規約は「nested clone 変種」 の文脈でしか書かれておらず、 既存 repo への横断適用 sweep がなかった)。 (b) **3 ヶ月間 Overleaf drift が未検出** = user も Claude も「GitHub pull = Already up to date」 を「最新」 と誤読する構造 (= 検証手段そのものが存在しなかった)。 → §「変種: direct remote + 手動 merge」 + §「Sync script 契約」 を新設し、 script 必須化 + `--status` 機械可読契約 + 横断 drift 監視を標準化。 教訓: **連携形態が 1 つ増えるたびに「ID はどこに記録されるか」「drift は誰が検出するか」 の 2 問を通す**。
 - 四例目 (2026-08-26): nested clone 変種の repo で **push が editor 側の未 commit 編集 (共著者 = repo owner 本人の editor 操作) を同一 commit に巻き込む**のを実踏 → §「push は editor 側の未 commit 編集を巻き込む」 を新設 (= push 者の compile 済み状態と pushed 状態が乖離、 gate 再測 + `git show HEAD` 確認を規律化)。
+
+## <a id="scoped-file-push"></a>名指しした file だけを Overleaf に載せる (direct remote の repo)
+
+Overleaf が正本で、 手元の main が Overleaf より多くの file と履歴を持つ repo では、 main を丸ごと push しない。 載せたい file だけを Overleaf の最新の上に 1 commit として載せる。 道具 = [`scripts/overleaf-push-file.sh`](../scripts/overleaf-push-file.sh) (既定 dry-run で載る差分を見せる。 `--push` で載せ、 取り直して中身の一致を確かめ、 main に merge する)。
+
+- 前提: repo に `scripts/overleaf-sync.sh` (PROJECT_ID の正本) があり、 載せる file は HEAD に commit 済み。
+- Overleaf が先に進んでいれば止まる (先に `--merge` で取り込む)。
+- ⚠️ `--push` は共著者の編集環境を直接変える。 本人の明示の OK を得てから付ける。 dry-run の出力 (追加・削除の行数) を OK をもらう前に見せる。
+- 載せた後に残るのは `git push origin` と、 repo が決めている merge 後の点検。
