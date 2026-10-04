@@ -14,13 +14,17 @@ key の導出 (= 対応表を別に持たない、 convention-design-principles.
   file 系 tool (Edit / Write / MultiEdit / Read / NotebookEdit) の path に対して substring (regex) で当てる。
   1 列目から key が導けない行 (「Remote Control の auth」 等) は、 表の file の HTML comment で足す:
       <!-- constraint-keys
-      - <1 列目の頭 (prefix)> :: <regex>
+      - <1 列目の頭 (prefix)> :: <regex>      ← 導いた key に足す
+      - <1 列目の頭 (prefix)> := <regex>      ← 導いた key を置き換える (1 列目の説明の語が key になって
+                                                 関係ない command に出る行を絞る。 例 = 「X / 層1 pre-commit の gate」)
       -->
   (= 同じ file の中、 描画されない、 規則の文は触らない)。 `--check` が key の無い行を列挙して exit 1 で止める
   (= 足した行が黙って「出ない行」 にならない)。
 
 出し方: 1 回の tool call で最大 --max 行 (既定 2)、 同じ行は 1 session に 1 回 (state = <state-dir>/<session_id>、
-machine-local)。
+machine-local)。 該当する行が --max を超えたら、 出さなかった行の頭を末尾に 1 行で並べ (黙って落とさない)、 それらは
+出したことにしない (= 次に触る時に全文が出る)。 `--check` は複数の行が同じ key を持つものも並べる (= 1 回の command で
+一緒に出る組。 同じ道具の別の面なら正しい、 説明の語なら := で絞る)。
 出力は PreToolUse の additionalContext (止めない。 deny は別の guard の仕事)。 全 error path で fail-open (無言 exit 0)。
 自分 (engine 名) を含む command には出さない (表の file 名は除外しない = 表を開く瞬間に行の足し方の行が出るのは望む挙動)。
 
@@ -118,11 +122,16 @@ def load_table(path: Path) -> list[dict]:
     for blk in KEY_BLOCK_RE.findall(text):
         for l in blk.split("\n"):
             l = l.strip()
-            if not l.startswith("- ") or " :: " not in l:
+            if not l.startswith("- ") or (" :: " not in l and " := " not in l):
                 continue
-            prefix, rx = l[2:].split(" :: ", 1)
+            replace = " := " in l and (" :: " not in l or l.index(" := ") < l.index(" :: "))
+            prefix, rx = l[2:].split(" := " if replace else " :: ", 1)
             hits = [r for r in rows if r["head"].startswith(prefix.strip())]
-            if len(hits) == 1 and rx.strip() and rx.strip() not in hits[0]["keys"]:
+            if len(hits) != 1 or not rx.strip():
+                continue
+            if replace:
+                hits[0]["keys"] = [rx.strip()]
+            elif rx.strip() not in hits[0]["keys"]:
                 hits[0]["keys"].append(rx.strip())
     return rows
 
@@ -174,9 +183,14 @@ def self_mention(text: str, tables: list[Path]) -> bool:
     return Path(__file__).name in text
 
 
-def render(rows: list[dict], table_names: str) -> str:
+def render(rows: list[dict], table_names: str, rest: list[dict] | None = None) -> str:
     body = "\n".join(r["line"] for r in rows)
-    return HEADER.format(table=table_names) + "\n" + body + "\n(同じ行は 1 session に 1 回だけ出る。 表の他の行は道具の名で grep)"
+    more = ""
+    if rest:
+        more = ("\nほかにも該当する行: " + " / ".join(r["head"][:40] for r in rest)
+                + " (次に触る時に出る。 今すぐ読むなら表を grep)")
+    return (HEADER.format(table=table_names) + "\n" + body + more
+            + "\n(同じ行は 1 session に 1 回だけ出る。 表の他の行は道具の名で grep)")
 
 
 def hook_main(tables: list[Path], state_dir: str, max_rows: int) -> int:
@@ -196,13 +210,14 @@ def hook_main(tables: list[Path], state_dir: str, max_rows: int) -> int:
             return 0
         sid = str(ev.get("session_id") or "")
         seen = _seen(state_dir, sid)
-        fresh = [r for r in hits if r["id"] not in seen][:max_rows]
+        unseen = [r for r in hits if r["id"] not in seen]
+        fresh, rest = unseen[:max_rows], unseen[max_rows:]
         if not fresh:
             return 0
         _mark(state_dir, sid, [r["id"] for r in fresh])
         names = " / ".join(sorted({Path(r["table"]).name for r in fresh}))
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                 "additionalContext": render(fresh, names)}}, ensure_ascii=False))
+                                                 "additionalContext": render(fresh, names, rest)}}, ensure_ascii=False))
         return 0
     except Exception:  # noqa: BLE001  fail-open: hook の故障で tool call を止めない
         return 0
@@ -217,6 +232,15 @@ def check_main(tables: list[Path]) -> int:
             mark = "∅" if not r["keys"] else " "
             bad += not r["keys"]
             print(f"  {mark} {r['head'][:48]!r:52} -> {r['keys'][:4]}{' …' if len(r['keys']) > 4 else ''}")
+        shared: dict[str, list[str]] = {}
+        for r in rows:
+            for k in r["keys"]:
+                shared.setdefault(k, []).append(r["head"][:32])
+        shared = {k: v for k, v in shared.items() if len(v) > 1}
+        if shared:
+            print("複数の行が同じ key を持つ (= 1 回の command で一緒に出る。 説明の語なら := で絞る):")
+            for k, v in shared.items():
+                print(f"    {k} -> {v}")
     if bad:
         print(f"key の無い行 = {bad} (出ない行 = 表の末尾の <!-- constraint-keys --> に「- <1 列目の頭> :: <regex>」 を足す)")
     return 1 if bad else 0
@@ -243,10 +267,11 @@ def selftest() -> int:
                        "| calendar.sh / calendar-events.py | **add は dry-run** |\n"
                        "| foo-tool (台帳 = some-repo / other-repo の `data/<id>.yaml`、 旧名 old-name.py) | **台帳は道具で書く** |\n"
                        "| bar-tool （全角 = third-repo の中） | **全角の括弧も同じ** |\n"
-                       "\n後文\n\n<!-- constraint-keys\n- Remote Control の auth :: claude auth status|remote-control\n-->\n",
+                       "| baz-check / 層1 pre-hook の gate | **形を守る** |\n"
+                       "\n後文\n\n<!-- constraint-keys\n- Remote Control の auth :: claude auth status|remote-control\n- baz-check := baz-check|baz-guard\n-->\n",
                        encoding="utf-8")
         rows = load_table(tbl)
-        check(len(rows) == 6, "table: header / 区切りを除く 6 行を読む")
+        check(len(rows) == 7, "table: header / 区切りを除く 7 行を読む")
         k = {r["head"][:12]: r["keys"] for r in rows}
         check(k["drive-xlsx-s"] == ["drive\\-xlsx\\-set\\-cells"], "key: script 名 (- を含む bare token)")
         check(any("todo/[^/\\s]*\\.yaml" == x for x in k["todo_ledger "]), "key: `<id>` placeholder → [^/\\s]*")
@@ -256,6 +281,9 @@ def selftest() -> int:
         check(k["foo-tool (台帳"] == ["foo\\-tool", "data/[^/\\s]*\\.yaml"], "key: 括弧の中は backtick だけ (bare の repo 名・旧名は key にしない)")
         check(k["bar-tool （全角"] == ["bar\\-tool"], "key: 全角の括弧の中の bare token も key にしない")
         check(not match_rows(rows, "grep -rn foo some-repo/notes.md"), "match: 括弧の中の説明語 (repo 名) だけを含む command には出ない")
+        check(k["baz-check / "] == ["baz-check|baz-guard"], "key: := は導いた key を置き換える")
+        check(not match_rows(rows, "bash x/pre-hook-scan.sh") and match_rows(rows, "bash baz-guard.sh"),
+              "match: := で絞った行は説明の語 (pre-hook) に出ず、 置き換えた key には出る")
         hits = match_rows(rows, "python3 scripts/drive-xlsx-set-cells.py --inspect x.xlsx")
         check([r["head"][:5] for r in hits] == ["drive"], "match: Bash command に script 名")
         hits = match_rows(rows, "repo/todo/2026-10-01-foo.yaml")
@@ -287,6 +315,12 @@ def selftest() -> int:
                  "tool_input": {"command": "python3 x/calendar.sh add && python3 drive-xlsx-set-cells.py && vi todo/a.yaml"}},
                 "--max", "2")
         check(r.stdout.count("\n| ") + r.stdout.count("\\n| ") <= 2 and '"additionalContext"' in r.stdout, "hook: 1 回の call は --max 行まで")
+        check("ほかにも該当する行" in r.stdout, "hook: --max を超えた行は頭を末尾に並べる (黙って落とさない)")
+        r = run({"hook_event_name": "PreToolUse", "session_id": "s5", "tool_name": "Bash",
+                 "tool_input": {"command": "python3 x/calendar.sh add && python3 drive-xlsx-set-cells.py && vi todo/a.yaml"}},
+                "--max", "2")
+        check('"additionalContext"' in r.stdout and "ほかにも該当する行" not in r.stdout,
+              "hook: 頭だけ並べた行は出したことにしない (次の call で全文が出る)")
         r = run({"hook_event_name": "PostToolUse", "session_id": "s6", "tool_name": "Bash",
                  "tool_input": {"command": "calendar.sh"}})
         check(r.stdout.strip() == "", "hook: PreToolUse 以外の event は無言")
@@ -300,7 +334,12 @@ def selftest() -> int:
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--probe", "calendar.sh add"], capture_output=True, text=True)
         check(r.returncode == 0 and "calendar.sh" in r.stdout, "--probe: 出る行を表示")
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--check"], capture_output=True, text=True)
-        check(r.returncode == 0 and "6 行" in r.stdout, "--check: 全行に key があれば rc 0")
+        check(r.returncode == 0 and "7 行" in r.stdout, "--check: 全行に key があれば rc 0")
+        t2 = tmp / "shared.md"
+        t2.write_text("| 対象 | 制約 |\n|---|---|\n| foo-bar / a.py | x |\n| foo-bar / b.py | y |\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, __file__, "--table", str(t2), "--check"], capture_output=True, text=True)
+        check(r.returncode == 0 and "同じ key を持つ" in r.stdout and "foo" in r.stdout,
+              "--check: 複数の行が同じ key を持てば並べる (rc は 0 のまま)")
         tbl.write_text(tbl.read_text(encoding="utf-8").replace("| Remote Control の auth |", "| 承認の CLI |"), encoding="utf-8")
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--check"], capture_output=True, text=True)
         check(r.returncode == 1 and "key の無い行 = 1" in r.stdout, "--check: key の無い行があれば rc 1 + 行を列挙")
