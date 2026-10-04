@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""delegation-record-clause.py — agent (subagent) に仕事を委ねる瞬間に、 その指示の末尾へ「考えたことを書き残す約束」 を機械で足す (PreToolUse[Agent])
+
+なぜ委ねる瞬間か (実測):
+  agent の「考え中」 の中身は会話記録に残らない (記録の thinking 欄は空)。 agent が捨てた案・途中で気づいた壊れ方・
+  確かめていないことは、 agent 自身が報告か成果物に書いた分しか後から引けない。 締めの整理 (知見を正本へ移す手順) に
+  「書かせる」 と書いても、 そこを読む時には agent はもう考え終わっている = 後の祭り。 委ねる側が毎回指示に書くのも、
+  書き忘れれば落ちる。 → 委ねる tool call そのものを書き換えて、 約束の段を必ず渡す。
+
+動作:
+  PreToolUse で tool_name が Agent (旧名 Task) の時だけ、 tool_input.prompt の末尾に下の CLAUSE を足した
+  updatedInput を返す。 prompt に MARKER が既にあれば何もしない (冪等 = 手で書いた・再送した指示に二重に足さない)。
+  止めない・許可の判断はしない (permissionDecision を返さない = 通常の許可の流れのまま)。 全 error path で fail-open。
+  agent の再開 (SendMessage) には足さない = 最初の指示で約束は渡っている。
+
+配線: hooks/settings-entries.json の PreToolUse[Agent|Task] (setup.sh / scripts/sync-hook-settings.sh が ~/.claude/settings.json へ)。
+後から引く道具: scripts/subagent-reports.py (受け渡しの報告の全部と、 agent が書いた file)、
+               scripts/search-agent-transcripts.py --session <id> (agent の記録も読む)。
+
+usage:
+  delegation-record-clause.py            # hook (stdin = PreToolUse JSON)
+  delegation-record-clause.py --selftest
+"""
+from __future__ import annotations
+
+import json
+import sys
+
+MARKER = "記録の約束"
+CLAUSE = (
+    "\n\n## " + MARKER + " (委ねた側が自動で足した段 / appended by the delegating side)\n"
+    "あなたの「考え中」 の中身は会話記録に残らず、 後から誰も引けない。 作業の最後に、 次を報告 (返す本文) か成果物の file に"
+    "書く (file に書いたら報告にその path を書く。 該当が無ければ「なし」 と 1 行):\n"
+    "1. 捨てた案とその理由\n"
+    "2. 途中で気づいたこと (壊れ方・想定外・周辺の問題)\n"
+    "3. 確かめていないこと・推定のままのこと\n"
+    "(Your thinking is not recorded. In your final report or a deliverable file, list: discarded options and why, "
+    "things you noticed along the way, and what remains unverified.)"
+)
+TOOLS = ("Agent", "Task")
+
+
+def rewrite(ev: dict) -> dict | None:
+    """hook の出力 (dict) か、 何もしないなら None。"""
+    if ev.get("hook_event_name", "PreToolUse") != "PreToolUse":
+        return None
+    if ev.get("tool_name") not in TOOLS:
+        return None
+    inp = ev.get("tool_input")
+    if not isinstance(inp, dict):
+        return None
+    prompt = inp.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip() or MARKER in prompt:
+        return None
+    return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                   "updatedInput": dict(inp, prompt=prompt.rstrip() + CLAUSE)}}
+
+
+def main() -> int:
+    if "--selftest" in sys.argv[1:]:
+        return selftest()
+    try:
+        out = rewrite(json.loads(sys.stdin.read() or "{}"))
+        if out is not None:
+            print(json.dumps(out, ensure_ascii=False))
+    except Exception:  # noqa: BLE001  fail-open: hook の故障で委ねる操作を止めない
+        pass
+    return 0
+
+
+def selftest() -> int:
+    import subprocess
+    ok = True
+
+    def check(cond, label):
+        nonlocal ok
+        print(("  ✅ " if cond else "  ❌ ") + label)
+        ok = ok and bool(cond)
+
+    ev = {"hook_event_name": "PreToolUse", "tool_name": "Agent",
+          "tool_input": {"description": "d", "prompt": "調べて直して", "subagent_type": "general-purpose",
+                         "run_in_background": True}}
+    out = rewrite(ev)
+    new = (out or {}).get("hookSpecificOutput", {}).get("updatedInput", {})
+    check(new.get("prompt", "").startswith("調べて直して") and MARKER in new.get("prompt", ""), "Agent: 指示の末尾に約束の段を足す")
+    check({k: v for k, v in new.items() if k != "prompt"} == {k: v for k, v in ev["tool_input"].items() if k != "prompt"},
+          "prompt 以外の入力は変えない")
+    check("permissionDecision" not in (out or {}).get("hookSpecificOutput", {}), "許可の判断は返さない")
+    check(rewrite(dict(ev, tool_input=dict(ev["tool_input"], prompt=new.get("prompt", "")))) is None, "既に約束がある指示には足さない (冪等)")
+    check(rewrite(dict(ev, tool_name="Task")) is not None, "旧名 Task にも足す")
+    check(rewrite(dict(ev, tool_name="Bash", tool_input={"command": "ls"})) is None, "Agent 以外は何もしない")
+    check(rewrite(dict(ev, hook_event_name="PostToolUse")) is None, "PreToolUse 以外は何もしない")
+    check(rewrite(dict(ev, tool_input=dict(ev["tool_input"], prompt=""))) is None, "空の指示には足さない")
+    r = subprocess.run([sys.executable, __file__], input="not json", capture_output=True, text=True)
+    check(r.returncode == 0 and r.stdout.strip() == "", "壊れた stdin は fail-open (無言 exit 0)")
+    r = subprocess.run([sys.executable, __file__], input=json.dumps(ev, ensure_ascii=False), capture_output=True, text=True)
+    check(r.returncode == 0 and '"updatedInput"' in r.stdout and MARKER in json.loads(r.stdout)["hookSpecificOutput"]["updatedInput"]["prompt"],
+          "新しい process で stdin JSON → updatedInput の JSON")
+    print("selftest:", "ALL PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
