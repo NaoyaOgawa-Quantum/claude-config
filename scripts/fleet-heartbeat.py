@@ -92,6 +92,8 @@ repo ごとの点呼 (repos、 --repos-root DIR、 opt-in、 部品 = lib/git_re
     点呼が走らなかった ready-skip / 備えの無いまま書き換えを通した ready-override / 止まるはずの object を名指しで通した guard-allow。
     部品 = lib の log_event)。 変化は即 commit
   - error = この集計そのものが失敗した時の理由 (他の欄は無い)。 「報告なし」 と区別して、 他の machine から原因を読む
+  - fetch_failed = この beat で fetch に失敗した repo (認証・network・remote の URL)。 失敗した repo は upstream の知識が古いまま =
+    その machine には「揃える対象なし」 に見える。 読む側が「次の回が揃える」 と言わないための欄。 変化は即 commit
   - heads の各 repo の old_branches = 捨てられた履歴の commit を抱えた手元の branch (今の branch を除く。 在る時だけ載る)
   heads は essence に入れない (どこかの repo に commit するたびに beat を commit しないため。 鮮度の上限 = 定期 commit の間隔)。
   --repos-follow (opt-in): 毎 beat、 全 repo を fetch し、 書き換えられた履歴に揃えられる clone を揃える (lib.follow_repo =
@@ -557,7 +559,7 @@ def essence(d: dict):
             "harness_hooks": d.get("harness_hooks"),
             "rewrite_follow": {k: (d.get("rewrite_follow") or {}).get(k) for k in ("capable", "state", "manifest", "prepush_stub")},
             # repo ごとの点呼: 「捨てられた履歴の上に居る repo」 と「stub の無い repo」 の変化は即 commit (heads は入れない)
-            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub", "stopped", "events", "error")},
+            "repos": {k: (d.get("repos") or {}).get(k) for k in ("stale", "no_stub", "stopped", "events", "error", "fetch_failed")},
         },
         sort_keys=True,
     )
@@ -630,13 +632,17 @@ def follow_all(root: Path, skip=()):
     repos = [Path(g).parent for g in sorted(globmod.glob(os.path.join(str(root), "*", ".git")))]
     repos = [r for r in repos if r.resolve() not in {Path(s).resolve() for s in skip}]
 
+    fetch_failed = []
+
     def fetch(repo):
+        # fetch の失敗を黙って捨てない: 失敗した repo は upstream の知識が古いまま = 「揃える対象なし」 に見える。
+        # 名前を記録に載せ、 読む側が「次の回が揃える」 と言わないようにする (git() は失敗しても例外を出さず、 終了値で返す)
         try:
             up = _rf.upstream_of(repo)
-            if up:
-                git(repo, "fetch", "-q", up.split("/", 1)[0], timeout=_rf.FETCH_TIMEOUT)
+            if up and git(repo, "fetch", "-q", up.split("/", 1)[0], timeout=_rf.FETCH_TIMEOUT)[0] != 0:
+                fetch_failed.append(repo.name)
         except Exception:
-            pass
+            fetch_failed.append(repo.name)
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         list(ex.map(fetch, repos))
@@ -650,7 +656,7 @@ def follow_all(root: Path, skip=()):
             followed.append(repo.name)
         elif r.state == "stopped":
             stopped.append(repo.name)
-    return followed, stopped
+    return followed, stopped, sorted(fetch_failed)
 
 
 def repos_rollcall(root: Path, follow=False, skip=()):
@@ -660,7 +666,7 @@ def repos_rollcall(root: Path, follow=False, skip=()):
     if _rf is None or not hasattr(_rf, "repo_facts"):
         return None
     try:
-        followed, stopped = follow_all(root, skip) if follow else ([], [])
+        followed, stopped, fetch_failed = follow_all(root, skip) if follow else ([], [], [])
         placed, failed = _rf.ensure_prepush_all(root)
         heads = _rf.repo_facts(root)
         stale = []
@@ -675,6 +681,8 @@ def repos_rollcall(root: Path, follow=False, skip=()):
                "stub_placed": len(placed), "stub_failed": failed[:5]}
         if follow:
             out["followed"], out["stopped"] = sorted(followed), sorted(stopped)
+            if fetch_failed:
+                out["fetch_failed"] = fetch_failed
         if hasattr(_rf, "recent_events"):
             ev = _rf.recent_events(24)      # 止めずに通した出来事 (検査・点呼が走らなかった / override) = その場の 1 行は誰も読まない
             if ev:
@@ -985,6 +993,11 @@ def selftest():
             rr = repos_rollcall(rc_root, follow=True, skip=[seed])
             assert rr["followed"] == [] and git(rc_root / "stale", "rev-parse", "HEAD")[1].strip() == new_tip, \
                 "behind なだけの clone は fetch するだけで動かさない"
+            assert "fetch_failed" not in rr, rr
+            git(rc_root / "behind", "remote", "set-url", "origin", str(Path(td) / "no-such-remote.git"))
+            rr = repos_rollcall(rc_root, follow=True, skip=[seed])
+            assert rr.get("fetch_failed") == ["behind"], f"fetch に失敗した repo は名前が載る: {rr.get('fetch_failed')}"
+            assert essence({"repos": {"fetch_failed": ["x"]}}) != essence({"repos": {}}), "fetch の失敗が現れたら commit する"
             ok += 1
         if _rf is not None:
             ok += _selftest_rewrite(Path(td))
