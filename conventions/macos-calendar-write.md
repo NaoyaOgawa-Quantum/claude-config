@@ -204,7 +204,7 @@ Android 製の予定は UID が小文字の UUID (Apple 製は大文字) なの�
 
 **直し方**:
 
-- **DAVx5 の account 名を、 server が本人と認める address (iCloud なら Apple ID の address) にする** = 以後に作る予定の主催者が本人になる。 ⚠️ 既存の予定の主催者は変わらない。 ⚠️ 主催者が本人になると、 Android でゲストを入れた予定に server が招待メールを送るようになりうる
+- **DAVx5 の account 名を、 server が本人と認める address (iCloud なら Apple ID の address) にする** = 以後に作る予定の主催者が本人になる。 ⚠️ 既存の予定の主催者は変わらない。 ⚠️ **その結果、 Android に取り込み済みの予定が編集できなくなる**: Etar は「予定の主催者 (ORGANIZER) = カレンダーの持ち主 (OWNER_ACCOUNT)」 の予定にだけ編集を出し (`EventInfoFragment`: `mCanModifyEvent = mCanModifyCalendar && mIsOrganizer`)、 DAVx5 は名前の変更でカレンダーの持ち主だけを新しい名前にする (DAVx5 の issue #1716 / #1751)。 → 名前を変えたら、 DAVx5 で各カレンダーのチェックを外して同期 → 戻して同期 (= 取り込み直し。 先に「今すぐ同期」 で未送信の変更を送る) まで行う。 ⚠️ 主催者が本人になると、 Android でゲストを入れた予定に server が招待メールを送るようになりうる
 - 既存の予定の主催者は Mac・iCloud.com からは書き換えられない = 先の回が残るものだけ作り直す ([#eventkit-add-attendees](#eventkit-add-attendees)、 参加者も移す)。 **古い方は Android 側で消す** (Mac で消すとまた不参加になるだけ)。 過去の回しか無いものは表示に影響しないので、 作り直さずにそのまま置く
 
 ## <a id="recurring-one-occurrence"></a>繰り返し予定の 1 回だけをずらす・飛ばす (EventKit の道具)
@@ -213,7 +213,7 @@ Android 製の予定は UID が小文字の UUID (Apple 製は大文字) なの�
 
 - **span の意味**: `この予定のみ` (EKSpanThisEvent = 0) = 元の系列に、 その回だけを変えた印 (RECURRENCE-ID の回) が付くだけで、 系列は変わらない。 `これ以降` (EKSpanFutureEvents = 1) = その回から先。 **1 回だけの変更は必ず `この予定のみ`**
 - ⚠️ **系列を丸ごと消すときは、 最初に見えている回でなく系列の本体に対して `これ以降` を当てる** (`calendarItemsWithExternalIdentifier`)。 最初の回が個別に変えた回 (id が `<uid>/RID=…` の別物) だったり検索の窓より前だったりすると、 見えている最初の回から先だけが消え、 系列は途中で切れて残る (実測: 道具の dry-run で気づいた)
-- **Android (Etar + DAVx5) で繰り返しの回を変えると壊れることがある** (実測): 予定を開いても編集が出ず「複製」 しか選べず、 複製は同じ繰り返しの写しをもう 1 本作るだけなので、 元は変わらないまま同じ予定が重なる。 新規に作った予定でも同じだったので、 古い予定だけの問題ではない (原因は未確定)。 → 1 回だけの変更は Mac (Calendar.app か本道具) から
+- **Android (Etar + DAVx5) で繰り返しの回を変えると壊れることがある** (実測): 予定を開いても編集が出ず「複製」 しか選べず、 複製は同じ繰り返しの写しをもう 1 本作るだけなので、 元は変わらないまま同じ予定が重なる。 新規に作った予定でも同じだった。 古い予定については原因が確定している (上の [#android-davx5-organizer-invitation](#android-davx5-organizer-invitation) の「直し方」 の ⚠️ = DAVx5 の account 名の変更)。 新規の予定まで編集できない理由は未確定。 → 1 回だけの変更は Mac (Calendar.app か本道具) から
 - **他の端末への反映**: Mac からの変更は iCloud にすぐ届くが、 **iCloud は DAVx5 に変更を知らせない** = Android は DAVx5 の次の同期まで古いまま (実測: 「二重のまま」 に見えた後、 同期で消えた)。 急ぐなら DAVx5 の「今すぐ同期」
 - **重なりの診断** (read-only): Calendar.app の DB (`~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb`、 `mode=ro`) の `CalendarItem` を summary で引き、 `Recurrence.specifier` (曜日、 例 `D=0MO,0SA`) と `end_date` (空 = 終わらない) を見る。 Android 製は UID が小文字の UUID。 ⚠️ Google の webcal 購読の写しは数時間遅れるので、 直後の診断には使えない
 - ⚠️ JXA で NSError** を受けるときは `$()` を渡す (`Ref()` を渡すと osascript が segfault した、 macOS 26 実測)
