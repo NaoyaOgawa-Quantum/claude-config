@@ -9,7 +9,13 @@ session の締めの整理 (知見を正本へ移す) で、 委ねた先で分�
 読む記録:
   <projects-dir>/<project>/<session id>/subagents/agent-*.jsonl  (Claude Code)
   同じ名前の agent-*.meta.json があれば description / agentType を添える。
-  報告 = その jsonl の最後の assistant 発言の text (tool 呼び出しだけの発言は飛ばす)。
+  報告 = agent が受け渡しの呼び出し (SubagentHandback) で返した本文を**全部、 順に** (再開した agent は再開のたびに
+  1 本返す)。 呼び出しが 1 つも無い記録 (古い形) だけ、 最後の assistant 発言の text を報告にする。
+  ⚠️ 実測: 受け渡しの呼び出しで返す agent では「最後の text」 は作業途中の一言で、 報告が 2 本とも落ちていた。
+  あわせて agent が書いた file (Write / Edit / MultiEdit / NotebookEdit の path) を並べる = 締めの整理で
+  「その agent が上げた所」 と照合し、 二重に上げない・上げ漏れを見つけるため。
+  ⚠️ agent の「考え中」 は記録に中身が残らない (実測: 40 か所すべて空) = 捨てた案・途中の発見・未検証は、
+  委ねる側が spec で「報告か成果物に書け」 と頼んだ分しか後から引けない。
 
 projects-dir の既定 (先に見つかった方から全部):
   - --projects-dir の指定
@@ -57,6 +63,9 @@ def candidate_projects_dirs(explicit=None):
     return out
 
 
+FILE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+
+
 def find_agent_files(projects_dirs, session):
     found = []
     for pdir in projects_dirs:
@@ -83,7 +92,8 @@ def _text_of(content):
 
 
 def read_report(path):
-    """(meta, last assistant text, last timestamp)。 壊れた行は飛ばす。"""
+    """(meta, reports, last timestamp, files written)。 reports = 受け渡しの本文の list (無ければ最後の text 1 本)。
+    壊れた行は飛ばす。"""
     meta = {}
     mpath = path.with_name(path.name[:-len(".jsonl")] + ".meta.json")
     if mpath.is_file():
@@ -92,6 +102,7 @@ def read_report(path):
         except (ValueError, OSError):
             meta = {}
     last_text, last_ts = "", ""
+    handbacks, files = [], []
     with path.open(encoding="utf-8", errors="replace") as fh:
         for line in fh:
             line = line.strip()
@@ -103,10 +114,23 @@ def read_report(path):
                 continue
             if rec.get("type") != "assistant":
                 continue
-            text = _text_of((rec.get("message") or {}).get("content"))
+            content = (rec.get("message") or {}).get("content")
+            for x in content if isinstance(content, list) else []:
+                if not isinstance(x, dict) or x.get("type") != "tool_use":
+                    continue
+                inp = x.get("input") or {}
+                if x.get("name") == "SubagentHandback" and isinstance(inp.get("message"), str):
+                    handbacks.append((inp["message"], rec.get("timestamp", "")))
+                elif x.get("name") in FILE_TOOLS:
+                    p = inp.get("file_path") or inp.get("notebook_path")
+                    if isinstance(p, str) and p not in files:
+                        files.append(p)
+            text = _text_of(content)
             if text.strip():
                 last_text, last_ts = text, rec.get("timestamp", "")
-    return meta, last_text, last_ts
+    if handbacks:
+        return meta, [h for h, _ in handbacks], handbacks[-1][1], files
+    return meta, ([last_text] if last_text else []), last_ts, files
 
 
 def main(argv=None):
@@ -127,21 +151,28 @@ def main(argv=None):
     files = find_agent_files(pdirs, args.session)
     rows = []
     for f in files:
-        meta, text, ts = read_report(f)
+        meta, reports, ts, written = read_report(f)
         rows.append({"file": str(f), "agentType": meta.get("agentType", ""),
-                     "description": meta.get("description", ""), "timestamp": ts, "report": text})
+                     "description": meta.get("description", ""), "timestamp": ts,
+                     "reports": reports, "report": "\n\n".join(reports), "files_written": written})
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=1))
         return 0
     print("見た dir: " + ", ".join(str(d) for d in pdirs))
     print("agent の記録: {} 件 (session {})".format(len(rows), args.session))
     for i, r in enumerate(rows, 1):
-        body = r["report"] or "(text の報告なし)"
-        if args.max_chars and len(body) > args.max_chars:
-            body = body[:args.max_chars] + "\n… (以下略、 --max-chars 0 で全文)"
         print("\n--- [{}] {} {} {}".format(i, r["agentType"], r["description"], r["timestamp"]).rstrip())
         print("    " + r["file"])
-        print(body)
+        if not r["reports"]:
+            print("(報告なし)")
+        for k, body in enumerate(r["reports"], 1):
+            if args.max_chars and len(body) > args.max_chars:
+                body = body[:args.max_chars] + "\n… (以下略、 --max-chars 0 で全文)"
+            if len(r["reports"]) > 1:
+                print("  ── 報告 {}/{}".format(k, len(r["reports"])))
+            print(body)
+        if r["files_written"]:
+            print("  書いた file ({}): {}".format(len(r["files_written"]), " / ".join(r["files_written"])))
     return 0
 
 
@@ -172,6 +203,20 @@ def selftest():
             "\n".join(json.dumps(r, ensure_ascii=False) for r in recs) + "\n{broken\n", encoding="utf-8")
         (sub / "agent-x1.meta.json").write_text(json.dumps({"agentType": "opus55", "description": "調べる"}),
                                                 encoding="utf-8")
+        hb = [
+            {"type": "user", "message": {"content": "調べて直して"}},
+            {"type": "assistant", "timestamp": "h1", "message": {"content": [
+                {"type": "tool_use", "name": "Edit", "input": {"file_path": "/r/a.md"}}]}},
+            {"type": "assistant", "timestamp": "h2", "message": {"content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "報告その 1"}}]}},
+            {"type": "user", "message": {"content": "続けて"}},
+            {"type": "assistant", "timestamp": "h3", "message": {"content": [{"type": "text", "text": "途中の一言"}]}},
+            {"type": "assistant", "timestamp": "h4", "message": {"content": [
+                {"type": "tool_use", "name": "Write", "input": {"file_path": "/r/b.py"}},
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "報告その 2"}}]}},
+        ]
+        (sub / "agent-x2.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in hb) + "\n",
+                                            encoding="utf-8")
         other = root / "-proj" / "ffff0000" / "subagents"
         other.mkdir(parents=True)
         (other / "agent-y.jsonl").write_text(json.dumps(recs[2]) + "\n", encoding="utf-8")
@@ -180,10 +225,16 @@ def selftest():
         with redirect_stdout(out):
             rc = main(["abcd", "--projects-dir", str(root), "--json"])
         rows = json.loads(out.getvalue())
-        check("prefix で該当 session だけを拾う", rc == 0 and len(rows) == 1, out.getvalue())
-        check("最後の text 発言を報告にする (tool だけの発言・壊れた行は飛ばす)",
-              rows and rows[0]["report"] == "最終報告 ✅" and rows[0]["timestamp"] == "t2", out.getvalue())
-        check("meta の description を添える", rows and rows[0]["description"] == "調べる", out.getvalue())
+        check("prefix で該当 session だけを拾う", rc == 0 and len(rows) == 2, out.getvalue())
+        rows_by = {Path(r["file"]).name: r for r in rows}
+        r1 = rows_by.get("agent-x1.jsonl", {})
+        check("受け渡しの呼び出しが無い記録は、 最後の text 発言を報告にする (tool だけの発言・壊れた行は飛ばす)",
+              r1.get("report") == "最終報告 ✅" and r1.get("timestamp") == "t2", out.getvalue())
+        r2 = rows_by.get("agent-x2.jsonl", {})
+        check("受け渡しの本文を全部、 順に報告にする (途中の一言は報告にしない)",
+              r2.get("reports") == ["報告その 1", "報告その 2"] and r2.get("timestamp") == "h4", out.getvalue())
+        check("agent が書いた file を並べる", r2.get("files_written") == ["/r/a.md", "/r/b.py"], out.getvalue())
+        check("meta の description を添える", r1.get("description") == "調べる", out.getvalue())
         out = io.StringIO()
         with redirect_stdout(out):
             main(["zzzz", "--projects-dir", str(root)])
