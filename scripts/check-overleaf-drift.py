@@ -22,6 +22,11 @@ conventions/overleaf-integration.md)。
   ahead 運用の repo が dashboard を恒久 INFO で汚さないための契約、 template の
   AHEAD_EXPECTED=1)
 
+- WARN: status 行に `content-diff=K [file,…]` があり K > 0 (= Overleaf が持つ file のうち、 手元の
+  中身が overleaf/master と違うもの。 取り込み済み 〔behind=0〕 でも同じ中身とは限らない =
+  改名を含む merge で改名先の file に手元の編集が乗る)。 `content-diff-expected` marker があれば抑制。
+  token を出さない sync script は検査しない (正本 = conventions/overleaf-integration.md#content-parity)
+
 skip (silent): script 出力に DEPRECATED (= Overleaf 連携を廃止した repo の標準 marker)。
 
 使い方: 個人層の dashboard / cron の末尾から呼ぶ。 finding 0 件なら silent。
@@ -157,6 +162,17 @@ def classify(repo: Path, script, code, out):
         findings["WARN"].append(
             f"  - {name}: ahead/behind が確定できない (= upstream 設定 or fetch を確認)"
         )
+    # 中身の照合 (任意の token): 取り込み済み (behind=0) でも、 Overleaf が持つ file の中身が同じとは限らない
+    # (改名を含む merge では、 改名先の file に手元の編集が乗る)。 sync script が `content-diff=K [file,…]` を
+    # 出していれば K>0 を WARN にする。 token を出さない script は従来どおり (検査なし)。
+    cd = re.search(r"content-diff=(\d+)(?:\s*\[([^\]]*)\])?", out)
+    if cd and int(cd.group(1)) > 0 and "content-diff-expected" not in out:
+        names = f" ({cd.group(2)})" if cd.group(2) else ""
+        findings["WARN"].append(
+            f"  - {name}: Overleaf が持つ file のうち {cd.group(1)} 個の中身が overleaf/master と違う{names}"
+            f" (= 取り込み済みでも同じ中身とは限らない。 手元の未反映の編集か、 改名を含む merge で"
+            f" 中身が混ざった。 overleaf-integration.md#content-parity)"
+        )
     return findings
 
 
@@ -239,6 +255,11 @@ def selftest() -> int:
         mk_repo("r-ahead", "#!/bin/bash\necho '[x] ahead=2 behind=0'\n")
         # 7b) ahead だが marker で抑制 → silent (behind があれば behind は出る)
         mk_repo("r-aheadok", "#!/bin/bash\necho '[x] ahead=9 behind=0 ahead-expected'\n")
+        # 7c) 中身の照合: Overleaf が持つ file の中身が違う → WARN (file 名つき)
+        mk_repo("r-content", "#!/bin/bash\necho '[x] ahead=4 behind=0 ahead-expected content-diff=2 [a.tex,b.tex]'\n")
+        # 7d) 中身は一致 / 意図した相違の宣言 → silent
+        mk_repo("r-contentok", "#!/bin/bash\necho '[x] ahead=4 behind=0 ahead-expected content-diff=0'\n")
+        mk_repo("r-contentexp", "#!/bin/bash\necho '[x] ahead=4 behind=0 ahead-expected content-diff=3 [a.tex] content-diff-expected'\n")
         # 8) 言及も script も無し → 対象外
         mk_repo("r-plain", None, "# 普通の repo\n")
         # 9) 機構の説明行のみ (= meta 言及、 個人層 dashboard 説明文型) → 対象外
@@ -260,7 +281,9 @@ def selftest() -> int:
             fails.append("r-token should be INFO")
         if not any("r-ahead" in x for x in f["INFO"]):
             fails.append("r-ahead should be INFO")
-        for quiet in ("r-clean", "r-dep", "r-plain", "r-meta", "r-aheadok"):
+        if not any("r-content:" in x and "2 個" in x and "a.tex,b.tex" in x for x in f["WARN"]):
+            fails.append("r-content content-diff=2 should be WARN with file names")
+        for quiet in ("r-clean", "r-dep", "r-plain", "r-meta", "r-aheadok", "r-contentok", "r-contentexp"):
             if quiet in blob:
                 fails.append(f"{quiet} should be silent")
     if fails:
@@ -268,7 +291,7 @@ def selftest() -> int:
         for x in fails:
             print(f"  - {x}")
         return 1
-    print("SELFTEST OK (10 fixtures, 11 assertions)")
+    print("SELFTEST OK (13 fixtures, 14 assertions)")
     return 0
 
 
