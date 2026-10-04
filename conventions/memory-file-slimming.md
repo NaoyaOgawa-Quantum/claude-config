@@ -238,6 +238,14 @@ CLAUDE.md 95 → 35 KB)。
   全 commit が境界の取引になる (実測: 2.6 KB の余裕は 3 日で尽き、 その後 2 週間ほど毎 commit 止まった)。 ⑦ **経緯 payload (日付・RCA・実測・
   引用の括弧) が数 KB しか残っていない file は pointer 化の床** — 払いの原資が無いので、 行を落とすか構造を変える (列挙を生成 file へ・制約を
   使う瞬間の hook へ) 判断が要る。 その判断は owner のもので、 道具は `candidates` の合計で床に居ることを示すだけ。
+  構造を変えるときの道具 (owner の裁定の後): **routing table は全文を auto-load されない file (正本) に置き、 auto-load 面には
+  [`scripts/generate-trigger-table.py`](../scripts/generate-trigger-table.py) が 3 列目の 1 文目 (trigger) と ⚠️ を含む文だけを marker の間に生成する**
+  (= 行を足す人が何を書いても要約・経緯は auto-load 面に出ない。 [#generated-block-slimming](#generated-block-slimming) の表版)。
+  **道具ごとの「触る前に効く制約」 の表は auto-load されない file に置き、 [`scripts/constraint-at-use.py`](../scripts/constraint-at-use.py)
+  (PreToolUse hook) が Bash で道具の名を叩いた瞬間・台帳 file を開いた瞬間に該当行を session に 1 回出す** (key は行の 1 列目から導出。
+  読む側が preamble から思い出すのでなく tool 結果の直前に行が居る = 発火面を使う瞬間へ移す
+  [`convention-design-principles.md#symptom-keyed-entry-point`](../docs/convention-design-principles.md#symptom-keyed-entry-point))。
+  実測: 2 表で auto-load file の 28% (41 KB) を降ろし、 移した行は link の深さ以外 1 字も変えていない (verbatim の照合は行単位で機械)。
 
 (以上の置き方は任意の常設検出器に通じる一般形だが、 実例 1 件のため本 doc 留め —
 2 例目で上層 doc への hoist を判断する。)
