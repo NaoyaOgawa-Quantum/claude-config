@@ -38,13 +38,15 @@ engine = [`scripts/manuscript-claim-guard.py`](../scripts/manuscript-claim-guard
 - **原稿の範囲**: repo の `.claude/manuscript-guard.json` (`include` / `exclude` / `protect_sections` / `disabled`) があればそれ。 無ければ、 abstract 環境を持つ `.tex` と、 そこから `\input` / `\include` / `\subfile` される `.tex`。HEAD・index・作業ツリーの到達範囲の和を取り、参照を外しても元の子原稿の保護を失わない。
 - **権限の lock**: 一般の規則・配線・設定の判定は [agent-rule-guard.py](../scripts/agent-rule-guard.py) と [共通の機構](agent-rule-ownership.md#mechanism) が所有する。本 engine はその述語を読み、原稿の保護領域の述語と同じ入口で適用する。
 
+- **移動**: 同じ commit (または同じ patch の `Move to:`) で消えた path と、 まだ無かった path に現れた file を 1 対 1 で組み (中身が一致する組が先、 残りは同じ拡張子で空でない行の重なり 50% 以上)、 旧い path の領域と新しい path の領域を比べる。 旧い path にあって新しい path に同じ名前で無い領域 (移動先が範囲の外・数式を包む macro の定義を読めなくなる分を含む) は delete、 新しい path にだけ在る領域は add、 中身を変えた分は両方の path の文脈で書き換えとして比べる。 finding は新しい path に付く。 組み方は承認の件数を決めるだけで、 どう組んでも保護され続けない領域は残る。 組まない (従来どおり path ごと) = 旧い path を残す複製、 既存の file への上書き、 移動した file が読んでいた子原稿を移動後に読まない、 読み込みで原稿に入っていた file が commit の後の読み込みに無い (Codex の編集の時点では abstract の無い file の移動)。 権限の lock (`authority:*`) の finding は移動でも path ごと。 Bash の `git mv` / `git rm` / `mv` そのものは検査せず、 commit の時点で staged の差分として見る。
+
 ## <a id="approval"></a>3. 裁定の記録
 
 手順・引用元の条件・候補の束縛・未承認変更の扱いは [共通の裁定手順](agent-rule-ownership.md#approval) が正本。原稿の裁定では本人とは著者を指し、§1 の項目ごとの裁定を記録する。
 
 原稿固有の領域名は `title` / `abstract` / `intro` / `conclusion` / `eq:<label>` / `math` (その file の全数式) / `math-add` (式の追加だけ) / `section:<見出し>`。拒否メッセージに出た領域を用いる。規則・設定の変更には共通手順の `--candidate` も必要になる。
 
-`section:<見出し>` の見出しは `\section{…}` の文字列 (小文字化) であって、 label (`sec:…`) ではない。 記録の前に source の `\section{` 行から取る (`scan` は差分が無いうちは何も出さない)。 領域を誤って記録すると、 書き込みは通っても commit で止まり、 引ける発言は最新のものだけなので、 著者に同じ裁定を言い直してもらうことになる (実測)。 記録と最初の書き込みは別の tool call にする: 同じ command 行に `approve && 書き込み` と並べると、 書き込みの検査が記録より先に走って止まる。 `git commit` も同じで、 同じ command 行の記録は commit の検査に間に合わない (実測)。 file を改名したときは、 旧い path の削除と新しい path の追加の両方の領域を記録する。 `\input` の行を消すと、 その行を含む節の変更として数える。
+`section:<見出し>` の見出しは `\section{…}` の文字列 (小文字化) であって、 label (`sec:…`) ではない。 記録の前に source の `\section{` 行から取る (`scan` は差分が無いうちは何も出さない)。 領域を誤って記録すると、 書き込みは通っても commit で止まり、 引ける発言は最新のものだけなので、 著者に同じ裁定を言い直してもらうことになる (実測)。 記録と最初の書き込みは別の tool call にする: 同じ command 行に `approve && 書き込み` と並べると、 書き込みの検査が記録より先に走って止まる。 `git commit` も同じで、 同じ command 行の記録は commit の検査に間に合わない (実測)。 file を改名・移動したとき (同じ commit で旧い path が消え、 まだ無かった新しい path に現れる。 Codex の `apply_patch` の `Move to:` も同じ) は、 同じ原稿の書き換えとして比べる: 中身が同じなら記録は要らない。 中身も変えたなら、 変わった領域だけを新しい path で記録する (`--file <新しい path>`)。 旧い path を残す複製・既存の file への上書き・移動先が原稿の範囲 (設定の `include` / `exclude`、 `\input` の到達範囲) の外になる移動・子原稿を親の `\input` から外す移動は、 従来どおり旧い path の削除と新しい path の追加の両方を記録する。 `\input` の行を消すと、 その行を含む節の変更として数える。
 
 ## <a id="adoption"></a>4. 既定の選び方と導入
 
@@ -67,6 +69,8 @@ engine = [`scripts/manuscript-claim-guard.py`](../scripts/manuscript-claim-guard
 - **hook の配信**: trust と配信は machine ごと。 install 済みを確かめる方法は §4。
 - **submodule (gitlink) の中身**: 親 repo の commit は submodule の commit id (pin) を記録するだけで、 中の file を読めない。 宣言が無ければ gitlink は検査対象外 (中の変更は submodule の repo 側の commit で検査される)。 保護 path (manifest の宣言・symlink を解決した後の path・glob の固定部分を worktree で解決した形) が submodule の中を指しうるなら、 大文字小文字と Unicode 正規化をそろえて比べて、 今までどおり検査不能で止める (= その pin は上げられない)。 宣言済みの gitlink を承認する経路は無い (承認の mode に 160000 が無い)。
 - **hook の timeout は素通り**: settings の timeout (20 s) を越えた PreToolUse hook は打ち切られ、 tool はそのまま実行される (実測 2026-09-22: Claude Code CLI 2.1.198 で、 4 s 待ってから deny を返す hook を project settings に timeout 1 s で置くと `touch` が実行され、 timeout 10 s なら止まった。 desktop の埋込 engine 2.1.275 も打ち切りを「status 1・出力なし」 に畳む同じ経路)。 git の pre-commit に timeout は無い。 だから検査の時間を件数に比例させない ([`hook-authoring.md#hook-cost-per-item`](hook-authoring.md#hook-cost-per-item)。 実測: 3000 file の dir の `add` + `commit -- dir/` が 201 s → 0.4 s、 追跡済み 3000 file の `commit -a` が 1.8 s、 staged 3000 file の pre-commit が 1.3 s。 engine の selftest が git の呼び出し回数を file 数で比べる)。
+
+- **子原稿を読み込みから外す 2 段の経路**: 保護領域の外の `\input` の行を書き換えて子原稿 (abstract の無い `.tex`) を親の読み込みから外す commit は止まらず、 次の commit から子原稿は範囲の外になる (以前から在る穴。 移動の扱いはこの経路を開けない = 子原稿の読み込みが切れる移動は組まない)。
 
 ## <a id="why"></a>6. 実測 (一般形)
 
