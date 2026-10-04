@@ -29,16 +29,18 @@ worker が `isRunning` なのに commit / marker / 成果 file がゼロで、 t
 
 - **中身が空の thinking block が ~10-15 分間隔で規則的に並ぶ** (= 1 個 = 1 回の doomed generation 試行。 上限超過 or client timeout → retry の周期)
 - text も tool call も出ない。 **割り込みで「何やってるの?」 と聞いても、 その返答 turn 自体が同じ loop に入る** (= 数秒で返るはずの応答が返らない = 決定打)
+- <a id="metadata-signature"></a>**記録の metadata だけで判定できる版がある**: assistant 行の `stop_reason` が `max_tokens` で、 `usage.output_tokens_details.thinking_tokens` が `output_tokens` と同じ値 (= 上限いっぱいが思考。 text も tool call も無い) の行が 2 回以上続き、 間に harness の自動の user 行 (出力上限に達したので続きから再開せよ、 という定型文) が入る。 worker の発言を読まずに数えられる = ai-collaboration [`scripts/inspect-review-sandbox.py`](../../ai-collaboration/scripts/inspect-review-sandbox.py) `status` (worker の cwd の dir を渡す。 通常の worker の dir にも使える)
 
-⚠️ **誤診 trap (実測)**: この signature は rate-limit backoff・malformed-tool-call bug ([`tool-call-robustness.md`](tool-call-robustness.md)) と紛らわしい。 鑑別: 同 account の並行 session が普通に応答しているなら account rate limit ではない / malformed bug は「壊れた tool call」 が transcript に残るが、 本 loop は**何も残らない**。 UI 側の 64k error 文言は起動した端末にしか出ないことがあり、 transcript からは空 thinking の周期だけが見える。
+⚠️ **誤診 trap (実測)**: この signature は rate-limit backoff・malformed-tool-call bug ([`tool-call-robustness.md`](tool-call-robustness.md)) と紛らわしい。 鑑別: 同 account の並行 session が普通に応答しているなら account rate limit ではない / malformed bug は「壊れた tool call」 が transcript に残るが、 本 loop は**何も残らない**。 UI 側の 64k error 文言は起動した端末にしか出ないことがある。 transcript に残るのは、 版によって、 空 thinking の周期だけか、 上の `stop_reason: max_tokens` の行である。
 
 ## <a id="recovery"></a>復旧 playbook
 
 **粘らない** ([`tool-call-robustness.md`](tool-call-robustness.md) と同じ精神 = root に最も近い一手を先に):
 
 1. worker session を捨てる (成果は commit 済みの分だけ。 だからこそ予防規律の「小節ごと commit」 が保険になる)
-2. **spec を直してから** 再spawn する。 ⚠️ **同じ spec の再spawn は同じ死に方をする** (実測: 同一 monolithic spec で 2 連死 = loop は spec の形に対して決定的)。 旧 spec には supersession banner を付けて分割版へ redirect する (worker が古い spec を読む race の防止)
-3. `CLAUDE_CODE_MAX_OUTPUT_TOKENS` を上げるのは対症 (thinking 主導の爆発は任意の枠を食い潰しうる)。 本筋は分割
+2. **条件を変えてから** 再spawn する。 ⚠️ **同じ条件の再spawn は同じ死に方をする** (実測: 同一 monolithic spec で 2 連死)。 loop を決めるのは spec の形・model・推論の深さ (effort) の組で、 どれかを変えないと抜けない。 本筋は spec を直すこと。 旧 spec には supersession banner を付けて分割版へ redirect する (worker が古い spec を読む race の防止)
+3. <a id="effort-lever"></a>**spec を変えずに先に試せる安い手 = 推論の深さを 1 段下げる**。 headless の worker なら起動行の effort を最大から 1 段下げ、 起動文に手順だけの 1 文 (読んだらすぐ code を書いて回す、 1 回の応答と思考を短く、 結果は file に書きながら) を足す。 実測: 最大の深さでは 3 応答続けて思考だけで上限に達した導出課題を、 深さを 1 段下げた同じ model が完走し、 別の model も最大でない深さで最初から完走した (課題文は 3 回とも同じ)。 それでも入るなら分割する
+4. `CLAUDE_CODE_MAX_OUTPUT_TOKENS` を上げるのは対症 (thinking 主導の爆発は任意の枠を食い潰しうる)。 本筋は分割
 
 ## <a id="prevention-spec-rules"></a>予防 = spec 設計規律 (宛先は spec author)
 
@@ -50,6 +52,7 @@ worker は cold session で、 ambient な規約 doc は発火しない — **sp
 4. **1 回の Write は ≤ ~150 行**。 大きな定型 (preamble・boilerplate) は生成させず **shell で複製** (`sed` / `cp`) — 出力 token は有限資源として扱う
 5. **部分結果を成功 mode にする**: 「未完でも部分結果を commit + marker (`--status partial`) で閉じてよい」 を spec の成功条件に含める (all-or-nothing framing が巨大 turn を誘発する)
 6. deliverable に **サイズ目標** (≤ N ページ / 行) を書く
+7. **headless の worker を最大の推論の深さで起動しない**。 深さは 1 応答の中で考える量を増やすので、 開放的な課題では思考が出力上限を食い切る。 深さを上げたいなら、 先に bounded な stage に分ける ([`#effort-lever`](#effort-lever))
 
 ### 正直な限界
 
