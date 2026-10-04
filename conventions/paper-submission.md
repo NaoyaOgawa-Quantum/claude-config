@@ -283,6 +283,10 @@ RSS は web 一覧と更新時刻が違うため、古い RSS だけを遅延の
 - 記録 = 投稿 ID・package の元 commit・category・license を project の記録に、 公開と番号の確認・続報を期限つき TODO に置く (人の記憶を carrier にしない)。
 - 公開の確認 = 公開時刻の後に `https://arxiv.org/list/<primary>/new` を題名で探し、 abs page の Subjects 行で cross-list が残っているか (moderator が外すことがある) を見る。 export API の題名検索は公開当日に空の応答だった (実測、 原因は未切り分け) ので、 空を「未公開」 と読まない。 番号が出たら、 番号待ちで止めていた記録 (project の記録・TODO・講演の記録) を同じ turn でまとめて更新する。
 
+### <a id="arxiv-replacement-listed-version"></a>差し替えを考える前に、 いま載っている版を API で読む
+
+手元の「旧稿」 は、 arXiv に載っている版と同じとは限らない。 雑誌へ出し直すたびに題と主張を変えた原稿では、 最後に投稿した版が arXiv に出ていないことがある。 差し替えか別論文かを決める前、 comment 欄を書く前に、 `https://export.arxiv.org/api/query?id_list=<番号>` で掲載中の版番号・題・abstract・comment を読み、 それと新しい原稿を比べる。 題と結論が変わる差し替えは、 comment 欄に、 大幅に改訂したことと、 旧版のどの主張を取り下げたかを 1〜2 文で書く。
+
 ### <a id="arxiv-citation-requests"></a>公開直後の引用依頼を、 journal に出す前に仕分ける
 
 - arXiv に載ると、 関連論文の著者から「この論文も引用を」 というメールが公開後の数日に来ることがある。 journal への投稿をその数日の後に置けば、 足すべき文献を referee が読む版に入れられる。
