@@ -17,6 +17,10 @@
     (= 古い log の末尾は「直近の run」 とは限らないので拾わない)
   - config_dir_of: plist の起動行の `CLAUDE_CONFIG_DIR=` (EnvironmentVariables も見る)
   - logged_in_email: その config dir が今 claude.ai でログイン済みなら email (= `claude auth status` を読むだけ)
+  - missed_fire: 予定 (plist の StartCalendarInterval / StartInterval) の時刻から MISSED_GRACE_H 時間たっても、
+    その run の分の log が書かれていない = 起動しなかった run か、 終わらずに止まっている run
+    (終了コードも log 末尾も前回の run のことしか言わない = conventions/scheduled-tasks.md#missed-run-detection)。
+    log が毎回書かれる job (= headless `claude -p` は終わる時に結果を書く、 runs_claude_p) にだけ使う
 """
 from __future__ import annotations
 
@@ -100,6 +104,94 @@ def config_dir_of(plist: dict | None) -> str:
     return m.group(1) if m else ""
 
 
+# ── 予定の run が log に残っていない (= 起動しなかった run / 終わらない run) ──
+MISSED_GRACE_H = 3        # 予定の時刻からこれだけたっても log が無ければ「残っていない」 (長い routine の実行時間を見込む)
+MISSED_SLACK_S = 6 * 60   # log の時刻の丸め (beat の log_age_h は 0.1 時間単位) を見込む
+_CLAUDE_P_RE = re.compile(r'\bclaude"?\s+(?:-p|--print)(?=\s|$)')
+_GATE_RE = re.compile(r"routine-host-gate\.py")
+_CAL_KEYS = ("Minute", "Hour", "Day", "Weekday", "Month")
+
+
+def _command(plist: dict | None) -> str:
+    return " ".join(str(a) for a in ((plist or {}).get("ProgramArguments") or [])) if isinstance(plist, dict) else ""
+
+
+def runs_claude_p(plist: dict | None) -> bool:
+    """起動行が headless `claude -p` を起動するか (= 毎回の run が、 終わる時に log へ結果を書く job)。"""
+    return bool(_CLAUDE_P_RE.search(_command(plist)))
+
+
+def is_gated(plist: dict | None) -> bool:
+    """起動行が本番ホストの関門 (routine-host-gate.py) を通るか (= 本番でない機械では log を書かずに休む job)。"""
+    return bool(_GATE_RE.search(_command(plist)))
+
+
+def schedule_of(plist: dict | None) -> dict | None:
+    """plist の予定。 {"cal": [{key: int}, ...]} (StartCalendarInterval、 key が無い = どれでも) /
+    {"interval": 秒} (StartInterval) / None (予定が無い = RunAtLoad や KeepAlive だけの job)。"""
+    if not isinstance(plist, dict):
+        return None
+    sci = plist.get("StartCalendarInterval")
+    if isinstance(sci, dict):
+        sci = [sci]
+    if isinstance(sci, list):
+        cal = [{k: int(e[k]) for k in _CAL_KEYS if isinstance(e.get(k), int)} for e in sci if isinstance(e, dict)]
+        if cal:
+            return {"cal": cal}
+    si = plist.get("StartInterval")
+    if isinstance(si, int) and si > 0:
+        return {"interval": si}
+    return None
+
+
+def last_fire_before(schedule: dict | None, t: float, max_days: int = 400) -> float | None:
+    """予定で、 時刻 t 以前の最後の起動予定 (epoch。 この機械の local time で読む)。 該当なし = None。
+    StartInterval は起動の時刻が分からないので t - interval を返す (= その幅の中に 1 回は run があるはず)。
+    Day と Weekday が両方あるときは cron と同じくどちらかが合えば起動する。"""
+    if not schedule:
+        return None
+    if schedule.get("interval"):
+        return t - schedule["interval"]
+    import datetime as _dt
+    end = _dt.datetime.fromtimestamp(t)
+    best = None
+    for e in schedule.get("cal") or []:
+        hours = sorted([e["Hour"]] if "Hour" in e else range(24), reverse=True)
+        mins = sorted([e["Minute"]] if "Minute" in e else range(60), reverse=True)
+        for back in range(max_days + 1):
+            day = (end - _dt.timedelta(days=back)).date()
+            if "Month" in e and e["Month"] != day.month:
+                continue
+            dom = "Day" in e and e["Day"] == day.day
+            dow = "Weekday" in e and e["Weekday"] % 7 == day.isoweekday() % 7   # launchd は 0 と 7 が日曜
+            if "Day" in e and "Weekday" in e:
+                if not (dom or dow):
+                    continue
+            elif ("Day" in e and not dom) or ("Weekday" in e and not dow):
+                continue
+            hit = next((c for h in hours for m in mins
+                        for c in [_dt.datetime(day.year, day.month, day.day, h, m)] if c <= end), None)
+            if hit is not None:
+                ts = hit.timestamp()
+                best = ts if best is None or ts > best else best
+                break
+    return best
+
+
+def missed_fire(schedule: dict | None, log_mtime: float | None, now: float, since: float | None = None,
+                grace_h: float = MISSED_GRACE_H) -> float | None:
+    """予定の run の分の log が無ければ、 その予定の時刻 (epoch)。 有る / 判定できない = None。
+    - 予定の時刻から grace_h 時間以上たった run だけを見る (= 実行中の run を「無い」 と言わない)
+    - since (その機械が本番になった時刻など) より前の予定は見ない (= その機械が走らせる番でなかった run)
+    - log の更新が予定の時刻 (- 丸め) 以後なら、 その run かそれより後の run が書いた"""
+    fire = last_fire_before(schedule, now - grace_h * 3600)
+    if fire is None or (since is not None and fire < since):
+        return None
+    if log_mtime is not None and log_mtime >= fire - MISSED_SLACK_S:
+        return None
+    return fire
+
+
 def logged_in_email(config_dir: str, claude: str = "claude", timeout: int = 8) -> str:
     """config dir が今 claude.ai でログイン済みなら email (未ログイン・判定不能なら空文字)。 読むだけ。
 
@@ -149,6 +241,41 @@ def selftest() -> int:
         ck("plist 無しは空", config_dir_of(None) == "")
         ck("架空 / 相対の dir は auth status を叩かない",
            logged_in_email("/nonexistent/.claude-z") == "" and logged_in_email("rel") == "")
+        # 予定の run が log に残っていない (missed_fire)
+        import datetime as _dt
+        gated = {"ProgramArguments": ["/bin/sh", "-c", 'cd x && { python3 "$HOME/c/routine-host-gate.py" r l.json; }'
+                                      ' && exec "/u/bin/claude" -p --model m "do it"'],
+                 "StartCalendarInterval": {"Hour": 7, "Minute": 30}}
+        ck("claude -p を起動する job", runs_claude_p(gated) and not runs_claude_p({"ProgramArguments": ["sh", "-c", "claude-p x"]}))
+        ck("関門を通る job", is_gated(gated) and not is_gated(pl))
+        ck("予定 (dict 1 つ)", schedule_of(gated) == {"cal": [{"Minute": 30, "Hour": 7}]})
+        ck("予定 (list / interval / 無し)",
+           schedule_of({"StartCalendarInterval": [{"Hour": 7, "Minute": 10}, {"Hour": 13, "Minute": 10}]})
+           == {"cal": [{"Minute": 10, "Hour": 7}, {"Minute": 10, "Hour": 13}]}
+           and schedule_of({"StartInterval": 3600}) == {"interval": 3600} and schedule_of({"RunAtLoad": True}) is None)
+        T = lambda *a: _dt.datetime(*a).timestamp()
+        daily = {"cal": [{"Hour": 7, "Minute": 30}]}
+        ck("毎日の最後の予定 (当日の前)", last_fire_before(daily, T(2030, 1, 5, 7, 0)) == T(2030, 1, 4, 7, 30))
+        ck("毎日の最後の予定 (当日の後)", last_fire_before(daily, T(2030, 1, 5, 9, 0)) == T(2030, 1, 5, 7, 30))
+        twice = {"cal": [{"Hour": 7, "Minute": 10}, {"Hour": 13, "Minute": 10}]}
+        ck("1 日 2 回は遅い方", last_fire_before(twice, T(2030, 1, 5, 14, 0)) == T(2030, 1, 5, 13, 10))
+        monthly = {"cal": [{"Day": 1, "Hour": 3, "Minute": 0}]}
+        ck("毎月 1 日", last_fire_before(monthly, T(2030, 1, 20, 0, 0)) == T(2030, 1, 1, 3, 0))
+        weekly = {"cal": [{"Weekday": 0, "Hour": 6, "Minute": 0}]}   # 2030-01-06 は日曜
+        ck("毎週日曜 (0)", last_fire_before(weekly, T(2030, 1, 9, 0, 0)) == T(2030, 1, 6, 6, 0))
+        ck("日曜は 7 でも同じ", last_fire_before({"cal": [{"Weekday": 7, "Hour": 6, "Minute": 0}]}, T(2030, 1, 9)) == T(2030, 1, 6, 6, 0))
+        ck("毎時 (Minute だけ)", last_fire_before({"cal": [{"Minute": 5}]}, T(2030, 1, 5, 9, 3)) == T(2030, 1, 5, 8, 5))
+        now = T(2030, 1, 5, 12, 0)
+        ck("予定の後に log がある = 残っている", missed_fire(daily, T(2030, 1, 5, 8, 10), now) is None)
+        ck("予定の後に log が無い = その予定", missed_fire(daily, T(2030, 1, 4, 8, 10), now) == T(2030, 1, 5, 7, 30))
+        ck("log が一度も無い = その予定", missed_fire(daily, None, now) == T(2030, 1, 5, 7, 30))
+        ck("予定から grace 内は見ない (実行中)", missed_fire(daily, T(2030, 1, 4, 8, 10), T(2030, 1, 5, 9, 0)) is None
+           and missed_fire(daily, T(2030, 1, 4, 8, 10), T(2030, 1, 5, 10, 31)) == T(2030, 1, 5, 7, 30))
+        ck("since より前の予定は見ない", missed_fire(daily, None, now, since=T(2030, 1, 5, 8, 0)) is None)
+        ck("log の丸め (予定の 6 分前まで) は残っている扱い", missed_fire(daily, T(2030, 1, 5, 7, 25), now) is None)
+        ck("予定が無い job は判定しない", missed_fire(None, None, now) is None)
+        ck("StartInterval = 幅の中に log", missed_fire({"interval": 3600}, now - 3.5 * 3600, now) is None
+           and missed_fire({"interval": 3600}, now - 5 * 3600, now) is not None)
         with open(d / "j.plist", "wb") as fh:
             plistlib.dump(pl, fh)
         ck("load_plist", (load_plist(d / "j.plist") or {}).get("StandardErrorPath") == str(d / "custom.log"))
