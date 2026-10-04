@@ -53,8 +53,7 @@ usage:
     desktop_scheduled_tasks: [{registry, enabled_ids}],
     inventories: {label: [name, ...]},         # --inventory 指定時のみ
     jobs: [{label, last_exit, python, python_runs, python_ok, bare_in_command, bare_in_wrapper,
-            log_failure, log_age_h, log_mtime, config_dir?,
-            claude_p, gated, schedule}],                        # --job-label-prefix 指定時のみ
+            log_failure, log_age_h, config_dir?}],               # --job-label-prefix 指定時のみ
     job_python_modules: [module, ...],                           # 同上
     engine_head: <本 engine の repo の HEAD sha>,                  # 「この Mac の層1 は何版か」 を他マシンから読む (essence 外)
     harness_hooks: [hook file 名, ...],                          # ~/.claude/settings.json に配線された hook の名前だけ
@@ -136,11 +135,6 @@ job health (--job-label-prefix、 opt-in、 repeatable):
     log_age_h = その log の最終更新からの時間、 config_dir = auth のときだけ plist の CLAUDE_CONFIG_DIR
     (判定 = scripts/lib/launchd_job_log.py、 check-cron-health と共有。 plist を読み込み直すと last_exit は 0 に戻るので、
     last_exit だけでは失敗が消える = conventions/scheduled-tasks.md#reload-resets-exit-status)
-  - log_mtime = その log の最終更新の時刻 (epoch)、 claude_p = 起動行が headless `claude -p` を起動するか、
-    gated = 起動行が本番ホストの関門 (routine-host-gate.py) を通るか、 schedule = plist の予定
-    (判定 = scripts/lib/launchd_job_log.py)。 reader は本番ホストで、 予定の時刻を過ぎても log が更新されていない
-    claude -p の job を出す (= 起動しなかった run と終わらない run は、 終了コードにも log 末尾にも出ない、
-    conventions/scheduled-tasks.md#missed-run-detection)
   reader は bare_in_command ∧ ¬python_runs (= 関門が起動できず、 そのジョブは黙って休み続ける) と
   bare_in_wrapper ∧ ¬python_ok (= engine が import で終わる) を出す。 command の位置 (行頭・; && || | $( の直後) の
   `python3` だけを数える (echo の文中の語は数えない)
@@ -460,23 +454,12 @@ def job_health(label, status, plist, modules, home):
             rec["log_failure"] = _jl.failure_kind(lp) or None
             age = _jl.log_age_days(lp)
             rec["log_age_h"] = round(age * 24, 1) if age is not None else None
-            try:
-                rec["log_mtime"] = int(lp.stat().st_mtime)
-            except OSError:
-                rec["log_mtime"] = None
             if rec["log_failure"] == "auth":
                 rec["config_dir"] = _jl.config_dir_of(plist if isinstance(plist, dict) else None) or None
         except Exception:
             pass
     if not isinstance(plist, dict):
         return rec
-    if _jl is not None:   # 予定の run が log に残っているかを reader が判定するための材料
-        try:
-            rec["claude_p"] = _jl.runs_claude_p(plist)
-            rec["gated"] = _jl.is_gated(plist)
-            rec["schedule"] = _jl.schedule_of(plist)
-        except Exception:
-            pass
     cmd = " ".join(str(x) for x in (plist.get("ProgramArguments") or []))
     # job の command (= 起動の関門など。 標準ライブラリで足りる) と wrapper (= engine。 依存を使う) を分けて見る
     rec["bare_in_command"] = bare_python_in(cmd.replace(";", "\n").replace("&&", "\n").replace("||", "\n"))
@@ -1113,15 +1096,6 @@ def selftest():
             assert ja["log_failure"] == "auth" and ja["config_dir"] == "/c/.claude-x" \
                 and ja["log_age_h"] is not None and ja["last_exit"] == 0, ja
             assert essence({"jobs": [ja]}) != essence({"jobs": [dict(ja, log_failure=None)]}), "失敗の原因の変化も即 commit"
-            # 予定の run が log に残っているかの材料 (reader の判定 = lib の missed_fire)
-            assert isinstance(ja["log_mtime"], int) and ja["claude_p"] is True and ja["gated"] is False \
-                and ja["schedule"] is None, ja
-            jc = job_health("j.cal", "0", {"ProgramArguments": ["/bin/sh", "-c",
-                            'cd x && { python3 "$HOME/c/routine-host-gate.py" r l.json; } && exec "/u/claude" -p "x"'],
-                            "StartCalendarInterval": {"Hour": 7, "Minute": 30}}, [], jroot)
-            assert jc["gated"] is True and jc["claude_p"] is True and jc["schedule"] == {"cal": [{"Minute": 30, "Hour": 7}]} \
-                and jc["log_mtime"] is None, jc
-            assert essence({"jobs": [ja]}) == essence({"jobs": [dict(ja, log_mtime=1)]}), "log の時刻は commit の理由にしない"
         assert job_health("j.nolog", "0", None, [], jroot)["log_failure"] is None
         ok += 1
     print(f"selftest: {ok} PASS")
