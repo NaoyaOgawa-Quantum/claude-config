@@ -9,7 +9,8 @@ auto-load される CLAUDE.md に置くと、 道具ごとに 1 行足す構造�
 
 key の導出 (= 対応表を別に持たない、 convention-design-principles.md#detector-config-must-be-derived):
   1 列目の token のうち ① backtick の中 ② 5 字以上で `-` `_` `.` `/` のどれかを含む (= script / file 名の形) を key に
-  する。 `<id>` 等の placeholder は「/ と空白以外の任意」、 `{a,b}` は選択肢に展開。 key は Bash の command と
+  する。 ② は括弧 (半角・全角) の外だけ = 括弧の中の説明語 (台帳の置き場の repo 名など) は key にしない (実測: repo 名を
+  含むだけの command に行が出た)。 括弧の中でも key にしたい名前は backtick で囲む。 `<id>` 等の placeholder は「/ と空白以外の任意」、 `{a,b}` は選択肢に展開。 key は Bash の command と
   file 系 tool (Edit / Write / MultiEdit / Read / NotebookEdit) の path に対して substring (regex) で当てる。
   1 列目から key が導けない行 (「Remote Control の auth」 等) は、 表の file の HTML comment で足す:
       <!-- constraint-keys
@@ -62,14 +63,31 @@ def token_to_regex(tok: str) -> str:
     return "".join(r"[^/\s]*" if p.startswith("<") else re.escape(p) for p in parts if p)
 
 
+def _paren_depths(head: str) -> list[int]:
+    """各文字位置の括弧の深さ (半角 () と全角 （）)。 backtick の中の括弧は数えない。"""
+    depths, depth, in_tick = [], 0, False
+    for ch in head:
+        if ch == "`":
+            in_tick = not in_tick
+        elif not in_tick and ch in "(（":
+            depth += 1
+        depths.append(depth)
+        if not in_tick and ch in ")）" and depth > 0:
+            depth -= 1
+    return depths
+
+
 def derive_keys(head: str) -> list[str]:
     keys = []
+    depths = _paren_depths(head)
     for m in TOK_RE.finditer(head):
         tok = (m.group(1) or m.group(2) or "").strip()
         if not tok:
             continue
         if m.group(2) and not (len(tok) >= 5 and re.search(r"[-_./]", tok)):
             continue
+        if m.group(2) and depths[m.start()] > 0:
+            continue  # 括弧の中の bare token = 説明語。 key にしたいなら backtick で囲む
         for t in _expand_braces(tok):
             r = token_to_regex(t)
             if r and r not in keys:
@@ -223,16 +241,21 @@ def selftest() -> int:
                        "| todo_ledger (台帳 = `todo/<id>.yaml`、 実体は `lib/{todo_ledger,recorded_ids}.py`) | **loader 経由で読む** |\n"
                        "| Remote Control の auth | **auth_error で断定しない** |\n"
                        "| calendar.sh / calendar-events.py | **add は dry-run** |\n"
+                       "| foo-tool (台帳 = some-repo / other-repo の `data/<id>.yaml`、 旧名 old-name.py) | **台帳は道具で書く** |\n"
+                       "| bar-tool （全角 = third-repo の中） | **全角の括弧も同じ** |\n"
                        "\n後文\n\n<!-- constraint-keys\n- Remote Control の auth :: claude auth status|remote-control\n-->\n",
                        encoding="utf-8")
         rows = load_table(tbl)
-        check(len(rows) == 4, "table: header / 区切りを除く 4 行を読む")
+        check(len(rows) == 6, "table: header / 区切りを除く 6 行を読む")
         k = {r["head"][:12]: r["keys"] for r in rows}
         check(k["drive-xlsx-s"] == ["drive\\-xlsx\\-set\\-cells"], "key: script 名 (- を含む bare token)")
         check(any("todo/[^/\\s]*\\.yaml" == x for x in k["todo_ledger "]), "key: `<id>` placeholder → [^/\\s]*")
         check("lib/todo_ledger\\.py" in k["todo_ledger "] and "lib/recorded_ids\\.py" in k["todo_ledger "], "key: {a,b} を展開")
         check(k["Remote Contr"] == ["claude auth status|remote-control"], "key: 導けない行は overlay から")
         check(k["calendar.sh "] == ["calendar\\.sh", "calendar\\-events\\.py"], "key: `.sh` / `.py` の 2 つ")
+        check(k["foo-tool (台帳"] == ["foo\\-tool", "data/[^/\\s]*\\.yaml"], "key: 括弧の中は backtick だけ (bare の repo 名・旧名は key にしない)")
+        check(k["bar-tool （全角"] == ["bar\\-tool"], "key: 全角の括弧の中の bare token も key にしない")
+        check(not match_rows(rows, "grep -rn foo some-repo/notes.md"), "match: 括弧の中の説明語 (repo 名) だけを含む command には出ない")
         hits = match_rows(rows, "python3 scripts/drive-xlsx-set-cells.py --inspect x.xlsx")
         check([r["head"][:5] for r in hits] == ["drive"], "match: Bash command に script 名")
         hits = match_rows(rows, "repo/todo/2026-10-01-foo.yaml")
@@ -277,7 +300,7 @@ def selftest() -> int:
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--probe", "calendar.sh add"], capture_output=True, text=True)
         check(r.returncode == 0 and "calendar.sh" in r.stdout, "--probe: 出る行を表示")
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--check"], capture_output=True, text=True)
-        check(r.returncode == 0 and "4 行" in r.stdout, "--check: 全行に key があれば rc 0")
+        check(r.returncode == 0 and "6 行" in r.stdout, "--check: 全行に key があれば rc 0")
         tbl.write_text(tbl.read_text(encoding="utf-8").replace("| Remote Control の auth |", "| 承認の CLI |"), encoding="utf-8")
         r = subprocess.run([sys.executable, __file__, "--table", str(tbl), "--check"], capture_output=True, text=True)
         check(r.returncode == 1 and "key の無い行 = 1" in r.stdout, "--check: key の無い行があれば rc 1 + 行を列挙")
