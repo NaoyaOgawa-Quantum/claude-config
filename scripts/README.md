@@ -211,6 +211,7 @@
 - **[office-stage-run.sh](office-stage-run.sh)** — 任意の Office 駆動 command を事前 grant 済み staging dir 経由で 1 回走らせる (入力を stage → `{}` を staged path に置換して実行 → 成功時に書き戻し、 office-automation.md#office-pregranted-staging-dir)
 - **[office-stage-run.test.sh](office-stage-run.test.sh)** — office-stage-run.sh の hermetic test (Office は起こさない: CLAUDE_OFFICE_STAGING_DIR で root を tmp に向け、 command は sh)
 - **[overlay-seal-pdf.py](overlay-seal-pdf.py)** — Overlay a seal / signature image onto a generated PDF — keeping its color.
+- **[overleaf-push-file.sh](overleaf-push-file.sh)** — GitHub 側で commit 済みの file を、 指定した分だけ Overleaf に載せる。
 - **[pack-pii-dirs.sh](pack-pii-dirs.sh)** — 個人情報が file 名に出る dir を、1 個の暗号化 tar に畳む (汎用)。
 - **[pdf-cleaner.html](pdf-cleaner.html)** — clipboard-cleaner.py のブラウザ版 fallback（非 macOS / pbcopy なし環境用、整形ロジックの正本は clipboard-cleaner.py で両実装を同期）
 - **[pdf-grayscale-copy.py](pdf-grayscale-copy.py)** — PDF の頁を「複写機で写したもの」 相当の白黒の写しにする (raster・圧縮・紙専用の印を引き継ぐ)。
