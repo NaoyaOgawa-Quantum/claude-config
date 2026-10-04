@@ -27,6 +27,7 @@ public-safe / stdlib only。 path は呼び手 (利用者の shim) が渡す。
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -66,11 +67,32 @@ def compact(cell: str) -> str:
     return " ".join(keep)
 
 
-def render(header: str, sep: str, rows: list[list[str]], name: str, src_name: str) -> str:
+LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
+
+
+def relink(cell: str, src_dir: Path, dst_dir: Path) -> str:
+    """源の file から見た相対 link を、 target の file から見た相対 link に付け替える (源と target の dir が違うとき)。
+    http(s) / mailto / `#anchor` だけ / 絶対 path はそのまま。 `path#anchor` の anchor は残す。"""
+    if src_dir.resolve() == dst_dir.resolve():
+        return cell
+
+    def fix(m):
+        tgt = m.group(1)
+        if re.match(r"^(?:[a-z]+:|#|/|~)", tgt):
+            return m.group(0)
+        path, _, anchor = tgt.partition("#")
+        rel = os.path.relpath(os.path.normpath(src_dir / path), dst_dir).replace(os.sep, "/")
+        return f"]({rel}{'#' + anchor if anchor else ''})"
+
+    return LINK_RE.sub(fix, cell)
+
+
+def render(header: str, sep: str, rows: list[list[str]], name: str, src: Path, target: Path) -> str:
     begin = (f"<!-- AUTO-TABLE:{name} BEGIN (generate-trigger-table.py --write が生成 — 手編集禁止、 同期検査 = --check、"
-             f" 源 = {src_name} 〔全文〕。 表示 = 3 列目の 1 文目 〔trigger〕 + ⚠️ の文だけ、 要約・経緯は源) -->")
+             f" 源 = {src.name} 〔全文〕。 表示 = 3 列目の 1 文目 〔trigger〕 + ⚠️ の文だけ、 要約・経緯は源) -->")
     end = f"<!-- AUTO-TABLE:{name} END -->"
-    body = "\n".join(f"| {a} | {b} | {compact(c)} |" for a, b, c in rows)
+    sd, dd = src.parent, target.parent
+    body = "\n".join(f"| {relink(a, sd, dd)} | {relink(b, sd, dd)} | {relink(compact(c), sd, dd)} |" for a, b, c in rows)
     return f"{begin}\n{header}\n{sep}\n{body}\n{end}"
 
 
@@ -84,7 +106,7 @@ def splice(target_text: str, name: str, block: str) -> str:
 def run(src: Path, target: Path, name: str, write: bool) -> int:
     try:
         header, sep, rows = read_table(src)
-        block = render(header, sep, rows, name, src.name)
+        block = render(header, sep, rows, name, src, target)
         old = target.read_text(encoding="utf-8")
         new = splice(old, name, block)
     except SystemExit as e:
@@ -155,6 +177,19 @@ def selftest() -> int:
         r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
                            capture_output=True, text=True)
         check(r.returncode == 2 and "marker が無い" in r.stdout, "target に marker が無い = exit 2")
+        # 源が sub dir のとき、 生成した表の相対 link は target の dir から見た形に付け替える (anchor は残す、 http / # だけ はそのまま)
+        sub = tmp / "conventions"
+        sub.mkdir()
+        src2 = sub / "src.md"
+        src2.write_text("| 規約 | ファイル | 適用タイミング |\n|---|---|---|\n"
+                        "| A | [`a.md`](../a.md#x) | **読む** [b](../../other/b.md) [h](https://e.invalid/p) [i](#only)。 要約 |\n", encoding="utf-8")
+        tgt.write_text("<!-- AUTO-TABLE:rr BEGIN -->\n<!-- AUTO-TABLE:rr END -->\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src2), "--target", str(tgt), "--name", "rr", "--write"],
+                           capture_output=True, text=True)
+        t = tgt.read_text(encoding="utf-8")
+        check(r.returncode == 0 and "[`a.md`](a.md#x)" in t and "[b](../other/b.md)" in t and "(https://e.invalid/p)" in t and "(#only)" in t,
+              "源が sub dir: 相対 link を target の dir から見た形に (anchor 保持、 http / #only は不変)")
+        check(relink("x [a](a.md)", Path("/r/c"), Path("/r/c")) == "x [a](a.md)", "relink: 同じ dir なら不変")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("selftest:", "ALL PASS" if ok else "FAIL")
