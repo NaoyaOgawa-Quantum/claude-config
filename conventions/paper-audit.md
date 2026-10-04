@@ -182,6 +182,8 @@ plan + yaml + TodoWrite の 3 階層併用。 plan = ロードマップ、 yaml 
 
 **Prior check**: 帰結が、 長く使われてきた近似や標準の公式を「現実の parameter で破綻する」 と言うなら、 それは発見か前提の誤りのどちらかで、 事前確率は後者に傾く。 headline に上げる前に、 帰結を支える前提の 1 文を独立に検算する (前提だけを渡す導出の盲検 = [`cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md))。 前提の文の出所と著者の確認状況は [`actor-attribution.md#premise-provenance`](actor-attribution.md#premise-provenance) の手順で引く。
 
+**有限の定数と冪の係数も収支の対象**: 「処方に依らない」「予言」「裸の項で動かせない」 と書く量が、 発散と同じ次数の有限の局所項か冪の発散の係数であるときは、 書く前に [`scientific-computing.md#symmetry-of-prescription-finite-part`](scientific-computing.md#symmetry-of-prescription-finite-part) の 3 つを通す (有限部での Ward 恒等式の検査、 対称性を保つ別の regulator での再計算、 既知の極限との照合)。 同じ類の処方どうしの検算の一致は根拠にしない (実測)。
+
 **境界**: これは主張を立てる側の検査。 他の agent や査読から原稿の主張に不利な finding を受けたとき、 その finding が効く regime と原稿がそこに居るかを査定するのは受ける側の規則で、 入口は [`manuscript-claim-ownership.md`](manuscript-claim-ownership.md)。 両者は「確立した結果を覆す含意なら前提を先に疑う」 で同じ向きを向く。 隣接: [#headline-claim-budget-check](#headline-claim-budget-check) (中心主張を形式に依らない収支で検算) / [#threshold-is-not-regime-onset](#threshold-is-not-regime-onset) (閾値は反対 regime の始点ではない)。
 
 ## <a id="figure-irreproducible-taxonomy"></a>図が本文の式から再現できない時の 4 分類 (2026-08)
