@@ -1,0 +1,223 @@
+--- a/scripts/manuscript-claim-guard.py
++++ b/scripts/manuscript-claim-guard.py
+@@ -25,6 +25,9 @@
+      上書き・A が \\input 系で読んでいた子原稿を B が読まなくなる移動 (move_keeps_inputs)・読み込みで原稿に入っていた A
+      の移動先 B が commit の後の読み込みに無い移動 (親の \\input を直していない。 apply_patch では abstract の無い file の
+      移動を組まない)・権限の lock (authority:*) は従来どおり path ごと。
++     commit の前 (HEAD) と後で原稿の読み込みの到達範囲が変わる file (reach_changes): 読み込みから外れる file (保護領域の
++     外の \\input の行を消す・コメントにする・向け直す commit。 commit の後も在る file) は HEAD の全領域の delete、 読み込みに
++     入る既存の file (abstract の無いもの) は全領域の add。 外れた子原稿が次の commit から範囲の外になる 2 段の経路を塞ぐ。
+   2. agent の権限規約 (一般述語は agent-rule-guard.py が所有。marker 無しの指示文書・制御設定と repo の追加宣言も含む):
+        authority:<id>    自分の行に置いた `agent-authority:begin id=<id>` 〜 `agent-authority:end id=<id>` の間
+        authority:file    自分の行に `agent-authority:file` を置いた file の全体 (本 file 自身を含む)
+@@ -607,9 +610,11 @@
+     _BLOB_CACHE.clear()
+     _GIT_MODE_CACHE.clear()
+     _REACH_CACHE.clear()
++    _TEX_TEXT_CACHE.clear()
+ 
+ 
+ _INPUT_CACHE: dict[tuple[str, str], set[str]] = {}
++_TEX_TEXT_CACHE: dict[tuple[str, str], dict[str, str]] = {}
+ 
+ 
+ def input_graph(repo: Path, revision: str = "worktree") -> set[str]:
+@@ -617,10 +622,20 @@
+     key = (str(repo), revision)
+     if key in _INPUT_CACHE:
+         return _INPUT_CACHE[key]
++    _INPUT_CACHE[key] = tex_reach(tex_texts(repo, revision))
++    return _INPUT_CACHE[key]
++
++
++def tex_texts(repo: Path, revision: str = "worktree") -> dict[str, str]:
++    """版 (worktree / index / HEAD) の .tex の中身 {repo 相対 path: 中身}。 worktree = index に在る path の作業ツリーの中身。"""
++    key = (str(repo), revision)
++    if key in _TEX_TEXT_CACHE:
++        return _TEX_TEXT_CACHE[key]
+     head_ref(repo, refresh=True)
+     if revision == "HEAD":
+         if not has_head(repo):
+-            return set()
++            _TEX_TEXT_CACHE[key] = {}
++            return _TEX_TEXT_CACHE[key]
+         r = checked_git(repo, "ls-tree", "-r", "--name-only", "-z", "HEAD")
+     else:
+         r = checked_git(repo, "ls-files", "-z", "--", "*.tex")
+@@ -639,6 +654,12 @@
+             texts[f] = (repo / f).read_text(encoding="utf-8", errors="replace")
+         except OSError:
+             continue
++    _TEX_TEXT_CACHE[key] = texts
++    return texts
++
++
++def tex_reach(texts: dict[str, str]) -> set[str]:
++    """.tex の中身 {path: 中身} のうち、 abstract を持つ .tex から \\input 等で辿れる path の集合 (起点を含む)。"""
+     roots = [f for f, t in texts.items() if "\\begin{abstract}" in strip_tex_comments(t)]
+     seen: set[str] = set()
+     stack = list(roots)
+@@ -648,7 +669,6 @@
+             continue
+         seen.add(f)
+         stack.extend(c for c in input_children(f, texts.get(f, ""), texts) if c not in seen)
+-    _INPUT_CACHE[key] = seen
+     return seen
+ 
+ 
+@@ -1358,6 +1378,63 @@
+     動かして読み込みを切ると、 子原稿は次の commit から範囲の外になる = 移動の扱いでその 2 段の経路を新しく開けない。"""
+     kept = set(input_children(dst, after, after_tex))
+     return all(moved.get(k, k) in kept for k in input_children(src, before, before_tex))
++
++
++def commit_tex_texts(repo: Path, mode: str, rels: dict[str, str]) -> dict[str, str]:
++    """commit の後の .tex の中身 {path: 中身}。 mode が index なら index、 作業ツリーを含む commit (-a / -- <path> /
++    同じ command の git add) は index の版に、 commit に入る path だけ作業ツリーの版を重ねる。"""
++    texts = dict(tex_texts(repo, "index"))
++    if mode == "index":
++        return texts
++    for rel, src in rels.items():
++        if src != "worktree" or not rel.endswith(".tex"):
++            continue
++        path = repo / rel
++        if not path.is_file():
++            texts.pop(rel, None)
++            continue
++        t = read_text(path)
++        if t is None:
++            raise InspectionError("file-unreadable", rel, "worktree")
++        texts[rel] = t
++    return texts
++
++
++def reach_changes(repo: Path, mode: str, rels: dict[str, str], configs: list[dict]) -> dict[str, list[dict]]:
++    """読み込みの到達範囲 (tex_reach) が commit の前 (HEAD) と後で変わる file の、 原稿の保護領域の変更 {path: finding}。
++      - 外れる file (HEAD で読み込みに入り、 commit の後も在るのに読み込みに無い) = その file の HEAD の全領域の delete。
++        保護領域の外の \\input の行を消す・コメントにする・別の file に向け直す・親を読み込み先の解決できない場所へ動かす
++        commit。 止めないと、 次の commit から子原稿は範囲の外になり、 その中の主張を承認なしに書き換えられる (2 段の経路)
++      - 入る file (HEAD に在って読み込みに無く、 commit の後に読み込みに入る、 abstract の無い file) = commit の後の全領域の
++        add。 原稿に入っていなかった file の主張を \\input 1 行で原稿に足す経路 (移動の扱いの「新たに保護される領域」 と同じ)
++    commit で消える file・現れる file は対象外 (削除・追加・移動は path ごとの比較と moved_changes が持つ)。 範囲を設定の
++    include で決める repo (読み込みに依らない)・disabled・exclude の file は見ない。"""
++    if all(cfg.get("disabled") is True or cfg.get("include") for cfg in configs):
++        return {}  # 範囲が読み込みに依らない = 版の .tex を読みに行かない (git の呼び出しを増やさない)
++    before_t = tex_texts(repo, "HEAD")
++    after_t = commit_tex_texts(repo, mode, rels)
++    before, after = tex_reach(before_t), tex_reach(after_t)
++    detached = sorted(p for p in before - after if p in after_t)
++    attached = sorted(p for p in after - before
++                      if p in before_t and "\\begin{abstract}" not in strip_tex_comments(after_t[p]))
++    out: dict[str, list[dict]] = {}
++    seen: set[tuple[str, str, str, str]] = set()
++    for cfg in configs:
++        if cfg.get("disabled") is True or cfg.get("include"):
++            continue
++        excluded = cfg.get("exclude", []) or []
++        for p, old, new, note in ([(p, before_t[p], "", "原稿の読み込みから外れる") for p in detached]
++                                  + [(p, "", after_t[p], "原稿の読み込みに入る") for p in attached]):
++            if any(fnmatch.fnmatch(p, g) for g in excluded):
++                continue
++            # 範囲の判定は到達範囲の差で済んでいる = 版の組み合わせ (index と作業ツリー) に依らず、 その file だけを範囲に入れて比べる
++            for c in manuscript_region_changes(p, old, new, repo, {**cfg, "include": [glob.escape(p)]}):
++                key = (p, c["region"], c["kind"], c["detail"])
++                if key not in seen:
++                    seen.add(key)
++                    out.setdefault(p, []).append(
++                        {**c, "detail": f"{c['detail']} ({note})" if c["detail"] else note})
++    return out
+ 
+ 
+ def covers(selector: str, change: dict) -> bool:
+@@ -2683,6 +2760,14 @@
+         per_rel[src_rel] = [c for c in per_rel[src_rel] if not manuscript_finding(c)]
+         per_rel[dst_rel] = (moved_changes(src_rel, dst_rel, gone[src_rel], came[dst_rel], repo, configs)
+                             + [c for c in per_rel[dst_rel] if not manuscript_finding(c)])
++    # 読み込みの到達範囲が変わる commit (子原稿を親の読み込みから外す / 既存の file を読み込みに入れる): 外れる・入る file の
++    # 原稿の finding を、 その file の全領域の delete / add に置き換える (commit の差分に無い file も出す)。 .tex を含まない
++    # commit は読み込みの辺を変えないので見ない
++    if any(rel.endswith(".tex") for rel in wanted):
++        for rel, rows in reach_changes(repo, mode, rels, configs).items():
++            per_rel[rel] = [c for c in per_rel.get(rel, []) if not manuscript_finding(c)] + rows
++            if rel not in wanted:
++                wanted.append(rel)
+     return [c for rel in wanted for c in per_rel.get(rel, [])]
+ 
+ 
+@@ -5621,7 +5706,76 @@
+               ("book/ch/intro.tex", "intro", "delete") in staged() and ("book/ch/intro.tex", "eq:uv", "delete") in staged())
+         mg("add", "book/main.tex")
+         check("子原稿の移動 + 親の \\input の書き換えを同じ commit に: finding なし", staged() == [])
++        restore()
++        # 6c. 子原稿を読み込みから外す commit (保護領域の外の \input の行を消す・コメントにする・別の file に向け直す) は、
++        #     外れた子原稿の領域の delete で止める (次の commit から子原稿が範囲の外になる 2 段の経路を塞ぐ)
++        detach_rows = [("book/ch/intro.tex", "eq:uv", "delete"), ("book/ch/intro.tex", "intro", "delete")]
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}\n", ""), encoding="utf-8")
++        mg("add", "book/main.tex")
++        check("読み込みから外す: \\input の行を消す commit は子原稿の領域の delete を出す", staged() == detach_rows)
++        (mv / CONFIG_REL).parent.mkdir(parents=True, exist_ok=True)
++        (mv / CONFIG_REL).write_text(json.dumps({"include": ["book/*.tex"]}), encoding="utf-8")
++        mg("add", CONFIG_REL)
++        mg("commit", "-qm", "glob scope")
++        reset_caches()
++        check("範囲を設定の include で決める repo は読み込みの差を見ない (子原稿は glob で範囲に残る)", staged() == [])
++        mg("reset", "-q", "--soft", "HEAD~1")
++        mg("rm", "-q", "--cached", CONFIG_REL)
++        (mv / CONFIG_REL).unlink()
++        reset_caches()
++        check("読み込みから外す: 設定を外した後は同じ commit を止める (fixture の前提の確認)", staged() == detach_rows)
++        r = precommit()
++        check("読み込みから外す: 未承認の pre-commit は exit 1 で子原稿の領域を名指す",
++              r.returncode == 1 and "book/ch/intro.tex" in r.stderr and "intro (delete)" in r.stderr)
++        mv_appr = approvals_path("claude", "mv-sess")
++        mv_appr.parent.mkdir(parents=True, exist_ok=True)
++        mv_appr.write_text(json.dumps({"repo": str(mv), "file": "book/ch/intro.tex", "regions": ["intro", "math"]}) + "\n",
++                           encoding="utf-8")
++        check("読み込みから外す: 子原稿の path で記録した承認があれば pre-commit は通す", precommit().returncode == 0)
++        mv_appr.unlink()
++        check("読み込みから外す: git commit -a の経路 (作業ツリー) も同じ", staged("all") == detach_rows)
++        restore()
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}", "% \\input{ch/intro}"), encoding="utf-8")
++        only_parent = commit_targets(f"git -C {mv} commit -m x -- book/main.tex", mv)
++        check("読み込みから外す: \\input をコメントにして親だけを git commit -- で出しても同じ",
++              sorted((c["file"], c["region"], c["kind"]) for rp, mode_, ps in only_parent
++                     for c in changes_for_repo(rp, mode_, ps)) == detach_rows)
+         restore()
++        # 向け直し: 旧い子原稿を残す複製に向ける = 旧い子原稿の delete + 新しい file の add (複製と同じ扱い)
++        (mv / "book/ch/opening.tex").write_text((mv / "book/ch/intro.tex").read_text(encoding="utf-8"), encoding="utf-8")
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}", "\\input{ch/opening}"), encoding="utf-8")
++        mg("add", "-A")
++        rows = staged()
++        check("向け直し (旧い子原稿を残す複製へ): 旧い子原稿の delete と新しい file の add の両方",
++              all(r_ in rows for r_ in detach_rows) and ("book/ch/opening.tex", "intro", "add") in rows)
++        restore()
++        # 読み込みに入れる: 原稿に入っていなかった既存の file を \input で読ませる = その file の領域の add
++        (mv / "drafts").mkdir()
++        (mv / "drafts/extra.tex").write_text("Side remark.\n\\begin{equation}s = t\\label{eq:st}\\end{equation}\n",
++                                             encoding="utf-8")
++        mg("add", "-A")
++        mg("commit", "-qm", "draft")
++        reset_caches()
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}\n", "\\input{ch/intro}\n\\input{drafts/extra}\n"),
++                                          encoding="utf-8")
++        mg("add", "book/main.tex")
++        check("読み込みに入れる: 原稿に入っていなかった既存の file の領域の add", staged() == [("drafts/extra.tex", "eq:st", "add")])
++        restore()
++        # 外しても別の原稿が読み続ける子原稿 / 保護領域を持たない子原稿は止めない
++        (mv / "atlas").mkdir()
++        (mv / "atlas/main.tex").write_text(paper.replace("\\section{Setup}\n", "\\input{book/ch/intro}\n\\section{Setup}\n"),
++                                           encoding="utf-8")
++        (mv / "book/ch/plain.tex").write_text("Only body text here.\n", encoding="utf-8")
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}\n", "\\input{ch/intro}\n\\input{ch/plain}\n"),
++                                          encoding="utf-8")
++        mg("add", "-A")
++        mg("commit", "-qm", "atlas")
++        reset_caches()
++        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}\n", ""), encoding="utf-8")
++        mg("add", "book/main.tex")
++        check("外しても別の原稿が読み続ける子原稿と、 保護領域を持たない子原稿は止めない", staged() == [])
++        mg("reset", "-q", "--hard", "HEAD~2")  # atlas と draft の commit を外す (後の検査の前提を変えない)
++        restore()
+         # 7. 権限の lock の付いた原稿の移動: 原稿の領域は組むが、 authority の finding は path ごとのまま
+         (mv / "src/locked.tex").write_text("% agent-authority:file\n" + paper, encoding="utf-8")
+         mg("add", "-A")
