@@ -49,9 +49,22 @@ coverage check (--expect-account、 repeatable):
   server / 無人 job は名前と違う account で動き続け、 他の検査は黙る)。 account 名が email の local part
   でない命名なら `--expect-account <acct>=<email>` で対応を明示する。
 
+予定の run が log に残っていない (--routine-ledger、 job health の claude_p / gated / schedule / log_mtime):
+  本番ホスト (routine-host-gate.py の台帳の host) で、 headless `claude -p` を起動する job の最後の予定の時刻から
+  MISSED_GRACE_H 時間たっても log が更新されていなければ出す (1 本 = 🟠、 2 本以上 = 🔴 = 無人の仕事がまとめて止まっている)。
+  起動しなかった run と、 終わらずに止まっている run (claude -p は終わる時にしか log を書かない) は、 終了コード
+  (= 前回の run のまま) にも log 末尾にも出ない (conventions/scheduled-tasks.md#missed-run-detection、 判定 =
+  lib/launchd_job_log.py の missed_fire)。
+  - 関門つきの job は本番ホストの分だけ、 台帳の since (本番になった時刻) より後の予定だけを見る
+    (本番でない機械では log を書かずに休むのが仕様)。 関門なしの job は always-on の機械の分だけ見る
+  - beat の時刻の状態で判定する (= commit の間引きで beat が古くても、 その時点の log と予定を比べる)
+  - 旧 writer の beat (claude_p / schedule 欄なし) は、 この機械の同じ label の plist の予定で読む
+  - 台帳の host は --role に無ければ always-on とみなす (= 本番ホストの heartbeat の停止も 🔴)
+  - 自分の機械の分も出す (check-cron-health は予定を見ない)
+
 usage:
   check-fleet-status.py --dir <fleet-status-dir> [--role HOST=always-on ...]
-      [--stale-hours 6] [--expect-account <acct> ...]
+      [--stale-hours 6] [--expect-account <acct> ...] [--routine-ledger <active-routine-host.json>]
   check-fleet-status.py --selftest
 
 ⚠️ 読むのは git working tree = 「最後に pull した時点の他マシン状態」。 呼び出し側の
@@ -69,6 +82,10 @@ try:
     from launchd_job_log import HIDDEN_FAIL_DAYS as _HFD   # 書き手 (fleet-heartbeat) と同じ閾値
 except Exception:
     _HFD = 3
+try:
+    import launchd_job_log as _jl
+except Exception:
+    _jl = None
 _HIDDEN_FAIL_H = _HFD * 24
 _CAUSE = {"auth": "Claude の認証切れ", "ptl": "Prompt is too long (context 超過)"}
 
@@ -165,6 +182,67 @@ def job_findings(host, d, self_host=None):
     return out
 
 
+def _same_host(a, b):
+    n = lambda x: (x or "").lower().split(".")[0]
+    return bool(a) and bool(b) and n(a) == n(b)
+
+
+def load_routine(path):
+    """routine-host-gate.py の台帳から {"host", "since" (epoch か None)}。 読めない = None (= 関門つき job は判定しない)。"""
+    try:
+        d = json.load(open(Path(path).expanduser()))
+    except Exception:
+        return None
+    if not isinstance(d, dict) or not d.get("host"):
+        return None
+    since = None
+    try:
+        import datetime as _dt
+        since = _dt.datetime.fromisoformat(str(d.get("since"))).timestamp() if d.get("since") else None
+    except Exception:
+        since = None
+    return {"host": str(d["host"]), "since": since}
+
+
+def missed_run_findings(host, d, role, routine=None, plist_dir=None):
+    """予定の時刻を過ぎても log が更新されていない claude -p の job (docstring §予定の run)。 1 マシン 1 行。"""
+    epoch = d.get("epoch")
+    if _jl is None or not isinstance(epoch, (int, float)):
+        return []
+    active = bool(routine) and _same_host(host, routine.get("host"))
+    missed = []
+    for j in d.get("jobs") or []:
+        lab = j.get("label", "?")
+        local = None
+        if not all(k in j for k in ("claude_p", "gated", "schedule")) and plist_dir:
+            local = _jl.load_plist(Path(plist_dir).expanduser() / f"{lab}.plist")   # 旧 writer の beat
+        claude_p = j["claude_p"] if "claude_p" in j else (local is not None and _jl.runs_claude_p(local))
+        gated = j["gated"] if "gated" in j else (local is not None and _jl.is_gated(local))
+        sched = j["schedule"] if "schedule" in j else _jl.schedule_of(local)
+        if not claude_p or not sched:
+            continue
+        if (gated and not active) or (not gated and role != "always-on"):
+            continue
+        lm = j.get("log_mtime")
+        if lm is None and isinstance(j.get("log_age_h"), (int, float)):
+            lm = epoch - j["log_age_h"] * 3600
+        fire = _jl.missed_fire(sched, lm, epoch, since=routine.get("since") if gated else None)
+        if fire is not None:
+            missed.append((lab, fire, lm))
+    if not missed:
+        return []
+    fmt = lambda t: time.strftime("%-m/%-d %H:%M", time.localtime(t))
+    items = ", ".join(f"{lab.rsplit('.', 1)[-1]} (予定 {fmt(f)}、 log の最後 {fmt(lm) if lm else 'なし'})"
+                      for lab, f, lm in missed)
+    pre = ".".join(missed[0][0].split(".")[:-1]) if len(missed) > 1 else missed[0][0]
+    mark = "🔴" if len(missed) >= 2 else "🟠"
+    return [f"{mark} {host}: 予定の時刻を {_jl.MISSED_GRACE_H}h 過ぎても log が更新されていない無人 job {len(missed)} 本"
+            f" [beat {fmt(epoch)} 時点] = 起動していないか、 claude -p が終わらずに止まっている (終了コードにも log 末尾にも"
+            f"出ない): {items}。 そのマシンで `launchctl list | grep {pre}` の PID 列と"
+            f" `ps -axo pid,lstart,etime,command | grep 'claude.*-p'` を見る (居座っていれば画面の許可ダイアログか"
+            f" `sample <pid>`、 scheduled-tasks.md#missed-run-detection)"]
+
+
 def auth_findings(host, d, self_host=None):
     """1 マシンの beat の config_dir_auth から finding を作る (writer の判定 = lib/config_dir_auth.py、 問い合わせは
     check-desktop-logout-auth.py の見張り)。 🔴 = 最後の問い合わせが失敗し、 その後ログインし直していない設定フォルダ。
@@ -180,9 +258,13 @@ def auth_findings(host, d, self_host=None):
     return out
 
 
-def scan(dir_, roles, stale_hours, now=None, expect_accounts=None, warn_desktop_tasks=False, self_host=None):
+def scan(dir_, roles, stale_hours, now=None, expect_accounts=None, warn_desktop_tasks=False, self_host=None,
+         routine=None, plist_dir=None):
     now = now or time.time()
     expect_accounts = expect_accounts or []
+    roles = dict(roles)
+    if routine and not any(_same_host(h, routine["host"]) for h in roles):
+        roles[routine["host"]] = "always-on"   # 本番ホストは常時起動 (heartbeat の停止も 🔴)
     findings = []
     seen = set()
     beats = []
@@ -194,7 +276,7 @@ def scan(dir_, roles, stale_hours, now=None, expect_accounts=None, warn_desktop_
             continue
         host = d.get("host", f.stem)
         seen.add(host)
-        role = roles.get(host, "best-effort")
+        role = next((v for h, v in roles.items() if _same_host(h, host)), "best-effort")
         age_h = (now - d.get("epoch", 0)) / 3600
         fresh = age_h <= stale_hours
         # inventory は「持ち物の状態」 で liveness ではないので stale な beat も比較に入れる
@@ -219,6 +301,7 @@ def scan(dir_, roles, stale_hours, now=None, expect_accounts=None, warn_desktop_
             elif s.get("pid") is None:
                 findings.append(f"🟠 {host}: server {s.get('label')} が loaded だが process 無し")
         findings.extend(job_findings(host, d, self_host))
+        findings.extend(missed_run_findings(host, d, role, routine, plist_dir))
         findings.extend(auth_findings(host, d, self_host))
         if role == "always-on" and not d.get("servers"):
             findings.append(f"🟠 {host} (always-on): RC server が 1 本も loaded されていない")
@@ -262,7 +345,7 @@ def scan(dir_, roles, stale_hours, now=None, expect_accounts=None, warn_desktop_
                         f"該当マシンの desktop app で enabled:false 化 (scheduled-tasks.md#registrable-session-types)"
                     )
     for host, role in roles.items():
-        if role == "always-on" and host not in seen:
+        if role == "always-on" and not any(_same_host(host, x) for x in seen):
             findings.append(f"ℹ️ {host} (always-on): heartbeat 未開始 (= そのマシンで fleet-heartbeat の install 待ち)")
     findings.extend(inventory_findings(beats))
     return findings
@@ -434,7 +517,56 @@ def selftest():
         assert auth_findings("host-b", beat_c, self_host="host-b") == [], "自分の分は check-desktop-logout-auth に任せる"
         assert auth_findings("old", {"servers": []}) == [], "旧 beat は黙る"
         ok += 1
-    print(f"selftest: {ok}/19 PASS")
+        # 20: 予定の run が log に残っていない (本番ホストの関門つき claude -p だけ / 1 本 🟠・2 本以上 🔴 / since より前は見ない)
+        import datetime as _dt
+        T = lambda *a: _dt.datetime(*a).timestamp()
+        bt = T(2030, 1, 5, 12, 0)
+        cal = {"cal": [{"Hour": 7, "Minute": 30}]}
+        jm = lambda lab, lm, **kw: dict({"label": lab, "last_exit": 0, "claude_p": True, "gated": True,
+                                         "schedule": cal, "log_mtime": lm}, **kw)
+        beat_m = {"host": "mini", "epoch": bt, "servers": [], "jobs": [
+            jm("p.cron.a", T(2030, 1, 3, 7, 40)),
+            jm("p.cron.b", None),
+            jm("p.cron.ok", T(2030, 1, 5, 7, 50)),
+            jm("p.cron.cmd", None, claude_p=False),
+            jm("p.cron.free", None, gated=False)]}
+        rt = {"host": "Mini.local", "since": T(2030, 1, 2, 16, 0)}
+        fm = missed_run_findings("mini", beat_m, "always-on", rt)
+        assert len(fm) == 1 and fm[0].startswith("🔴 mini:") and "3 本" in fm[0] and "a (予定 1/5 07:30" in fm[0] \
+            and "b (予定 1/5 07:30、 log の最後 なし)" in fm[0] and "launchctl list | grep p.cron`" in fm[0] \
+            and "free" in fm[0] and "ok (予定" not in fm[0] and "cmd" not in fm[0], fm
+        fm1 = missed_run_findings("mini", dict(beat_m, jobs=beat_m["jobs"][:1]), "best-effort", rt)
+        assert len(fm1) == 1 and fm1[0].startswith("🟠 mini:") and "1 本" in fm1[0], fm1
+        assert missed_run_findings("other", dict(beat_m, host="other"), "always-on", rt) \
+            and not any("a (" in x for x in missed_run_findings("other", dict(beat_m, host="other"), "always-on", rt)), \
+            "本番でない機械の関門つき job は見ない (関門なしは always-on なら見る)"
+        assert missed_run_findings("other", dict(beat_m, host="other"), "best-effort", rt) == []
+        assert missed_run_findings("mini", beat_m, "always-on", dict(rt, since=T(2030, 1, 5, 8, 0))) \
+            and "a (" not in missed_run_findings("mini", beat_m, "always-on", dict(rt, since=T(2030, 1, 5, 8, 0)))[0], \
+            "本番になる前の予定は見ない"
+        assert missed_run_findings("mini", beat_m, "always-on", None)[0].count("(予定") == 1, "台帳なし = 関門つきは見ない"
+        # 旧 writer の beat (欄なし) は、 この機械の同じ label の plist の予定で読む / log_age_h から log の時刻
+        import plistlib
+        pdir = d / "LaunchAgents"
+        pdir.mkdir()
+        with open(pdir / "p.cron.old.plist", "wb") as fh:
+            plistlib.dump({"ProgramArguments": ["/bin/sh", "-c", 'python3 "routine-host-gate.py" r l && exec claude -p x'],
+                           "StartCalendarInterval": {"Hour": 7, "Minute": 30}}, fh)
+        old = {"host": "mini", "epoch": bt, "jobs": [{"label": "p.cron.old", "last_exit": 0, "log_age_h": 50.0}]}
+        assert missed_run_findings("mini", old, "always-on", rt, pdir)[0].startswith("🟠 mini:"), "旧 beat は手元の plist で"
+        assert missed_run_findings("mini", dict(old, jobs=[dict(old["jobs"][0], log_age_h=4.0)]), "always-on", rt, pdir) == []
+        assert missed_run_findings("mini", old, "always-on", rt, None) == [], "plist も無ければ黙る"
+        # scan: 台帳の host は always-on 扱い (heartbeat の停止も 🔴) + 予定の行が出る
+        for f_ in d.glob("*.json"):
+            f_.unlink()
+        (d / "mini.json").write_text(json.dumps(dict(beat_m, epoch=now - 600)))
+        fs = scan(d, {}, 6, now, routine=dict(rt, since=None))
+        assert any("無人 job" in x for x in fs), fs
+        (d / "mini.json").write_text(json.dumps(dict(beat_m, epoch=now - 10 * 3600)))
+        assert any("🔴 mini (always-on)" in x for x in scan(d, {}, 6, now, routine=rt)), "本番ホストの停止"
+        assert not any("mini" in x for x in scan(d, {}, 6, now)), "台帳なしは best-effort のまま"
+        ok += 1
+    print(f"selftest: {ok}/20 PASS")
 
 
 def main():
@@ -445,6 +577,8 @@ def main():
     ap.add_argument("--expect-account", action="append", default=[])
     ap.add_argument("--warn-desktop-tasks", action="store_true",
                     help="enabled な desktop scheduled task を 🔴 surface (= 無人ジョブ launchd-only 方針のマシン向け opt-in)")
+    ap.add_argument("--routine-ledger",
+                    help="routine-host-gate.py の台帳 (= 本番ホスト。 予定の run が log に残っているかを見る、 docstring)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -463,8 +597,10 @@ def main():
     try:
         import socket
         me = socket.gethostname().split(".")[0]
+        routine = load_routine(args.routine_ledger) if args.routine_ledger else None
         findings = scan(dir_, roles, args.stale_hours, expect_accounts=args.expect_account,
-                        warn_desktop_tasks=args.warn_desktop_tasks, self_host=me)
+                        warn_desktop_tasks=args.warn_desktop_tasks, self_host=me,
+                        routine=routine, plist_dir=Path.home() / "Library/LaunchAgents")
     except Exception:
         sys.exit(0)
     if findings:

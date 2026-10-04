@@ -242,6 +242,8 @@ heartbeat とは別 layer: job は「生きて」 いて毎日失敗していた
 
 ⚠️ **終了コードだけでは足りない**: plist を読み込み直すと 0 に戻り ([`#reload-resets-exit-status`](#reload-resets-exit-status))、
 しかも原因を言わない ([`#headless-auth-expiry`](#headless-auth-expiry))。 直近の run の log 末尾も読む。
+⚠️ **前回の run のことしか言わない**: 起動しなかった run と終わらない run は、 終了コードにも log 末尾にも出ない =
+予定の時刻と log の更新時刻を比べる ([`#missed-run-detection`](#missed-run-detection))。
 実装 = [`scripts/check-cron-health.py`](../scripts/check-cron-health.py) (そのマシン) と fleet heartbeat の job health
 (他のマシン、 [`multi-machine-state.md#fleet-heartbeat`](multi-machine-state.md#fleet-heartbeat))、 判定は両方とも
 [`scripts/lib/launchd_job_log.py`](../scripts/lib/launchd_job_log.py) の 1 か所。
@@ -258,6 +260,29 @@ plist が書き直された job は exit 0 に戻り、 終了コードだけを
 - 判定の正本 = [`scripts/lib/launchd_job_log.py`](../scripts/lib/launchd_job_log.py) (`hidden_failure`)。
 - **限界**: 既知の文言を出さずに終わる失敗は、 読み込み直しの後は見えない = 各 routine 固有の heartbeat
   (成果物の更新時刻など) が相補する。
+
+## <a id="missed-run-detection"></a>走らなかった run と終わらない run は、 終了コードにも log 末尾にも出ない
+
+`launchctl list` の終了コードは**前回の run** のもので、 log 末尾も前回の run が書いたもの。 予定の時刻に job が
+起動しなかったとき (関門が別の機械を本番と読んだ、 launchd が起こさなかった等) と、 起動した headless `claude -p` が
+終わらずに止まっているとき (画面の許可ダイアログ待ちなど。 `claude -p` は終わる時にしか結果を書かない) は、
+どちらも前回の成功の顔のまま変わらない (実測: 本番ホストを移した後、 複数の routine が日をまたいで log を書かず、
+終了コードも log 末尾も正常のままだった)。
+
+- **検出**: 予定 (plist の `StartCalendarInterval` / `StartInterval`) の最後の時刻から一定時間 (既定 3 時間 = 長い
+  routine の実行時間を見込む) たっても、 log の更新時刻がその予定より古ければ「その run が残っていない」。
+  判定 = [`scripts/lib/launchd_job_log.py`](../scripts/lib/launchd_job_log.py) の `missed_fire`。 fleet heartbeat の
+  job health が予定・log の時刻・`claude -p` か・関門つきかを運び、 reader (`check-fleet-status.py --routine-ledger`) が
+  本番ホストの分を出す (1 本 = 🟠、 2 本以上 = 🔴。 [`multi-machine-state.md#fleet-heartbeat`](multi-machine-state.md#fleet-heartbeat) 原則 7)。
+- **射程**: 毎回 log を書く job = `claude -p` を起動する job だけ。 することが無い日に何も出力しない cmd 型の job は、
+  log が古くても故障とは限らないので見ない (成果物の鮮度の heartbeat が相補する)。
+- 関門つきの job は本番ホストでだけ見る (本番でない機械では log を書かずに休むのが仕様)。 本番になった時刻
+  (台帳の `since`) より前の予定は見ない。 関門なしの job は常時起動の機械でだけ見る (寝る機械は予定の時刻に走らない)。
+- 判定は beat の時刻の状態で行う (= beat の commit が間引かれていても、 その時点の log と予定を比べる)。 遅れは
+  最大で beat の commit の間隔 + 3 時間。
+- **見つけたら**: そのマシンで `launchctl list` の PID 列と `ps` で `claude -p` が居座っていないかを見る。 居座って
+  いれば画面のダイアログ (keychain の許可など) か `sample <pid>` を見てから止める。 居なければ起動していない側 =
+  関門の判定と `launchctl print gui/<uid>/<label>` の runs / last exit code を見る。
 
 ## <a id="headless-auth-expiry"></a>無人 routine の config dir の認証切れ (= 全 routine が起動直後に同じ文言で終わる)
 
