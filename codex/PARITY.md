@@ -115,8 +115,10 @@ is not evidence of a usable handoff. Hooks remain supplementary: the global
 instruction applies to shell edits and clean commits too.
 
 Use the installer to refresh a managed personal composite after changing the
-public entry point; updating the source alone does not refresh an already
-rendered composite. The local audit verifies installation, not that another
+public entry point, and after editing the personal overlay on the machine where
+it was edited (that machine performs no pull, so the post-merge refresh never
+runs there); updating the source alone does not refresh an already rendered
+composite. The local audit verifies installation, not that another
 running session has reread instructions or that a client delivered a hook.
 
 ### <a id="completion-git-gate-hook"></a>Completion Git gate and Stop forcing function
