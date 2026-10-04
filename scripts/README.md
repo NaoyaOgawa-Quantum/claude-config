@@ -114,6 +114,7 @@
 - **[commit-hunk-anchors.py](commit-hunk-anchors.py)** — Where did each hunk of a commit land? file, new-side line and the nearest section anchor (Markdown <a id>) or Python def/class, without printing any changed text, so a cleanup or leak ledger can cite locations only; --selftest
 - **[commit-msg-leak-guard-runner.sh](commit-msg-leak-guard-runner.sh)** — git commit-msg hook（BLOCK mode）: 全 repo = 学生の識別子 (2026-09-29) / 公開 repo = leak 検出 (2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
 - **[commit-msg-leak-guard-runner.test.sh](commit-msg-leak-guard-runner.test.sh)** — 上記 runner の self-test（15 case、 BLOCK / PASS / merge skip 等）
+- **[constraint-at-use.py](constraint-at-use.py)** — 制約表 (markdown table) の行を、 その道具・file を使う瞬間の PreToolUse hook で session に 1 回だけ出す (auto-load 面から降ろした制約の point-of-use 配達)
 - **[count-malformed-tool-call-events.py](count-malformed-tool-call-events.py)** — local transcript から malformed-tool-call bug の genuine event を集計（synthetic 文言の user entry のみ = doc/議論 echo を除外〔naive substring は 19x overcount〕、 month×model×client-version 内訳 + model 別 rate、 upstream issue への occurrence 報告用 data point 生成、 read-only、 --selftest 内蔵、 conventions/tool-call-robustness.md#root-cause）
 - **[decode-qr.py](decode-qr.py)** — Decode QR payloads from screenshots without opening them.
 - **[dependabot-ecosystems.py](dependabot-ecosystems.py)** — dependabot.yml の ecosystem を repo の実体に合わせる（manifest の無い / git-crypt で暗号化された npm・pip・github-actions の entry を検出、 --apply で contents API 経由で削る (全部消えるなら file ごと削除)、 manifest があるのに未設定は ℹ️、 --render で配置時に template から選ぶ、 --selftest。 conventions/github-security-automation.md#dependabot-ecosystem-must-exist）
@@ -146,6 +147,7 @@
 - **[generate-dir-readme.py](generate-dir-readme.py)** — 任意の dir の README.md を、 各 file 冒頭の説明 1 行目から生成する (README に正本を置かないための索引生成器)
 - **[generate-doc-index.py](generate-doc-index.py)** — regenerate a slug index FROM its markdown, so Claude writes
 - **[generate-tree.py](generate-tree.py)** — CLAUDE.md 構造 tree (conventions/hooks/scripts) + CONVENTIONS.md 冒頭列挙 +
+- **[generate-trigger-table.py](generate-trigger-table.py)** — 全文の markdown table (源) から、 auto-load 面に置く「trigger + ⚠️ だけ」 の表を marker の間に生成する (--write / --check / --selftest)
 - **[git-commit-own-hunk.mutants.json](git-commit-own-hunk.mutants.json)** — git-commit-own-hunk.py の selftest の foil に歯があることを、 修正の一部を外した mutant 5 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[git-commit-own-hunk.py](git-commit-own-hunk.py)** — 同じ file に別の session の未 commit の変更が居る時に、 自分の変更だけを commit する (一時 index。 作業 tree の相手の変更は触らない)。
 - **[git-drop-path-history.py](git-drop-path-history.py)** — ある file の全版を git の履歴から落とす (不可逆) を、 予行演習・本番・他 machine の追従の 3 段で安全に行う。

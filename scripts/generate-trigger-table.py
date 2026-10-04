@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""generate-trigger-table.py — 全文の markdown table (源) から、 auto-load 面に置く「trigger + ⚠️ だけ」 の表を marker の間に生成する (--write / --check / --selftest)
+
+層1 engine (2026-10-04)。 「いつ何を読むか」 の routing table (1 列目 = 規約の名、 2 列目 = file の link、
+3 列目 = 適用タイミング + 要約 + ⚠️) は、 毎 session auto-load される CLAUDE.md に置くと 3 列目に要約と経緯が
+溜まって育つ (実測 62 行 32 KB、 うち 3 列目 26 KB)。 memory-file-slimming.md の「routing table は trigger 列こそが
+routing 機能、 digest は drift する複製」 を**生成契約**にする: 源の表は auto-load されない file に全文で置き、
+CLAUDE.md には marker の間に **1 列目 / 2 列目 / 3 列目の 1 文目 (= trigger) + ⚠️ を含む文** だけを機械で写す。
+要約・経緯の文は源にだけ在る (= 行を足す人が何を書いても auto-load 面には trigger と ⚠️ しか出ない)。
+
+3 列目の縮め方 (決定的・機械的、 文は 1 字も変えない):
+  「。」 の直後の空白で文に分け、 1 文目と ⚠️ を含む文を元の順で残す。 「。」 の無い cell はそのまま。
+  ⚠️ を残すのは、 表の ⚠️ が「読む前に知っておく行動制約」 として置かれたものだから (経緯は ⚠️ を含まない)。
+
+marker (target の中、 手編集禁止):
+  <!-- AUTO-TABLE:<name> BEGIN ... -->
+  …生成した表…
+  <!-- AUTO-TABLE:<name> END -->
+
+usage:
+  generate-trigger-table.py --source SRC.md --target TARGET.md --name NAME --write   # 再生成 (in place)
+  generate-trigger-table.py --source SRC.md --target TARGET.md --name NAME --check   # 比較、 drift = exit 1、 源の不備 = exit 2
+  generate-trigger-table.py --selftest
+
+源の表 = SRC の最初の markdown table (header 行 + 区切り + 行)。 3 列未満の行は exit 2 で止める。
+public-safe / stdlib only。 path は呼び手 (利用者の shim) が渡す。
+"""
+from __future__ import annotations
+
+import re
+import sys
+from pathlib import Path
+
+SENT_SPLIT = re.compile(r"(?<=。)\s+")
+
+
+def read_table(src: Path) -> tuple[str, str, list[list[str]]]:
+    """(header 行, 区切り行, [cells]) を返す。 行は ' | ' で分け、 3 列目以降は 1 つに戻す。"""
+    header = sep = None
+    rows = []
+    for line in src.read_text(encoding="utf-8").split("\n"):
+        if not line.startswith("|"):
+            if header is not None and rows:
+                break
+            continue
+        if re.match(r"^\|[-\s|:]+\|?\s*$", line):
+            sep = line
+            continue
+        if header is None:
+            header = line
+            continue
+        if sep is None:
+            raise SystemExit(f"源の表に区切り行が無い: {src}")
+        cells = [c.strip() for c in line.strip().strip("|").split(" | ")]
+        if len(cells) < 3:
+            raise SystemExit(f"源の表に 3 列未満の行: {line[:60]!r}")
+        rows.append([cells[0], cells[1], " | ".join(cells[2:])])
+    if header is None or sep is None:
+        raise SystemExit(f"源に markdown table が無い: {src}")
+    return header, sep, rows
+
+
+def compact(cell: str) -> str:
+    parts = SENT_SPLIT.split(cell.strip())
+    keep = [p for i, p in enumerate(parts) if i == 0 or "⚠️" in p]
+    return " ".join(keep)
+
+
+def render(header: str, sep: str, rows: list[list[str]], name: str, src_name: str) -> str:
+    begin = (f"<!-- AUTO-TABLE:{name} BEGIN (generate-trigger-table.py --write が生成 — 手編集禁止、 同期検査 = --check、"
+             f" 源 = {src_name} 〔全文〕。 表示 = 3 列目の 1 文目 〔trigger〕 + ⚠️ の文だけ、 要約・経緯は源) -->")
+    end = f"<!-- AUTO-TABLE:{name} END -->"
+    body = "\n".join(f"| {a} | {b} | {compact(c)} |" for a, b, c in rows)
+    return f"{begin}\n{header}\n{sep}\n{body}\n{end}"
+
+
+def splice(target_text: str, name: str, block: str) -> str:
+    pat = re.compile(rf"<!-- AUTO-TABLE:{re.escape(name)} BEGIN.*?<!-- AUTO-TABLE:{re.escape(name)} END -->", re.S)
+    if not pat.search(target_text):
+        raise SystemExit(f"target に AUTO-TABLE:{name} の marker が無い")
+    return pat.sub(lambda _m: block, target_text, count=1)
+
+
+def run(src: Path, target: Path, name: str, write: bool) -> int:
+    try:
+        header, sep, rows = read_table(src)
+        block = render(header, sep, rows, name, src.name)
+        old = target.read_text(encoding="utf-8")
+        new = splice(old, name, block)
+    except SystemExit as e:
+        print(f"❌ {e}")
+        return 2
+    if new == old:
+        print(f"✅ {target.name} AUTO-TABLE:{name}: in sync ({len(rows)} 行、 {len(block.encode('utf-8'))} B)")
+        return 0
+    if write:
+        target.write_text(new, encoding="utf-8")
+        print(f"📝 {target.name} AUTO-TABLE:{name}: regenerated ({len(rows)} 行、 {len(block.encode('utf-8'))} B、"
+              f" file {len(old.encode('utf-8'))} → {len(new.encode('utf-8'))} B)")
+        return 0
+    print(f"❌ {target.name} AUTO-TABLE:{name}: OUT OF SYNC — python3 {Path(__file__).name} … --write で再生成")
+    return 1
+
+
+def selftest() -> int:
+    import shutil
+    import subprocess
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="gtt-selftest-"))
+    ok = True
+
+    def check(cond, label):
+        nonlocal ok
+        print(("  ✅ " if cond else "  ❌ ") + label)
+        ok = ok and cond
+
+    try:
+        src = tmp / "required-reading.md"
+        tgt = tmp / "CLAUDE.md"
+        row1 = "| メール文体 | [`email-style.md`](email-style.md) | **メール下書き作成前に必ず読む** (= 他人名義も)。 宛名・署名の SoT。 ⚠️ 引用は cite-me 禁止。 旧全文 = archive |"
+        row2 = "| 研究文献 | [`refs.md`](refs.md) | **物理研究系リポで文献引用時**。正本は refs.yaml |"
+        row3 = "| 口コミ | 層1 [`c.md`](../c.md) | **評価を起草する前** | 余分な列 |"
+        src.write_text(f"# 源\n\n前置き。\n\n| 規約 | ファイル | 適用タイミング |\n|---|---|---|\n{row1}\n{row2}\n{row3}\n\n後文の表ではない行\n", encoding="utf-8")
+        tgt.write_text("# t\n\n### 一覧\n\n<!-- AUTO-TABLE:rr BEGIN (old) -->\nstale\n<!-- AUTO-TABLE:rr END -->\n\n後。\n", encoding="utf-8")
+        check(compact("**A**。 B。 ⚠️ C。 D") == "**A**。 ⚠️ C。", "compact: 1 文目 + ⚠️ の文")
+        check(compact("**A**。B。") == "**A**。B。", "compact: 「。」 の後に空白が無ければ分けない")
+        check(compact("文のない cell") == "文のない cell", "compact: 「。」 が無ければそのまま")
+        h, s, rows = read_table(src)
+        check(h.startswith("| 規約 |") and len(rows) == 3 and rows[2][2] == "**評価を起草する前** | 余分な列", "read_table: header / 3 行 / 4 列目は 3 列目に戻す")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
+                           capture_output=True, text=True)
+        check(r.returncode == 1 and "OUT OF SYNC" in r.stdout, "--check: stale なら rc 1")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--write"],
+                           capture_output=True, text=True)
+        t = tgt.read_text(encoding="utf-8")
+        check(r.returncode == 0 and "| メール文体 | [`email-style.md`](email-style.md) | **メール下書き作成前に必ず読む** (= 他人名義も)。 ⚠️ 引用は cite-me 禁止。 |" in t,
+              "--write: 行を trigger + ⚠️ に縮めて marker の間に書く")
+        check("宛名・署名の SoT" not in t and "stale" not in t and t.startswith("# t\n\n### 一覧\n\n<!-- AUTO-TABLE:rr BEGIN")
+              and t.endswith("<!-- AUTO-TABLE:rr END -->\n\n後。\n"), "--write: 要約は出ない、 marker の外は不変")
+        check("| 研究文献 | [`refs.md`](refs.md) | **物理研究系リポで文献引用時**。正本は refs.yaml |" in t, "--write: 空白の無い「。」 は分けない")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
+                           capture_output=True, text=True)
+        check(r.returncode == 0 and "in sync" in r.stdout, "--check: 再生成後は rc 0")
+        src.write_text(src.read_text(encoding="utf-8") + "| 壊れた行 | 2 列だけ |\n", encoding="utf-8")
+        # 表の直後に追記したので表の一部として読まれる → 3 列未満 = exit 2 … ただし後文の後なので表は終わっている
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
+                           capture_output=True, text=True)
+        check(r.returncode == 0, "表の後の無関係な行は読まない (後文で表が終わる)")
+        src.write_text(f"| a | b |\n|---|---|\n| x | y |\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
+                           capture_output=True, text=True)
+        check(r.returncode == 2 and "3 列未満" in r.stdout, "源に 3 列未満の行 = exit 2")
+        tgt.write_text("# no marker\n", encoding="utf-8")
+        src.write_text(f"| 規約 | ファイル | 適用タイミング |\n|---|---|---|\n{row2}\n", encoding="utf-8")
+        r = subprocess.run([sys.executable, __file__, "--source", str(src), "--target", str(tgt), "--name", "rr", "--check"],
+                           capture_output=True, text=True)
+        check(r.returncode == 2 and "marker が無い" in r.stdout, "target に marker が無い = exit 2")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("selftest:", "ALL PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
+def main() -> int:
+    a = sys.argv[1:]
+    if a == ["--selftest"]:
+        return selftest()
+    opts = {}
+    it = iter(a)
+    mode = None
+    for tok in it:
+        if tok in ("--source", "--target", "--name"):
+            opts[tok[2:]] = next(it, "")
+        elif tok in ("--write", "--check"):
+            mode = tok
+        else:
+            print(__doc__.split("usage:", 1)[-1])
+            return 64
+    if not all(k in opts for k in ("source", "target", "name")) or mode is None:
+        print(__doc__.split("usage:", 1)[-1])
+        return 64
+    return run(Path(opts["source"]), Path(opts["target"]), opts["name"], mode == "--write")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

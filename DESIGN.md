@@ -126,6 +126,16 @@
 ので、 張り付いた file は surface で silent だった) + 規約 [`#pay-command`](conventions/memory-file-slimming.md#pay-command)
 (⑤ 払う command / ⑥ 余裕の目安まで払う / ⑦ 床では構造変更)。 閾値は変えていない。 実測の数字と構造変更の候補 = 個人層の RCA plan。
 
+**追補 2 (同日、 owner の裁定で構造変更)**: 床に居た file の 2 大表を auto-load 面から降ろした。 ① 道具ごとの制約表 → auto-load されない
+conventions file へ verbatim MOVE し、 [`scripts/constraint-at-use.py`](scripts/constraint-at-use.py) (PreToolUse hook、 Bash の command と
+file 系 tool の path に行の 1 列目から導いた key を当て、 該当行を session に 1 回 additionalContext で出す。 導けない行は表の file の
+HTML comment で key を足し、 `--check` が key の無い行を止める)。 ② 「いつ何を読むか」 の routing table → 全文は conventions file、
+auto-load 面には [`scripts/generate-trigger-table.py`](scripts/generate-trigger-table.py) が 3 列目の 1 文目 + ⚠️ の文だけを marker の
+間に生成 (`--check` で drift)。 ⚠️ を残す契約にしたのは、 表の ⚠️ が「読む前に知っておく行動制約」 として置かれたもので、 経緯は ⚠️ を
+含まないから (1 文目だけの契約より 3.5 KB 多いが、 制約を doc を開くまで知らない状態を作らない)。 採らなかった案: `.claude/rules/` の
+`paths:` (file を扱う時だけ読む rule) — 表の多くは Bash で叩く道具の制約で path では当たらず、 1 つの機構 (hook) で Bash と path の両方を
+覆えるので 2 本目を持たない。 実測: auto-load file 148 → 107 KB (−28%)、 移した行は link の深さ以外 1 字も変えていない。
+
 **採らなかった案**:
 - *絶対サイズで止める (予算以上なら常に止める)*: 予算を超えた状態では縮退の commit まで止まり、 抜け出せない。
 - *節ごとの予算 (索引・制約表・entry 一覧それぞれに上限)*: 節の境界が変わるたびに設定が要る。 どの節で払うかは書き手が決めればよく、 file 全体の予算で足りる。
