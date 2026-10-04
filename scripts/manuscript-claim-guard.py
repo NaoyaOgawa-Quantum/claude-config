@@ -18,6 +18,13 @@
                   その macro の引数も同じ識別で式として読み、 原稿の範囲 (.sty / .cls を含む) でその macro の定義が
                   変わる変更も math#<hash> として止める (拾い方 = wrapper_context)
      列挙した英米綴り・冠詞・句読点・大文字小文字・ハイフン・空白・コメントだけの差分は通す。
+     原稿の file の移動 (同じ commit、 または同じ apply_patch の Move to: で path A が消え、 まだ無かった path B に現れる)
+     は A の全領域の削除 + B の全領域の追加とせず、 同じ原稿の書き換えとして比べる (moved_changes、 finding は B に付く)。
+     中身が同じで、 範囲と数式を包む macro の文脈も移動先で変わらなければ 0 件。 A にあって B で同じ名前で保護され続け
+     ない領域 (範囲の外・読み込みの外への移動を含む) と B で新たに保護される領域は残る。 A を残す複製・既存の file への
+     上書き・A が \\input 系で読んでいた子原稿を B が読まなくなる移動 (move_keeps_inputs)・読み込みで原稿に入っていた A
+     の移動先 B が commit の後の読み込みに無い移動 (親の \\input を直していない。 apply_patch では abstract の無い file の
+     移動を組まない)・権限の lock (authority:*) は従来どおり path ごと。
   2. agent の権限規約 (一般述語は agent-rule-guard.py が所有。marker 無しの指示文書・制御設定と repo の追加宣言も含む):
        authority:<id>    自分の行に置いた `agent-authority:begin id=<id>` 〜 `agent-authority:end id=<id>` の間
        authority:file    自分の行に `agent-authority:file` を置いた file の全体 (本 file 自身を含む)
@@ -640,17 +647,27 @@ def input_graph(repo: Path, revision: str = "worktree") -> set[str]:
         if f in seen:
             continue
         seen.add(f)
-        body = strip_tex_comments(texts.get(f, ""))
-        for m in re.finditer(r"\\(?:input|include|subfile|subimport\{[^}]*\}|import\{[^}]*\})\s*\{([^}]+)\}", body):
-            target = m.group(1).strip()
-            if not target.endswith(".tex"):
-                target += ".tex"
-            for base in (Path(f).parent, Path(".")):
-                cand = os.path.normpath(str(base / target))
-                if cand in texts and cand not in seen:
-                    stack.append(cand)
+        stack.extend(c for c in input_children(f, texts.get(f, ""), texts) if c not in seen)
     _INPUT_CACHE[key] = seen
     return seen
+
+
+INPUT_EDGE_RE = re.compile(r"\\(?:input|include|subfile|subimport\{[^}]*\}|import\{[^}]*\})\s*\{([^}]+)\}")
+
+
+def input_children(rel: str, text: str, universe) -> list[str]:
+    """rel (中身 text) が \\input / \\include / \\subfile / \\import 系で読む .tex のうち universe に在るもの (原稿の範囲の
+    到達範囲 input_graph の辺。 rel の dir と repo の root の両方で解決する)。"""
+    out: list[str] = []
+    for m in INPUT_EDGE_RE.finditer(strip_tex_comments(text)):
+        target = m.group(1).strip()
+        if not target.endswith(".tex"):
+            target += ".tex"
+        for base in (Path(rel).parent, Path(".")):
+            cand = os.path.normpath(str(base / target))
+            if cand in universe and cand not in out:
+                out.append(cand)
+    return out
 
 
 def manuscript_in_scope(repo: Path | None, rel: str, old: str, new: str, cfg: dict | None = None) -> bool:
@@ -1169,6 +1186,18 @@ def protected_changes(rel: str, old: str, new: str, repo: Path | None, cfg: dict
         note_exemption(rel, repo, new, exempt, exempt["ok"] and any(k in INSERTION_REGIONS for k in moved))
 
     cfg_eff = cfg if cfg is not None else load_config(repo)
+    changes.extend(manuscript_region_changes(rel, old, new, repo, cfg_eff))
+    return changes
+
+
+def manuscript_region_changes(rel: str, old: str, new: str, repo: Path | None, cfg_eff: dict) -> list[dict]:
+    """原稿の保護領域 (表題・概要・序論・結論・指定節・数式・数式を包む macro の定義) の変更だけを列挙する (権限の
+    lock は見ない = protected_changes の後半)。 記録 (additive-log) の副作用が無いので、 移動の比較 (moved_changes)
+    が同じ中身を別の path の文脈で何度呼んでもよい。"""
+    changes: list[dict] = []
+
+    def add(region: str, kind: str, detail: str = "") -> None:
+        changes.append({"file": rel, "region": region, "kind": kind, "detail": detail})
 
     def add_wrapper_changes(changed: list[tuple[str, str]]) -> None:
         for name, kind in changed:
@@ -1223,6 +1252,112 @@ def protected_changes(rel: str, old: str, new: str, repo: Path | None, cfg: dict
         for _ in range(c):
             add(f"math#{sha8(v)}", "add")
     return changes
+
+
+# ---------------------------------------------------------------- moves (rename)
+# 原稿の file の移動 (同じ commit / 同じ patch で path A が消え path B が現れる) は、 A の全領域の delete + B の全領域の add
+# ではなく、 同じ原稿の書き換えとして比べる (moved_changes)。 組は 1 対 1。 A が消えない複製・上書き・別 repo への移動と、
+# A が読んでいた子原稿を読まなくなる移動 (move_keeps_inputs)・読み込みで原稿に入っていた A が commit の後の読み込みから
+# 外れる移動は組まない (従来どおり path ごと)。 組み方 (move_pairs) は承認の件数を決めるだけで安全性は決めない = どう組んでも、 A にあって移動先で
+# 同じ名前・同じ中身で保護され続けない領域と、 B で新たに保護される領域は finding に残る。
+
+MOVE_SIMILARITY = 0.5   # 中身を変えた移動とみなす行の重なり (git の rename 検出の既定 50% と同じ水準)
+MOVE_PAIR_LIMIT = 2500  # 似た組を総当たりで探す上限 (消えた数 × 現れた数)。 超えたら中身の一致する組だけ = 残りは従来どおり
+
+
+def manuscript_finding(change: dict) -> bool:
+    """原稿の保護領域の finding か (権限の lock・設定ではない)。 移動の扱いはこれだけに効く = 権限の file の移動は従来どおり止まる。"""
+    region = change["region"]
+    return not (region.startswith("authority:") or region == "config")
+
+
+def move_pairs(gone: dict[str, str], came: dict[str, str]) -> list[tuple[str, str]]:
+    """消える path {path: 消える前の中身} と現れる path {path: 現れる中身} の 1 対 1 の組 [(消える, 現れる)]。
+    1. 中身が byte 一致する組 (純粋な移動。 同じ中身が複数あれば同じ file 名を優先)。
+    2. 残りは同じ拡張子どうしで、 空でない行の多重集合の重なりが MOVE_SIMILARITY 以上の組を重なりの大きい順に。"""
+    pairs: list[tuple[str, str]] = []
+    by_text: dict[str, list[str]] = {}
+    for dst in sorted(came):
+        by_text.setdefault(came[dst], []).append(dst)
+    rest_src: list[str] = []
+    for src in sorted(gone):
+        cands = by_text.get(gone[src])
+        if not cands:
+            rest_src.append(src)
+            continue
+        pick = next((d for d in cands if posixpath.basename(d) == posixpath.basename(src)), cands[0])
+        cands.remove(pick)
+        pairs.append((src, pick))
+    rest_dst = sorted(d for ds in by_text.values() for d in ds)
+    if not rest_src or not rest_dst or len(rest_src) * len(rest_dst) > MOVE_PAIR_LIMIT:
+        return pairs
+
+    def lines(text: str) -> Counter:
+        return Counter(ln.strip() for ln in text.splitlines() if ln.strip())
+
+    dst_lines = {d: lines(came[d]) for d in rest_dst}
+    scored: list[tuple[float, str, str]] = []
+    for src in rest_src:
+        ls = lines(gone[src])
+        for dst in rest_dst:
+            if posixpath.splitext(src)[1] != posixpath.splitext(dst)[1]:
+                continue
+            ld = dst_lines[dst]
+            size = max(sum(ls.values()), sum(ld.values()))
+            if size and sum((ls & ld).values()) / size >= MOVE_SIMILARITY:
+                scored.append((-sum((ls & ld).values()) / size, src, dst))
+    used_src: set[str] = set()
+    used_dst: set[str] = set()
+    for _, src, dst in sorted(scored):
+        if src not in used_src and dst not in used_dst:
+            used_src.add(src)
+            used_dst.add(dst)
+            pairs.append((src, dst))
+    return pairs
+
+
+def moved_changes(src: str, dst: str, before: str, after: str, repo: Path | None, configs: list[dict]) -> list[dict]:
+    """src (消える path、 中身 before) から dst (現れる path、 中身 after) への移動の、 原稿の保護領域の変更。 finding の
+    file はすべて dst (承認は移動先に 1 回)、 detail に移動を書く。 設定ごとに (呼び元が HEAD と新しい設定を渡す):
+      - src の領域で、 dst に同じ名前の領域が無いもの = delete (移動先が範囲・読み込みの外で保護されなくなる分を含む)
+      - dst の領域で、 src に同じ名前の領域が無いもの = add (移動で新たに保護される分)
+      - 中身が違えば、 before → after を src の文脈と dst の文脈の両方で同じ file の書き換えとして比べる (英語校正は通す)
+    中身が同じ (純粋な移動) で、 範囲と数式を包む macro の文脈も変わらなければ 0 件。"""
+    out: list[dict] = []
+    seen: set[tuple[str, str, str]] = set()
+    note = f"移動 {src} → {dst}"
+
+    def put(c: dict) -> None:
+        key = (c["region"], c["kind"], c["detail"])
+        if key not in seen:
+            seen.add(key)
+            out.append({**c, "file": dst, "detail": f"{c['detail']} ({note})" if c["detail"] else note})
+
+    for cfg in configs:
+        lost = manuscript_region_changes(src, before, "", repo, cfg)
+        born = manuscript_region_changes(dst, "", after, repo, cfg)
+        only_src = Counter((c["region"], c["detail"]) for c in lost) - Counter((c["region"], c["detail"]) for c in born)
+        only_dst = Counter((c["region"], c["detail"]) for c in born) - Counter((c["region"], c["detail"]) for c in lost)
+        for c in lost:
+            if only_src[(c["region"], c["detail"])]:
+                put(c)
+        for c in born:
+            if only_dst[(c["region"], c["detail"])]:
+                put(c)
+        if before != after:
+            for rel in (src, dst):
+                for c in manuscript_region_changes(rel, before, after, repo, cfg):
+                    put(c)
+    return out
+
+
+def move_keeps_inputs(src: str, dst: str, before: str, after: str, before_tex, after_tex, moved: dict[str, str]) -> bool:
+    """移動の前に src が \\input 系で読んでいた .tex を、 移動の後の dst も全部読むか (読む先が同じ commit で移動したなら
+    移動先で数える)。 before_tex / after_tex = 移動の前 / 後に在る .tex の path。 読まなくなる子原稿があれば移動として
+    組まない (= 従来どおり path ごと)。 子原稿 (abstract の無い .tex) は親の読み込みで原稿の範囲に入るので、 親だけを
+    動かして読み込みを切ると、 子原稿は次の commit から範囲の外になる = 移動の扱いでその 2 段の経路を新しく開けない。"""
+    kept = set(input_children(dst, after, after_tex))
+    return all(moved.get(k, k) in kept for k in input_children(src, before, before_tex))
 
 
 def covers(selector: str, change: dict) -> bool:
@@ -2106,8 +2241,13 @@ def apply_patch_hunks(old: str, lines: list[str]) -> str | None:
     return result + ("\n" if result and not result.endswith("\n") else "")
 
 
+# 直前の codex_edits が読んだ Move to: のうち、 移動先がまだ無いもの = [(元の path, 移動先)] (_hook が移動として比べる)
+PATCH_MOVES: list[tuple[Path, Path]] = []
+
+
 def codex_edits(event: dict) -> tuple[list[tuple[Path, str, str]], list[tuple[Path, list[str]]]]:
     """(再構成できた編集, 再構成できなかった Update 節 = (path, 削除行))。"""
+    PATCH_MOVES.clear()
     ti = event.get("tool_input") or {}
     patch = ti.get("command", ti.get("patch", "")) if isinstance(ti, dict) else ""
     if isinstance(patch, list):
@@ -2158,6 +2298,8 @@ def codex_edits(event: dict) -> tuple[list[tuple[Path, str, str]], list[tuple[Pa
                 if dest_old is None:
                     raise InspectionError("file-unreadable", str(dest))
                 done.extend(((p, old, ""), (dest, dest_old, new)))
+                if not dest.exists() and not dest.is_symlink():  # 既存の file への上書きは移動として扱わない
+                    PATCH_MOVES.append((p, dest))
             else:
                 done.append((p, old, new))
     return done, failed
@@ -2468,7 +2610,11 @@ def changes_for_repo(repo: Path, mode: str, paths: list[GitPathspec | GitNames |
         staged_cfg_text = index_text(repo, CONFIG_REL) if rels[CONFIG_REL] == "index" else read_text(repo / CONFIG_REL)
     cfg = load_config(repo) if staged_cfg_text is None else load_config(repo, staged_cfg_text)
     head_cfg = load_config(repo, head_text(repo, CONFIG_REL)) if head_text(repo, CONFIG_REL) else {}
-    changes: list[dict] = []
+    per_rel: dict[str, list[dict]] = {}  # rel -> finding (path ごと。 移動の組は最後に置き換える)
+    gone: dict[str, str] = {}  # HEAD に在り commit の後に無い path で、 原稿の finding を持つもの -> 消える前の中身
+    came: dict[str, str] = {}  # HEAD に無く commit の後に在る path で、 原稿の finding を持つもの -> 現れる中身
+    vanished: set[str] = set()  # HEAD に在り commit の後に無い path (finding の有無を問わない)
+    appeared: set[str] = set()  # HEAD に無く commit の後に在る path
     declared = authority_paths(repo)
     wanted = [rel for rel in sorted(rels) if relevant_text_file(repo / rel, repo)]
     tree = head_tree(repo)
@@ -2479,10 +2625,12 @@ def changes_for_repo(repo: Path, mode: str, paths: list[GitPathspec | GitNames |
         old = head_text(repo, rel)
         if src == "index":
             new = index_text(repo, rel)
+            present = new is not None
             if new is None:
                 new = ""
         else:
             path = repo / rel
+            present = path.is_symlink() or path.exists()
             new = os.readlink(path) if path.is_symlink() else read_text(path) if path.exists() else ""
             if new is None:
                 raise InspectionError("file-unreadable", rel, "worktree")
@@ -2492,7 +2640,17 @@ def changes_for_repo(repo: Path, mode: str, paths: list[GitPathspec | GitNames |
         ch_new = protected_changes(rel, old, new, repo, cfg)
         ch_head = protected_changes(rel, old, new, repo, head_cfg) if head_cfg != cfg else []
         seen = {(c["region"], c["kind"]) for c in ch_new}
+        changes = per_rel.setdefault(rel, [])
         changes.extend(ch_new + [c for c in ch_head if (c["region"], c["kind"]) not in seen])
+        if rel in tree and not present:
+            vanished.add(rel)
+        elif rel not in tree and present:
+            appeared.add(rel)
+        if any(manuscript_finding(c) for c in changes):
+            if rel in vanished:
+                gone[rel] = old
+            elif rel in appeared:
+                came[rel] = new
         regions_old, regions_new = authority_regions(old, rel, declared), authority_regions(new, rel, declared)
         ref_only = all(not r or rule_ref_only_regions(r) for r in (regions_old, regions_new))
         if (regions_old or regions_new) and not ref_only:  # 参照の行だけの file は保護 file でない = mode の記録は要らない
@@ -2507,7 +2665,25 @@ def changes_for_repo(repo: Path, mode: str, paths: list[GitPathspec | GitNames |
                 changes.append({"file": rel, "region": "authority:mode", "kind": "change",
                                 "detail": f"Git mode {before_mode} -> {after_mode}", "target_mode": after_mode,
                                 "content_sha256": hashlib.sha256(new.encode("utf-8")).hexdigest()})
-    return changes
+    # 移動 (同じ commit で消える path と現れる path の組) は、 原稿の領域を同じ原稿の書き換えとして比べ直す。 権限の
+    # finding (authority:* / config) は path ごとのまま
+    configs = [cfg] + ([head_cfg] if head_cfg != cfg else [])
+    pairs = move_pairs(gone, came)
+    moved = dict(pairs)
+    before_tex = {p for p in tree if p.endswith(".tex")}
+    after_tex = (before_tex - vanished) | {p for p in appeared if p.endswith(".tex")}
+    if pairs:  # 原稿の読み込みの到達範囲 (input_graph) の commit の前と後。 後は index (作業ツリーを含む commit は両方に在るもの)
+        graph_before = input_graph(repo, "HEAD")
+        graph_after = input_graph(repo, "index") if mode == "index" else input_graph(repo, "index") & input_graph(repo, "worktree")
+    for src_rel, dst_rel in pairs:
+        if not move_keeps_inputs(src_rel, dst_rel, gone[src_rel], came[dst_rel], before_tex, after_tex, moved):
+            continue  # 子原稿を読み込みの外へ出す移動 = path ごとのまま
+        if src_rel in graph_before and dst_rel not in graph_after:
+            continue  # 読み込みで原稿に入っていた file が、 commit の後の読み込みから外れる移動 (親の \input を直していない) = path ごと
+        per_rel[src_rel] = [c for c in per_rel[src_rel] if not manuscript_finding(c)]
+        per_rel[dst_rel] = (moved_changes(src_rel, dst_rel, gone[src_rel], came[dst_rel], repo, configs)
+                            + [c for c in per_rel[dst_rel] if not manuscript_finding(c)])
+    return [c for rel in wanted for c in per_rel.get(rel, [])]
 
 
 # ---------------------------------------------------------------- modes
@@ -2607,6 +2783,7 @@ def _hook(agent: str, event: dict) -> int:
         print(deny_json("manuscript-claim-guard: 承認・追記の記録・既読の state は agent が編集 tool で書かない"
                         " (approve / additive-log の CLI を通す): " + ", ".join(blocked[:3])))
         return 0
+    entries: list[list] = []  # [path, repo, rel, old, new, finding]
     for p, old, new in edits:
         key = str(p.parent)
         if key not in repos:
@@ -2617,6 +2794,25 @@ def _hook(agent: str, event: dict) -> int:
         if repo is not None and is_authority and _rule_guard.prose_policy_doc(rel, (old, new), manifest_patterns(repo)):
             base = head_text(repo, rel)  # 規則の文書だけ: 追記の基準は commit 済みの文 (無ければ "")
         ch = protected_changes(rel, old, new, repo, authority=is_authority, baseline=base, session=session)
+        entries.append([p, repo, rel, old, new, ch])
+    # apply_patch の Move to: (移動先が無い) は、 git の移動と同じ述語で原稿の領域を比べ直す (moved_changes)
+    for src_p, dst_p in (list(PATCH_MOVES) if tool == "apply_patch" else []):
+        s = next((e for e in entries if e[0] == src_p and e[4] == ""), None)
+        d = next((e for e in entries if e[0] == dst_p and e[3] == ""), None)
+        if s is None or d is None or s[1] is None or s[1] != d[1]:
+            continue
+        if not (any(manuscript_finding(c) for c in s[5]) and any(manuscript_finding(c) for c in d[5])):
+            continue
+        before_tex = {p for p in head_tree(s[1]) | set(_index_entries(s[1])) if p.endswith(".tex")} | {s[2]}
+        if not move_keeps_inputs(s[2], d[2], s[3], d[4], before_tex, (before_tex - {s[2]}) | {d[2]}, {s[2]: d[2]}):
+            continue  # 子原稿を読み込みの外へ出す移動 = path ごとのまま
+        if (s[2] in input_graph(s[1], "worktree") | input_graph(s[1], "HEAD")
+                and "\\begin{abstract}" not in strip_tex_comments(d[4])):
+            continue  # 親の読み込みで原稿に入る子原稿の移動は、 編集の時点では親の \input を確かめられない = path ごと (commit で判定)
+        s[5] = [c for c in s[5] if not manuscript_finding(c)]
+        d[5] = (moved_changes(s[2], d[2], s[3], d[4], d[1], [load_config(d[1])])
+                + [c for c in d[5] if not manuscript_finding(c)])
+    for _p, repo, _rel, _old, _new, ch in entries:
         changes.extend(unapproved(ch, repo, session))
     for p, removed in failed:
         # 当たらない patch: 削除行が保護領域の中に在れば、 変更として扱う
@@ -5271,6 +5467,208 @@ def selftest() -> int:
         os.environ.pop("CLAUDE_CONFIG_AGENT_SESSION", None)
         os.environ.pop("MANUSCRIPT_CLAIM_GUARD_STATE_DIR", None)
         os.environ.pop("MANUSCRIPT_CLAIM_GUARD_HOME", None)
+
+    print("[原稿の file の移動 (rename)]")
+    import contextlib
+    import io
+    with tempfile.TemporaryDirectory() as mdir:
+        mdp = Path(mdir).resolve()
+        mv = mdp / "mv"
+        (mv / "src").mkdir(parents=True)
+        menv = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                    GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                    GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid",
+                    MANUSCRIPT_CLAIM_GUARD_STATE_DIR=str(mdp / "state"))
+        for k in AGENT_ENV_KEYS:
+            menv.pop(k, None)
+        saved_state = os.environ.get("MANUSCRIPT_CLAIM_GUARD_STATE_DIR")
+        os.environ["MANUSCRIPT_CLAIM_GUARD_STATE_DIR"] = str(mdp / "state")
+
+        def mg(*a: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", *a], cwd=mv, env=menv, capture_output=True, text=True, check=False)
+
+        def staged(mode: str = "index", paths: list | None = None) -> list[tuple[str, str, str]]:
+            reset_caches()
+            return sorted((c["file"], c["region"], c["kind"]) for c in changes_for_repo(mv, mode, paths or []))
+
+        def precommit() -> subprocess.CompletedProcess:
+            return subprocess.run([sys.executable, str(Path(__file__).resolve()), "git-precommit"], cwd=mv,
+                                  env=dict(menv, CLAUDE_CODE_SESSION_ID="mv-sess"), capture_output=True, text=True,
+                                  check=False)
+
+        def restore() -> None:
+            mg("reset", "-q", "--hard", "HEAD")
+            mg("clean", "-qfd")
+            reset_caches()
+
+        def git_mv(src: str, dst: str) -> None:
+            (mv / dst).parent.mkdir(parents=True, exist_ok=True)
+            mg("mv", src, dst)
+
+        mg("init", "-q")
+        (mv / "src" / "main.tex").write_text(paper, encoding="utf-8")
+        mg("add", "-A")
+        mg("commit", "-qm", "init")
+        reset_caches()
+        regions = sorted((c["region"], c["kind"]) for c in protected_changes("src/main.tex", paper, "", mv, {}))
+        # 1. 純粋な移動 (同じ blob): どちらの path にも finding なし、 pre-commit も通す
+        git_mv("src/main.tex", "submission/v1/main.tex")
+        check("移動: 中身が同じなら旧 path の delete も新 path の add も出さない", staged() == [])
+        check("移動: agent の pre-commit も通す (exit 0)", precommit().returncode == 0)
+        check("移動: git commit -a の経路 (作業ツリー) も同じ", staged("all") == [])
+        mv_targets = commit_targets(f"git -C {mv} commit -m x -- src/main.tex submission/v1/main.tex", mv)
+        check("移動: git commit -- 両方の path も同じ",
+              [c for rp, mode_, ps in mv_targets for c in changes_for_repo(rp, mode_, ps)] == [])
+        only_new = commit_targets(f"git -C {mv} commit -m x -- submission/v1/main.tex", mv)
+        check("移動: 新しい path だけを commit する (= 旧 path が残る複製) なら従来どおり add を止める",
+              sorted((c["region"], c["kind"]) for rp, mode_, ps in only_new for c in changes_for_repo(rp, mode_, ps))
+              == sorted((r, "add") for r, _ in regions))
+        restore()
+        # 2. 移動 + 書き換え: 同じ原稿の書き換えとして比べる (式の変更だけが残る、 finding は移動先に付く)
+        git_mv("src/main.tex", "submission/v1/main.tex")
+        (mv / "submission/v1/main.tex").write_text(paper.replace("b + c", "b - c"), encoding="utf-8")
+        mg("add", "submission/v1/main.tex")
+        check("移動 + 式の書き換え: 式の変更だけを移動先の finding として出す",
+              staged() == [("submission/v1/main.tex", "eq:ab", "change")])
+        reset_caches()
+        moved_rows = changes_for_repo(mv, "index", [])
+        check("移動 + 書き換え: detail に移動元と移動先を書く",
+              all("src/main.tex → submission/v1/main.tex" in c["detail"] for c in moved_rows))
+        r = precommit()
+        check("移動 + 書き換え: 未承認の pre-commit は exit 1 で式を名指す", r.returncode == 1 and "eq:ab (change)" in r.stderr
+              and "abstract (delete)" not in r.stderr)
+        (mv / "submission/v1/main.tex").write_text(paper.replace("We analyse", "We analyze"), encoding="utf-8")
+        mg("add", "submission/v1/main.tex")
+        check("移動 + 英語校正だけ: 通す", staged() == [])
+        (mv / "submission/v1/main.tex").write_text(paper.replace("\\section{Conclusion}\nThe lattice conducts heat.\n", ""),
+                                                   encoding="utf-8")
+        mg("add", "submission/v1/main.tex")
+        check("移動 + 結論の削除: 結論の delete を出す", staged() == [("submission/v1/main.tex", "conclusion", "delete")])
+        restore()
+        # 3. 本当の削除 (移動先なし): 従来どおり全領域の delete で止める
+        mg("rm", "-q", "src/main.tex")
+        check("削除: 対応する移動先が無ければ従来どおり全領域の delete",
+              staged() == sorted(("src/main.tex", r_, k_) for r_, k_ in regions) and all(k_ == "delete" for _, k_ in regions)
+              and len(regions) >= 5)
+        check("削除: pre-commit は exit 1", precommit().returncode == 1)
+        restore()
+        # 4. 複製 (旧 path を残す): 従来どおり新 path の add で止める (移動として組まない)
+        (mv / "copy").mkdir()
+        (mv / "copy/main.tex").write_text(paper, encoding="utf-8")
+        mg("add", "copy/main.tex")
+        check("複製: 旧 path を残す複製は新 path の全領域の add (従来どおり)",
+              staged() == sorted(("copy/main.tex", r_, "add") for r_, _ in regions))
+        check("複製: pre-commit は exit 1", precommit().returncode == 1)
+        # 複製 + 削除を 1 commit に 2 つ (A を消し、 同じ中身を B と C に): 組は 1 対 1 = 余った C は add で止める
+        mg("rm", "-q", "--cached", "src/main.tex")
+        (mv / "src/main.tex").unlink()
+        (mv / "copy/main2.tex").write_text(paper, encoding="utf-8")
+        mg("add", "copy/main2.tex")
+        rows = staged()
+        check("移動 + 複製: 1 対 1 で組み、 余った複製は add で止める",
+              len(rows) == len(regions) and len({f for f, _, _ in rows}) == 1 and all(k_ == "add" for _, _, k_ in rows))
+        restore()
+        # 5. 範囲の外への移動 (設定の include): 移動先が保護されないなら組まない = 旧 path の delete で止める
+        (mv / CONFIG_REL).parent.mkdir(parents=True, exist_ok=True)
+        (mv / CONFIG_REL).write_text(json.dumps({"include": ["src/*.tex"]}), encoding="utf-8")
+        mg("add", "-A")
+        mg("commit", "-qm", "scope")
+        reset_caches()
+        git_mv("src/main.tex", "attic/main.tex")
+        check("範囲の外への移動: 旧 path の全領域の delete で止める (設定の範囲から黙って外さない)",
+              staged() == sorted(("src/main.tex", r_, "delete") for r_, _ in regions))
+        restore()
+        mg("rm", "-q", CONFIG_REL)
+        mg("commit", "-qm", "unscope")
+        # 6. 読み込みの外への移動: 移動先で数式を包む macro の定義が読めなくなる式は止める (brace の無い \input =
+        #    原稿の範囲の辺ではないが wrapper の定義の源 = 子原稿の検査 move_keeps_inputs を通り、 文脈の比較で止まる)
+        al_paper = paper.replace("\\[ x = y \\]", "\\input defs\n\\al{ p = q }")
+        (mv / "src/main.tex").write_text(al_paper, encoding="utf-8")
+        (mv / "src/defs.tex").write_text("\\newcommand{\\al}[1]{\\begin{align}#1\\end{align}}\n", encoding="utf-8")
+        mg("add", "-A")
+        mg("commit", "-qm", "wrapper")
+        reset_caches()
+        git_mv("src/main.tex", "other/main.tex")
+        rows = staged()
+        check("読み込みの外への移動: 包まれた式と macro の定義の delete を移動先に出す",
+              ("other/main.tex", f"math#{sha8('p=q')}", "delete") in rows
+              and ("other/main.tex", wrapper_change_region("al"), "delete") in rows
+              and not any(r_ in ("abstract", "title", "intro", "conclusion") for _, r_, _ in rows))
+        restore()
+        git_mv("src/main.tex", "src/paper.tex")
+        check("同じ dir での改名 (読み込みは保たれる): finding なし", staged() == [])
+        restore()
+        # 6b. 子原稿 (abstract の無い .tex) を親の \input の外へ出す移動は組まない。 親と子を一緒に動かす移動は組む
+        book = paper.replace("\\section{Introduction}\nLattices are useful. We analyse the model.\n", "\\input{ch/intro}\n")
+        (mv / "book/ch").mkdir(parents=True)
+        (mv / "book/main.tex").write_text(book, encoding="utf-8")
+        (mv / "book/ch/intro.tex").write_text(
+            "\\section{Introduction}\nLattices are useful.\n\\begin{equation}u = v\\label{eq:uv}\\end{equation}\n", encoding="utf-8")
+        mg("add", "-A")
+        mg("commit", "-qm", "book")
+        reset_caches()
+        git_mv("book/main.tex", "shelf/main.tex")
+        rows = staged()
+        check("子原稿を読み込みの外へ出す親の移動は組まない (旧 path の delete・新 path の add で止める)",
+              ("book/main.tex", "abstract", "delete") in rows and ("shelf/main.tex", "abstract", "add") in rows)
+        restore()
+        git_mv("book", "shelf")
+        check("親と子を一緒に動かす移動 (dir ごと): finding なし", staged() == [])
+        restore()
+        git_mv("book/ch/intro.tex", "book/ch/opening.tex")
+        (mv / "book/main.tex").write_text(book.replace("\\input{ch/intro}", "\\input{ch/opening}"), encoding="utf-8")
+        check("子原稿の移動で親の \\input を直さない (stage しない) なら組まない (旧 path の delete で止める)",
+              ("book/ch/intro.tex", "intro", "delete") in staged() and ("book/ch/intro.tex", "eq:uv", "delete") in staged())
+        mg("add", "book/main.tex")
+        check("子原稿の移動 + 親の \\input の書き換えを同じ commit に: finding なし", staged() == [])
+        restore()
+        # 7. 権限の lock の付いた原稿の移動: 原稿の領域は組むが、 authority の finding は path ごとのまま
+        (mv / "src/locked.tex").write_text("% agent-authority:file\n" + paper, encoding="utf-8")
+        mg("add", "-A")
+        mg("commit", "-qm", "locked")
+        reset_caches()
+        git_mv("src/locked.tex", "src/locked2.tex")
+        rows = staged()
+        check("lock の付いた file の移動: authority の finding は残る (原稿の領域だけ組む)",
+              any(r_.startswith("authority:") for _, r_, _ in rows)
+              and not any(r_ in ("abstract", "title", "eq:ab") for _, r_, _ in rows))
+        restore()
+        mg("rm", "-q", "src/locked.tex")
+        mg("commit", "-qm", "unlock")
+        # 8. Codex の apply_patch の Move to: (編集 hook) も同じ述語
+        restore()
+        mcev = {"hook_event_name": "PreToolUse", "tool_name": "apply_patch", "session_id": "mv-cdx", "cwd": str(mv)}
+
+        def patch_hook(body: str) -> str:
+            reset_caches()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                _hook("codex", dict(mcev, tool_input={"command": "*** Begin Patch\n" + body + "*** End Patch"}))
+            return out.getvalue()
+
+        check("apply_patch の純粋な Move to: は止めない",
+              "permissionDecision" not in patch_hook("*** Update File: src/main.tex\n*** Move to: src/moved.tex\n"))
+        moved_edit = patch_hook("*** Update File: src/main.tex\n*** Move to: src/moved.tex\n@@\n"
+                                "-  a &= b + c \\label{eq:ab}\n+  a &= b - c \\label{eq:ab}\n")
+        check("apply_patch の Move to: + 式の書き換えは式だけを止める",
+              "eq:ab (change)" in moved_edit and "abstract (delete)" not in moved_edit)
+        (mv / "src/moved.tex").write_text("placeholder\n", encoding="utf-8")
+        check("apply_patch の Move to: 既存の file への上書きは移動として扱わない (従来どおり delete で止める)",
+              "abstract (delete)" in patch_hook("*** Update File: src/main.tex\n*** Move to: src/moved.tex\n"))
+        (mv / "src/moved.tex").unlink()
+        check("apply_patch の Delete File: は従来どおり止める",
+              "abstract (delete)" in patch_hook("*** Delete File: src/main.tex\n"))
+        check("apply_patch の Move to: 子原稿を読み込みの外へ出す親の移動は組まない",
+              "abstract (delete)" in patch_hook("*** Update File: book/main.tex\n*** Move to: shelf/main.tex\n"))
+        check("apply_patch の Move to: 読み込み先の解決が変わらない移動は組む",
+              "permissionDecision" not in patch_hook("*** Update File: book/main.tex\n*** Move to: book/paper.tex\n"))
+        check("apply_patch の Move to: 子原稿 (abstract なし) の移動は編集の時点では組まない (親の \\input は commit で判定)",
+              "intro (delete)" in patch_hook("*** Update File: book/ch/intro.tex\n*** Move to: book/ch/opening.tex\n"))
+        if saved_state is None:
+            os.environ.pop("MANUSCRIPT_CLAIM_GUARD_STATE_DIR", None)
+        else:
+            os.environ["MANUSCRIPT_CLAIM_GUARD_STATE_DIR"] = saved_state
+        reset_caches()
 
     print(f"selftest: {'FAILED ' + str(len(fails)) if fails else 'ALL PASS'}")
     return 1 if fails else 0
