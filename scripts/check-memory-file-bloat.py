@@ -54,6 +54,14 @@ commit で MOVE + pointer 化して払う)。 BLOCK_FILE_KB は warn (WARN_FILE_
 🟡 に届かない。 故障は exit 3 (違反の 1 と分ける = convention-design-principles.md#failure-exit-equals-violation-exit)。
 逃げ道 = env CLAUDE_MEMORY_BUDGET_GUARD=0 (warn に落として通す。 使うのは owner が明示したときだけ)。
 値の根拠 (実測): 縮退の直後から 1 日 ~4 KB 育ち、 150 KB の warn は縮退の 2 日後にまた点いた = warn では止まらない。
+
+払いの導線 (2026-10-04、 #pay-command): gate が止めた画面と予算の余裕の finding は、 呼び元が `--pay-cmd '<command>'` で渡した
+「払う 1 コマンド」 (= 層1 memory-budget-pay.py を既定値つきで呼ぶ利用者の shim) をそのまま出す。 止められた側が 28 KB の
+手順 doc でなく command を手にする = 実測で止められた 12 回のうち 11 回が追記の取り下げ・削りで終わった原因 (払う操作に道具が
+無かった) への直接の手当。 `--headroom <root 相対 path>` (繰り返し可、 scan / --surface 用) = 予算 gate の対象 file が予算の
+手前 HEADROOM_WARN_KB 以内に居る (= 次に足す commit が止まる) ことを 🟡 で出す。 150 KB の warn は予算 (145) の上に在るので、
+「毎 commit 止まる」 状態が surface では silent だった (= 予算に張り付いた file は warn に届かない設計の裏面)。 どちらも閾値は
+変えない。 予算の値を変えるのは owner の裁定 (RCA = 個人層 plans/2026-10-04-memory-budget-giveup-rca-results.md)。
 """
 import os
 import sys
@@ -61,6 +69,7 @@ from pathlib import Path
 
 WARN_FILE_KB = 150
 BLOCK_FILE_KB = 145  # commit 時の予算 (--block)。 warn より下 = commit で育つ限り 🟡 に届かない
+HEADROOM_WARN_KB = 2  # --headroom: 予算の手前この幅に入ったら 🟡 (= 次に足す commit が止まる、 先に払う)
 CRIT_FILE_KB = 200
 WARN_REPO_KB = 200
 CRIT_REPO_KB = 300
@@ -71,9 +80,27 @@ TARGETS = ("CLAUDE.md", "SESSION.md")
 SLIM_DOC = "claude-config/conventions/memory-file-slimming.md"
 
 
-def scan(root: Path, line_limits=None):
-    """[(severity, line)] を返す。 severity = 2 (🔴) / 1 (🟡)。"""
-    findings = []
+def headroom_findings(root: Path, rels, pay_cmd=None, block_kb=BLOCK_FILE_KB, warn_kb=HEADROOM_WARN_KB):
+    """予算 gate (--block) の対象 file が予算の手前 warn_kb 以内なら 🟡 1 行 (#pay-command)。 file が無ければ silent。"""
+    out = []
+    block_b = block_kb * 1024
+    for rel in rels:
+        f = root / rel
+        if not f.is_file():
+            continue
+        s = f.stat().st_size
+        if s < block_b - warn_kb * 1024:
+            continue
+        room = block_b - s
+        state = f"予算 {block_kb} KB まで余裕 {room} B" if room > 0 else f"予算 {block_kb} KB を {-room} B 超過"
+        tail = f" (育つ commit は止まる = 先に払う{': ' + pay_cmd if pay_cmd else ''})"
+        out.append((1, f"🟡 {rel} = {s / 1024:.1f} KB、 {state}{tail}"))
+    return out
+
+
+def scan(root: Path, line_limits=None, headroom=(), pay_cmd=None):
+    """[(severity, line)] を返す。 severity = 2 (🔴) / 1 (🟡)。 headroom = 予算 gate の対象 file (root 相対)。"""
+    findings = list(headroom_findings(root, headroom, pay_cmd))
     seen = set()
     for repo in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith(".")):
         sizes = {}
@@ -161,9 +188,10 @@ def staged_warnings(repo: Path, rel: str, entry_section=None, entry_bytes=1200, 
     return msgs
 
 
-def staged_block(repo: Path, rel: str, block_kb=BLOCK_FILE_KB):
+def staged_block(repo: Path, rel: str, block_kb=BLOCK_FILE_KB, pay_cmd=None):
     """commit 時の予算 gate (#commit-budget-gate)。 stage した file が block_kb 以上 ∧ HEAD より byte が増えるなら
-    止める理由の文を返す。 それ以外 (予算内 / 縮める / 同じ) は None。 HEAD に無い file は HEAD = 0 byte として扱う。"""
+    止める理由の文を返す。 それ以外 (予算内 / 縮める / 同じ) は None。 HEAD に無い file は HEAD = 0 byte として扱う。
+    pay_cmd = 呼び元が渡す「払う 1 コマンド」 (#pay-command)。 無ければ手順 doc を指す (従来)。"""
     sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
     from git_blob import read_blob_text
 
@@ -174,8 +202,11 @@ def staged_block(repo: Path, rel: str, block_kb=BLOCK_FILE_KB):
     s, h = len(staged.encode("utf-8")), len(head.encode("utf-8"))
     if s < block_kb * 1024 or s <= h:
         return None
+    need = s - block_kb * 1024 + 1
+    how = (f" 払う (戻さない) = {pay_cmd}  (あと {need} B 以上。 余裕・候補・1 行の退避まで 1 コマンド)" if pay_cmd
+           else f" 手順 = 層1 {SLIM_DOC}")
     return (f"{rel} が予算 {block_kb} KB を超えたまま育つ ({h / 1024:.1f} → {s / 1024:.1f} KB、 +{s - h} B)。"
-            f" 足す分を同じ commit で MOVE + pointer 化して払う (縮める commit は通る)。 手順 = 層1 {SLIM_DOC}")
+            f" 足す分を同じ commit で MOVE + pointer 化して払う (縮める commit は通る)。{how}")
 
 
 def staged_main(argv) -> int:
@@ -189,6 +220,7 @@ def staged_main(argv) -> int:
     ap.add_argument("--file-kb", type=int, default=WARN_FILE_KB)
     ap.add_argument("--block", action="store_true",
                     help="予算 (BLOCK_FILE_KB) を超えたまま育つ commit を exit 1 で止める (#commit-budget-gate)")
+    ap.add_argument("--pay-cmd", help="止めた画面に出す「払う 1 コマンド」 (利用者の shim、 #pay-command)")
     a = ap.parse_args(argv)
     try:
         import subprocess
@@ -199,7 +231,7 @@ def staged_main(argv) -> int:
         repo = Path(subprocess.run(["git", "-C", a.repo, "rev-parse", "--show-toplevel"], capture_output=True,
                                    text=True, check=True).stdout.strip())
         msgs = staged_warnings(repo, a.rel, a.entry_section, a.entry_bytes, a.file_kb)
-        block = staged_block(repo, a.rel) if a.block else None
+        block = staged_block(repo, a.rel, pay_cmd=a.pay_cmd) if a.block else None
     except Exception as e:  # noqa: BLE001  検査の故障で commit を止めない。 呼び元が rc 3 で「走らなかった」 を出す
         print(f"check-memory-file-bloat --staged: 検査不能 = {e.__class__.__name__}: {e}", file=sys.stderr)
         return 3
@@ -288,6 +320,19 @@ def selftest() -> int:
         (tmp / "long-repo" / "SESSION.md").write_text("x\n" * 500, encoding="utf-8")
         check(not any("long-repo" in l for _, l in scan(tmp, lim)), "未登録の 500 行 SESSION.md は行数では silent")
         check(not any("missing" in l for _, l in scan(tmp, {"missing/SESSION.md": (1, 2)})), "登録 file が無ければ silent")
+        # --headroom (予算の手前): 対象 file が BLOCK − 2 KB 以上なら 🟡、 下なら silent、 無ければ silent
+        (tmp / "near-repo").mkdir()
+        (tmp / "near-repo" / "CLAUDE.md").write_bytes(b"x" * (BLOCK_FILE_KB * 1024 - 100))
+        hr = headroom_findings(tmp, ["near-repo/CLAUDE.md"], pay_cmd="python3 pay.py")
+        check(len(hr) == 1 and "余裕 100 B" in hr[0][1] and "python3 pay.py" in hr[0][1], "--headroom: 予算の手前 100 B で 🟡 + 払う command")
+        (tmp / "near-repo" / "CLAUDE.md").write_bytes(b"x" * (BLOCK_FILE_KB * 1024 + 50))
+        hr = headroom_findings(tmp, ["near-repo/CLAUDE.md"])
+        check(len(hr) == 1 and "50 B 超過" in hr[0][1] and ": " not in hr[0][1].split("先に払う")[1], "--headroom: 超過は「超過」、 command 無しなら command を出さない")
+        (tmp / "near-repo" / "CLAUDE.md").write_bytes(b"x" * ((BLOCK_FILE_KB - 5) * 1024))
+        check(headroom_findings(tmp, ["near-repo/CLAUDE.md"]) == [], "--headroom: 予算 −5 KB は silent")
+        check(headroom_findings(tmp, ["no-such/CLAUDE.md"]) == [], "--headroom: file が無ければ silent")
+        check(any("near-repo/CLAUDE.md" not in l for _, l in scan(tmp)) and not any("余裕" in l for _, l in scan(tmp)),
+              "--headroom を渡さなければ scan は従来どおり")
         # --staged (commit 時 warn): 一時 repo で HEAD と index を作る
         import subprocess as sp
         g = tmp / "staged-repo"
@@ -335,6 +380,11 @@ def selftest() -> int:
         sp.run(["git", "-C", str(g), "add", "CLAUDE.md"], check=True)
         r = sp.run([sys.executable, __file__, "--staged", "--repo", str(g), "--block"], capture_output=True, text=True)
         check(r.returncode == 1 and "BLOCK" in r.stderr, "--block (CLI): 育つ stage は rc 1 + BLOCK 行")
+        check(SLIM_DOC in r.stderr and "払う (戻さない) =" not in r.stderr, "--block: --pay-cmd 無しは手順 doc を指す (従来)")
+        r = sp.run([sys.executable, __file__, "--staged", "--repo", str(g), "--block", "--pay-cmd", "python3 pay.py"],
+                   capture_output=True, text=True)
+        check(r.returncode == 1 and "払う (戻さない) = python3 pay.py" in r.stderr and "B 以上" in r.stderr,
+              "--block --pay-cmd: 止めた画面に払う command と必要 byte")
         r = sp.run([sys.executable, __file__, "--staged", "--repo", str(g)], capture_output=True, text=True)
         check(r.returncode == 0, "--block を付けなければ従来どおり warn だけ (rc 0)")
         r = sp.run([sys.executable, __file__, "--staged", "--repo", str(g), "--block"], capture_output=True, text=True,
@@ -367,13 +417,21 @@ def main() -> int:
         args = [a for a in args if a != "--surface"]
     # 既定 = この repo の親 dir (= 複数 repo を並べている dir)。 個人の layout を hardcode しない
     root = Path(__file__).resolve().parent.parent.parent
-    if len(args) == 2 and args[0] == "--root":
-        root = Path(args[1])
-    elif args:
-        print("usage: check-memory-file-bloat.py [--root DIR | --surface | --selftest | --staged ...]")
-        return 64
+    headroom, pay_cmd = [], None
+    it = iter(args)
+    for tok in it:
+        val = next(it, None)
+        if tok == "--root" and val:
+            root = Path(val)
+        elif tok == "--headroom" and val:
+            headroom.append(val)
+        elif tok == "--pay-cmd" and val:
+            pay_cmd = val
+        else:
+            print("usage: check-memory-file-bloat.py [--root DIR] [--headroom REL]... [--pay-cmd CMD] [--surface] | --selftest | --staged ...")
+            return 64
     try:
-        report(scan(root), surface=surface)
+        report(scan(root, headroom=headroom, pay_cmd=pay_cmd), surface=surface)
     except Exception as e:  # fail-open: dashboard を殺さない
         print(f"(check-memory-file-bloat: 検査不能 = {e.__class__.__name__}: {e} — fail-open)")
     return 0

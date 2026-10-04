@@ -116,6 +116,16 @@
 4. 逃げ道は env `CLAUDE_MEMORY_BUDGET_GUARD=0` (warn に落として通す)。 使うのは owner が明示したときだけ。
 5. 配線は利用者の層 = pre-commit から `--block` を渡した file だけが対象 (既定は従来どおり warn だけ)。
 
+**追補 (2026-10-04、 止められた側が払わずに取り下げる失敗の RCA)**: gate は設計どおり育つ commit を止めたが、 止められた側 (agent) は
+実測 12 回のうち 11 回で追記を取り下げるか削って通し、 要る routing・制約が落ちた。 原因は 3 つ。 ① 払う操作に道具が無く、 止めた画面は
+28 KB の手順 doc を指していた (払う費用 ≫ 足す費用 → 取り下げが最安)。 ② 「足した分を払う」 では file が予算の線に張り付く平衡になり、
+以後の全 commit が境界の取引になる (hysteresis が無い)。 ③ pointer 化の床: 経緯 payload (日付・RCA・実測・引用の括弧) が file 全体で
+数 KB しか残っておらず、 払いの原資が無い = 次は構造変更 (列挙の生成 file 化・制約の point-of-use 化) の判断で、 それは owner のもの。
+手当 = [`scripts/memory-budget-pay.py`](scripts/memory-budget-pay.py) (status / candidates / retreat / graduate、 verbatim 退避と検算を
+1 コマンドに) + gate の `--pay-cmd` (止めた画面に command) + `--headroom` (予算の手前 2 KB で 🟡 = warn 150 KB が予算 145 KB の上に在る
+ので、 張り付いた file は surface で silent だった) + 規約 [`#pay-command`](conventions/memory-file-slimming.md#pay-command)
+(⑤ 払う command / ⑥ 余裕の目安まで払う / ⑦ 床では構造変更)。 閾値は変えていない。 実測の数字と構造変更の候補 = 個人層の RCA plan。
+
 **採らなかった案**:
 - *絶対サイズで止める (予算以上なら常に止める)*: 予算を超えた状態では縮退の commit まで止まり、 抜け出せない。
 - *節ごとの予算 (索引・制約表・entry 一覧それぞれに上限)*: 節の境界が変わるたびに設定が要る。 どの節で払うかは書き手が決めればよく、 file 全体の予算で足りる。

@@ -204,6 +204,7 @@
 - **[mark-handled-read.py](mark-handled-read.py)** — 見張っている Gmail ラベルの未読のうち、 「対応済み」 と記録で言えるものだけを既読にする engine。
 - **[md-note-to-tex.py](md-note-to-tex.py)** — Markdown のノートを、 手元の TeX preamble に載る骨格 (raw/) へ機械で変える (正本が md、 TeX が写しのときの写し作りの前半。 構造だけ)。
 - **[measure-pdf-layout.py](measure-pdf-layout.py)** — 組版された PDF の版面を実測する — 「指定したのに効いていない」 を目視でなく数値で捕まえる.
+- **[memory-budget-pay.py](memory-budget-pay.py)** — 予算 gate に止められた memory file (CLAUDE.md) の「払い」 を 1 コマンドにする (余裕の表示 / 候補の順位 / 1 行の退避 / entry の graduate)
 - **[migrate-session-shape.py](migrate-session-shape.py)** — SESSION.md の日付つき節を SESSION-archive へ verbatim MOVE し、 「案件ごとの現在地 + 正本への link」 の形へ一括で寄せる (既定 dry-run)
 - **[newer_in_thread.mutants.json](newer_in_thread.mutants.json)** — lib/newer_in_thread.py (返信先より新しい相手の message の判定) の selftest の foil に歯があることを、 判定の部品を 1 つずつ外した mutant で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
 - **[normalize-docx-decl.py](normalize-docx-decl.py)** — 既存 docx の XML 宣言を Word 形式へ後追い正規化する CLI（docx_decl_patch の path-based 版、 office-automation.md#docx-checkbox-content-control）
