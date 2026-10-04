@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check) + 予定にゲスト (参加者) を足す・繰り返し予定を消す時 (#eventkit-add-attendees / #applescript-recurring-delete) + Android (DAVx5) で作った予定が Mac で消えない・Mac にだけ出ない時 (#android-davx5-organizer-invitation)
+when: macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check) + 予定にゲスト (参加者) を足す・繰り返し予定を消す時 (#eventkit-add-attendees / #applescript-recurring-delete) + Android (DAVx5) で作った予定が Mac で消えない・Mac にだけ出ない時 (#android-davx5-organizer-invitation) + 繰り返し予定の 1 回だけをずらす・飛ばす時 / 重なった繰り返しの写しを消す時 (#recurring-one-occurrence)
 category: macos
 summary: macOS Calendar.app の calendar に AppleScript (osascript) で event を作る universal recipe。 `tell application "Calendar" ... make new event with properties {summary, location, description, start date, end date}` で書ける。 property 名は英語 literal (日本語は syntax error)、 calendar name は Calendar.app が list する literal string (全角括弧 / 空白 込み)、 iCloud 側の write は数分〜数十分で iCloud sync 経由で Google Calendar の webcal 購読 view (`@import.calendar.google.com`) に反映、 他 iCloud 端末には即時反映。 TCC = Terminal.app / iTerm 側に Calendar 権限を付与、 osascript 経由も同 grant で通る。 verify は `every event whose summary contains "..."` で件数 + start date 確認。 「MCP から write 不可能な calendar (= webcal import は Google 側 read-only)」 の唯一の Claude-executable 経路
 -->
@@ -206,6 +206,17 @@ Android 製の予定は UID が小文字の UUID (Apple 製は大文字) なの�
 
 - **DAVx5 の account 名を、 server が本人と認める address (iCloud なら Apple ID の address) にする** = 以後に作る予定の主催者が本人になる。 ⚠️ 既存の予定の主催者は変わらない。 ⚠️ 主催者が本人になると、 Android でゲストを入れた予定に server が招待メールを送るようになりうる
 - 既存の予定の主催者は Mac・iCloud.com からは書き換えられない = 先の回が残るものだけ作り直す ([#eventkit-add-attendees](#eventkit-add-attendees)、 参加者も移す)。 **古い方は Android 側で消す** (Mac で消すとまた不参加になるだけ)。 過去の回しか無いものは表示に影響しないので、 作り直さずにそのまま置く
+
+## <a id="recurring-one-occurrence"></a>繰り返し予定の 1 回だけをずらす・飛ばす (EventKit の道具)
+
+道具 = [`scripts/calendar-app-occurrence.py`](../scripts/calendar-app-occurrence.py) (`list` / `move` / `skip` / `remove-series`、 既定 dry-run、 `--apply` で書いて読み直す)。 中身は osascript の JXA から EventKit を呼ぶだけなので build は要らない。
+
+- **span の意味**: `この予定のみ` (EKSpanThisEvent = 0) = 元の系列に、 その回だけを変えた印 (RECURRENCE-ID の回) が付くだけで、 系列は変わらない。 `これ以降` (EKSpanFutureEvents = 1) = その回から先。 **1 回だけの変更は必ず `この予定のみ`**
+- ⚠️ **系列を丸ごと消すときは、 最初に見えている回でなく系列の本体に対して `これ以降` を当てる** (`calendarItemsWithExternalIdentifier`)。 最初の回が個別に変えた回 (id が `<uid>/RID=…` の別物) だったり検索の窓より前だったりすると、 見えている最初の回から先だけが消え、 系列は途中で切れて残る (実測: 道具の dry-run で気づいた)
+- **Android (Etar + DAVx5) で繰り返しの回を変えると壊れることがある** (実測): 予定を開いても編集が出ず「複製」 しか選べず、 複製は同じ繰り返しの写しをもう 1 本作るだけなので、 元は変わらないまま同じ予定が重なる。 新規に作った予定でも同じだったので、 古い予定だけの問題ではない (原因は未確定)。 → 1 回だけの変更は Mac (Calendar.app か本道具) から
+- **他の端末への反映**: Mac からの変更は iCloud にすぐ届くが、 **iCloud は DAVx5 に変更を知らせない** = Android は DAVx5 の次の同期まで古いまま (実測: 「二重のまま」 に見えた後、 同期で消えた)。 急ぐなら DAVx5 の「今すぐ同期」
+- **重なりの診断** (read-only): Calendar.app の DB (`~/Library/Group Containers/group.com.apple.calendar/Calendar.sqlitedb`、 `mode=ro`) の `CalendarItem` を summary で引き、 `Recurrence.specifier` (曜日、 例 `D=0MO,0SA`) と `end_date` (空 = 終わらない) を見る。 Android 製は UID が小文字の UUID。 ⚠️ Google の webcal 購読の写しは数時間遅れるので、 直後の診断には使えない
+- ⚠️ JXA で NSError** を受けるときは `$()` を渡す (`Ref()` を渡すと osascript が segfault した、 macOS 26 実測)
 
 ## <a id="use-cases"></a>使い所
 

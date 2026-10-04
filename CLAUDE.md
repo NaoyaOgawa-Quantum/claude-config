@@ -99,7 +99,7 @@ claude-config/
 │   ├── launchd-cloudstorage-tcc.md         # launchd agent が ~/Library/CloudStorage/ 配下を読む script を書く前
 │   ├── machine-route-first.md              # 外部 service / アプリを操作・データ取得する経路を選ぶとき (画面 drive を検討し始めた瞬間) + browser の cookie を再利用する script が login 切れで止まる・本人が毎回ログインに呼ばれるとき / ログインの切れを予告・監視しようとしたとき (#sso-session-recovery) + ログインの内側の配布物 (規則・通知・マニュアル) を読んで記録や文面に写すとき (#keep-fetched-originals) + 月送り・ページ送りが画面の widget だけの一覧を script で読むとき (#page-widget-walk)
 │   ├── macos-app-crash-triage.md           # macOS で「(アプリ) が予期しない理由で終了しました」 が出たとき + 同じアプリが繰り返し落ちるとき + crash の原因を「ベンダーの不具合」「自動化のせい」 と言う前
-│   ├── macos-calendar-write.md             # macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check) + 予定にゲスト (参加者) を足す・繰り返し予定を消す時 (#eventkit-add-attendees / #applescript-recurring-delete) + Android (DAVx5) で作った予定が Mac で消えない・Mac にだけ出ない時 (#android-davx5-organizer-invitation)
+│   ├── macos-calendar-write.md             # macOS Calendar.app 上の iCloud (または CalDAV / local) 所有 calendar に AppleScript / osascript で event を書き込もうとする前 + Google Calendar API から見て read-only (webcal 購読) な calendar に write する経路を探しているとき + API で Google Calendar に書いた予定が Mac の Calendar.app に出ない時 (#google-to-calendar-app-sync-check) + 予定にゲスト (参加者) を足す・繰り返し予定を消す時 (#eventkit-add-attendees / #applescript-recurring-delete) + Android (DAVx5) で作った予定が Mac で消えない・Mac にだけ出ない時 (#android-davx5-organizer-invitation) + 繰り返し予定の 1 回だけをずらす・飛ばす時 / 重なった繰り返しの写しを消す時 (#recurring-one-occurrence)
 │   ├── macos-claude-app-notifications.md   # Claude for Mac (desktop / Code タブ) の通知音が鳴らない・通知が来ないとき + macOS の通知が全般に鳴らない原因を調べるとき + 集中モード (おやすみモード) の設定画面を user に案内する前
 │   ├── macos-claude-app-pty-leak.md        # macOS で forkpty: Device not configured が出たとき
 │   ├── macos-claude-app-thinking-display.md # Claude for Mac (desktop / Code タブ) で思考 (thinking) の要約が画面に出ない・「考え中」 / 「思考」 の表示が見つからないとき + 思考の表示を既定にしたいとき + settings.json の showThinkingSummaries が desktop で効くか判断する前
@@ -199,7 +199,7 @@ claude-config/
 ├── notify-app/                  # macOS 通知の投稿元 applet (= 通知の click に行き先を与える)。 install.sh が build + deploy、 click 先は --click-script で呼ぶ側の層が渡す（正本 = conventions/macos-clickable-notifications.md）
 <!-- agent-free:begin id=auto-tree-scripts -->
 <!-- AUTO-TREE:scripts BEGIN (generate-tree.py --write が生成 — 手編集禁止、 同期検査 = --check。 全列挙 + 説明は scripts/README.md 〔生成物〕 へ移設 = 2026-09-01) -->
-├── scripts/              # 運用 script 群 (293 file + formcase/ 26 module + lib/ 60 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
+├── scripts/              # 運用 script 群 (294 file + formcase/ 26 module + lib/ 60 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
 <!-- AUTO-TREE:scripts END -->
 <!-- agent-free:end id=auto-tree-scripts -->
 ├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
