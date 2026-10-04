@@ -228,6 +228,16 @@ CLAUDE.md 95 → 35 KB)。
   超えてからは、 足す分を同じ commit で MOVE + pointer 化して払う。 縮退の commit 自体は止まらない) ③ 故障は違反と別の終了値
   (3) で「この commit では走っていない」 を出す ④ 逃げ道の env は owner が明示したときだけ使う。 engine =
   [`scripts/check-memory-file-bloat.py`](../scripts/check-memory-file-bloat.py) `--staged --block` (予算の値は engine だけが持つ)。
+  <a id="pay-command"></a>⑤ **止めた画面には「払う 1 コマンド」 を出し、 止められた側は追記を取り下げずに払う。** 実測 (12 日間、 1 台の記録) では止められた
+  12 回のうち払ったのは 1 回、 残りは追記の取り下げか削りで終わり、 要る routing・制約が落ちた。 払う操作 (どの行を・どこへ・verbatim で・
+  link を直して・検算して) に道具が無く、 止めた画面が手順 doc を指していたことが原因。 道具 = [`scripts/memory-budget-pay.py`](../scripts/memory-budget-pay.py)
+  (`status` = 予算までの余裕 / `candidates` = 行を経緯 payload の多い順に / `retreat` = 一意 prefix の 1 行を新しい行に置換して旧行を archive の
+  日付つき節へ verbatim / `graduate` = entry を archive へ MOVE、 義務語彙の hit は carrier を書かないと dry-run)。 何を残すかは呼び手が決める
+  (手順 4)。 利用者は既定値 (file・archive) を渡す shim を置き、 pre-commit の `--pay-cmd` と surface の `--headroom` に同じ command を渡す。
+  ⑥ **払うときは予算の線まででなく余裕の目安 (予算 − 8 KB、 道具の既定) まで払う** = 足した分だけ払うと file は予算の線に張り付き、 以後の
+  全 commit が境界の取引になる (実測: 2.6 KB の余裕は 3 日で尽き、 その後 2 週間ほど毎 commit 止まった)。 ⑦ **経緯 payload (日付・RCA・実測・
+  引用の括弧) が数 KB しか残っていない file は pointer 化の床** — 払いの原資が無いので、 行を落とすか構造を変える (列挙を生成 file へ・制約を
+  使う瞬間の hook へ) 判断が要る。 その判断は owner のもので、 道具は `candidates` の合計で床に居ることを示すだけ。
 
 (以上の置き方は任意の常設検出器に通じる一般形だが、 実例 1 件のため本 doc 留め —
 2 例目で上層 doc への hoist を判断する。)
