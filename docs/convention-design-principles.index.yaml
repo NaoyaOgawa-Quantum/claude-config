@@ -905,6 +905,10 @@ sections:
     legacy: "8.79"
     level: 3
     title: "8.79 受付に担当がいない待ち行列 — 表示をどれだけ磨いても、 読む主体と刻限が無ければ「読まないと急ぎと分からない依頼」 は残る"
+  - id: blocking-gate-pay-path
+    legacy: "8.80"
+    level: 3
+    title: "8.80 止める gate は「払う」 を「取り下げる」 より安くする — でないと、 止めた分だけ要る追記が黙って落ちる"
   - id: environment-literal-placement
     legacy: "24"
     level: 2
