@@ -56,7 +56,9 @@ coverage check (--expect-account、 repeatable):
   (= 前回の run のまま) にも log 末尾にも出ない (conventions/scheduled-tasks.md#missed-run-detection、 判定 =
   lib/launchd_job_log.py の missed_fire)。
   - 関門つきの job は本番ホストの分だけ、 台帳の since (本番になった時刻) より後の予定だけを見る
-    (本番でない機械では log を書かずに休むのが仕様)。 関門なしの job は always-on の機械の分だけ見る
+    (本番でない機械では関門が待機の 1 行を log に書く = log の新しさは run の証拠にならない)。 本番ホストでも
+    log の最後の行が関門の待機 (log_deferred) なら run ではない (= 関門が別の機械を本番と読んだ)。
+    関門なしの job は always-on の機械の分だけ見る。 今走っている job (running) には「実行中」 と添える
   - beat の時刻の状態で判定する (= commit の間引きで beat が古くても、 その時点の log と予定を比べる)
   - 旧 writer の beat (claude_p / schedule 欄なし) は、 この機械の同じ label の plist の予定で読む
   - 台帳の host は --role に無ければ always-on とみなす (= 本番ホストの heartbeat の停止も 🔴)
@@ -226,14 +228,17 @@ def missed_run_findings(host, d, role, routine=None, plist_dir=None):
         lm = j.get("log_mtime")
         if lm is None and isinstance(j.get("log_age_h"), (int, float)):
             lm = epoch - j["log_age_h"] * 3600
-        fire = _jl.missed_fire(sched, lm, epoch, since=routine.get("since") if gated else None)
+        deferred = bool(gated and j.get("log_deferred"))
+        fire = _jl.missed_fire(sched, None if deferred else lm, epoch, since=routine.get("since") if gated else None)
         if fire is not None:
-            missed.append((lab, fire, lm))
+            note = "、 最後の起動で関門が待機を選んだ" if deferred else ""
+            note += "、 実行中" if j.get("running") else ""
+            missed.append((lab, fire, lm, note))
     if not missed:
         return []
     fmt = lambda t: time.strftime("%-m/%-d %H:%M", time.localtime(t))
-    items = ", ".join(f"{lab.rsplit('.', 1)[-1]} (予定 {fmt(f)}、 log の最後 {fmt(lm) if lm else 'なし'})"
-                      for lab, f, lm in missed)
+    items = ", ".join(f"{lab.rsplit('.', 1)[-1]} (予定 {fmt(f)}、 log の最後 {fmt(lm) if lm else 'なし'}{note})"
+                      for lab, f, lm, note in missed)
     pre = ".".join(missed[0][0].split(".")[:-1]) if len(missed) > 1 else missed[0][0]
     mark = "🔴" if len(missed) >= 2 else "🟠"
     return [f"{mark} {host}: 予定の時刻を {_jl.MISSED_GRACE_H}h 過ぎても log が更新されていない無人 job {len(missed)} 本"
@@ -545,6 +550,13 @@ def selftest():
             and "a (" not in missed_run_findings("mini", beat_m, "always-on", dict(rt, since=T(2030, 1, 5, 8, 0)))[0], \
             "本番になる前の予定は見ない"
         assert missed_run_findings("mini", beat_m, "always-on", None)[0].count("(予定") == 1, "台帳なし = 関門つきは見ない"
+        # 本番ホストで最後の行が関門の待機 = 新しい log でも run ではない / 今走っている job には「実行中」
+        bd = {"host": "mini", "epoch": bt, "jobs": [jm("p.cron.d", T(2030, 1, 5, 7, 30), log_deferred=True),
+                                                    jm("p.cron.r", T(2030, 1, 4, 7, 50), running=True)]}
+        fd = missed_run_findings("mini", bd, "always-on", rt)
+        assert "d (予定 1/5 07:30、 log の最後 1/5 07:30、 最後の起動で関門が待機を選んだ)" in fd[0] \
+            and "r (予定 1/5 07:30、 log の最後 1/4 07:50、 実行中)" in fd[0], fd
+        assert missed_run_findings("other", dict(bd, host="other"), "always-on", rt) == [], "本番でない機械の待機は仕様"
         # 旧 writer の beat (欄なし) は、 この機械の同じ label の plist の予定で読む / log_age_h から log の時刻
         import plistlib
         pdir = d / "LaunchAgents"

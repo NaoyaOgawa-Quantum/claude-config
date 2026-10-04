@@ -276,11 +276,14 @@ plist が書き直された job は exit 0 に戻り、 終了コードだけを
   本番ホストの分を出す (1 本 = 🟠、 2 本以上 = 🔴。 [`multi-machine-state.md#fleet-heartbeat`](multi-machine-state.md#fleet-heartbeat) 原則 7)。
 - **射程**: 毎回 log を書く job = `claude -p` を起動する job だけ。 することが無い日に何も出力しない cmd 型の job は、
   log が古くても故障とは限らないので見ない (成果物の鮮度の heartbeat が相補する)。
-- 関門つきの job は本番ホストでだけ見る (本番でない機械では log を書かずに休むのが仕様)。 本番になった時刻
-  (台帳の `since`) より前の予定は見ない。 関門なしの job は常時起動の機械でだけ見る (寝る機械は予定の時刻に走らない)。
+- 関門つきの job は本番ホストでだけ見る。 ⚠️ 本番でない機械では関門が待機の 1 行を log に書く = **log の新しさは
+  run の証拠にならない** (旧本番の log が毎日更新されていて「まだ旧本番が走らせている」 と読み違えやすい)。 本番ホストでも
+  log の最後の行が関門の待機なら run ではない (関門が別の機械を本番と読んだ)。 本番になった時刻 (台帳の `since`) より
+  前の予定は見ない。 関門なしの job は常時起動の機械でだけ見る (寝る機械は予定の時刻に走らない)。
 - 判定は beat の時刻の状態で行う (= beat の commit が間引かれていても、 その時点の log と予定を比べる)。 遅れは
   最大で beat の commit の間隔 + 3 時間。
-- **見つけたら**: そのマシンで `launchctl list` の PID 列と `ps` で `claude -p` が居座っていないかを見る。 居座って
+- **見つけたら**: そのマシンで `launchctl list` の PID 列と `ps` で `claude -p` が居座っていないかを見る (beat の
+  `running` = beat の時点で PID があった)。 居座って
   いれば画面のダイアログ (keychain の許可など) か `sample <pid>` を見てから止める。 居なければ起動していない側 =
   関門の判定と `launchctl print gui/<uid>/<label>` の runs / last exit code を見る。
 

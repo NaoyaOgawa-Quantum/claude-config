@@ -53,8 +53,8 @@ usage:
     desktop_scheduled_tasks: [{registry, enabled_ids}],
     inventories: {label: [name, ...]},         # --inventory 指定時のみ
     jobs: [{label, last_exit, python, python_runs, python_ok, bare_in_command, bare_in_wrapper,
-            log_failure, log_age_h, log_mtime, config_dir?,
-            claude_p, gated, schedule}],                        # --job-label-prefix 指定時のみ
+            log_failure, log_age_h, log_mtime, log_deferred, config_dir?,
+            claude_p, gated, schedule, running}],               # --job-label-prefix 指定時のみ
     job_python_modules: [module, ...],                           # 同上
     engine_head: <本 engine の repo の HEAD sha>,                  # 「この Mac の層1 は何版か」 を他マシンから読む (essence 外)
     harness_hooks: [hook file 名, ...],                          # ~/.claude/settings.json に配線された hook の名前だけ
@@ -136,7 +136,8 @@ job health (--job-label-prefix、 opt-in、 repeatable):
     log_age_h = その log の最終更新からの時間、 config_dir = auth のときだけ plist の CLAUDE_CONFIG_DIR
     (判定 = scripts/lib/launchd_job_log.py、 check-cron-health と共有。 plist を読み込み直すと last_exit は 0 に戻るので、
     last_exit だけでは失敗が消える = conventions/scheduled-tasks.md#reload-resets-exit-status)
-  - log_mtime = その log の最終更新の時刻 (epoch)、 claude_p = 起動行が headless `claude -p` を起動するか、
+  - log_mtime = その log の最終更新の時刻 (epoch)、 log_deferred = log の最後の行が関門の待機 (= 直近の起動は run でない)、
+    running = `launchctl list` に PID がある (= 今走っている)、 claude_p = 起動行が headless `claude -p` を起動するか、
     gated = 起動行が本番ホストの関門 (routine-host-gate.py) を通るか、 schedule = plist の予定
     (判定 = scripts/lib/launchd_job_log.py)。 reader は本番ホストで、 予定の時刻を過ぎても log が更新されていない
     claude -p の job を出す (= 起動しなかった run と終わらない run は、 終了コードにも log 末尾にも出ない、
@@ -464,6 +465,7 @@ def job_health(label, status, plist, modules, home):
                 rec["log_mtime"] = int(lp.stat().st_mtime)
             except OSError:
                 rec["log_mtime"] = None
+            rec["log_deferred"] = _jl.deferred_tail(lp)
             if rec["log_failure"] == "auth":
                 rec["config_dir"] = _jl.config_dir_of(plist if isinstance(plist, dict) else None) or None
         except Exception:
@@ -522,7 +524,9 @@ def scan_jobs(launchctl_out, prefixes, modules, home):
         except Exception:
             pl = None
         try:
-            out.append(job_health(label, status, pl, modules, home))
+            rec = job_health(label, status, pl, modules, home)
+            rec["running"] = parts[0].strip() not in ("", "-")
+            out.append(rec)
         except Exception:
             out.append({"label": label, "last_exit": None, "python": None, "python_runs": None, "python_ok": None,
                         "bare_in_command": None, "bare_in_wrapper": None})
@@ -1114,7 +1118,8 @@ def selftest():
                 and ja["log_age_h"] is not None and ja["last_exit"] == 0, ja
             assert essence({"jobs": [ja]}) != essence({"jobs": [dict(ja, log_failure=None)]}), "失敗の原因の変化も即 commit"
             # 予定の run が log に残っているかの材料 (reader の判定 = lib の missed_fire)
-            assert isinstance(ja["log_mtime"], int) and ja["claude_p"] is True and ja["gated"] is False \
+            assert isinstance(ja["log_mtime"], int) and ja["log_deferred"] is False and ja["claude_p"] is True \
+                and ja["gated"] is False \
                 and ja["schedule"] is None, ja
             jc = job_health("j.cal", "0", {"ProgramArguments": ["/bin/sh", "-c",
                             'cd x && { python3 "$HOME/c/routine-host-gate.py" r l.json; } && exec "/u/claude" -p "x"'],
