@@ -909,6 +909,10 @@ sections:
     legacy: "8.80"
     level: 3
     title: "8.80 止める gate は「払う」 を「取り下げる」 より安くする — でないと、 止めた分だけ要る追記が黙って落ちる"
+  - id: ask-before-it-is-produced
+    legacy: "8.81"
+    level: 3
+    title: "8.81 残してほしいものは、 それが生まれる前に頼む — 事後の回収手順は、 書き出されなかったものを回収できない"
   - id: environment-literal-placement
     legacy: "24"
     level: 2

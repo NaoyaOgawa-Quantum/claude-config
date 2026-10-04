@@ -3597,6 +3597,21 @@ origin: 実測 (検出には掛かっていた依頼が、 開始時の一覧で
 手順と道具の正本 (常時読み込まれる memory file の場合) = [`conventions/memory-file-slimming.md#pay-command`](../conventions/memory-file-slimming.md#pay-command)。
 同じ「最安の行為が勝つ」 の protocol 側 = [#protocol-cheapest-action-coverage](#protocol-cheapest-action-coverage)。
 
+### <a id="ask-before-it-is-produced"></a>8.81 残してほしいものは、 それが生まれる前に頼む — 事後の回収手順は、 書き出されなかったものを回収できない
+
+委ねた先 (agent・別 session・人) の成果を締めの整理で拾う手順を作り込んでも、 拾えるのは**書き出されたものだけ**。
+考えている途中の中身 (捨てた案・途中で気づいた壊れ方・確かめていないこと) は、 記録に中身が残らないことがある (実測: agent の
+「考え中」 の欄はすべて空)。 締めの手順に「書かせる」 と書いても、 その手順を読む時には相手はもう考え終わっている。
+
+- **頼むのは委ねる瞬間** — 「何を書き残すか」 は、 仕事を渡す指示そのものに入れる。 委ねる側が毎回思い出す形は、 書き忘れれば落ちる。
+  委ねる操作を機械で書き換えられるなら、 そこで足す (書き換えの hook = [`hooks/delegation-record-clause.py`](../hooks/delegation-record-clause.py))
+- **機械が通らない経路は、 依頼の雛形の必須項目にする** — 書き換えの hook が届かない委ね方 (別 session の起票・掲示板の依頼) は、
+  依頼文の雛形に同じ約束を置く ([`conventions/multi-session-coordination.md#worker-record-clause`](../conventions/multi-session-coordination.md#worker-record-clause))
+- **締めの手順の仕事は「読む」 だけにする** — 回収の道具は、 書き出された分 (報告の全部・書いた file) を漏れなく読むことに徹する。
+  回収の側で「足りない」 と気づいても、 その回の分はもう取り戻せない
+
+一般形 = 証跡が要るものは、 その証跡が生まれる操作の時点で残させる (後から再構成させない)。
+
 ## <a id="environment-literal-placement"></a>24. 環境に依存する値は「配る物」 に焼かない — 実行時に導くか、 導けない形式なら install 時に生成する
 
 ### <a id="literal-placement-question"></a>24.1 判別の 1 問
@@ -3744,3 +3759,4 @@ origin: 実測 (検出には掛かっていた依頼が、 開始時の一覧で
 | 2026-09-20 | §8.12 に「配線した瞬間と、 効き始める瞬間は別」 (#wired-is-not-yet-firing) を追加 | 検出器を別の機械へ配る作業で、 「pull すれば効く」 が面によって正しくないと分かった (実測): session 開始時に読まれる設定に登録した hook は**次の session から**、 実行のたび source を読む入口は**即時**、 自動発見される test は**runner の次回起動**、 無人の定期実行は**次の発火時刻**。 含意 3 つ = 「配って終わり」 の前に最初に鳴る機会を面ごとに答える / 配線直後に鳴らないのを壊れたとも動いているとも誤診しない (死活は壊れた state の注入でしか確かめられない) / 遅れの無い面を併設すると待ち時間が実質ゼロになる (§8.12 が 2 面を勧める理由が遅延の面でも効く)。 user 依頼。 |
 | 2026-10-03 | §19.9 新設「合格は関門と一緒に古くなる — 判定は成果物でなく『外へ出す操作』 に付ける」 + §19.10 新設「回収と隔離は別の操作」 | 生成道具の欠陥を直して検査を足した後に、 直す前の世代の成果物が出す段の検査を通って外へ出た (実測)。 出す段の検査が成果物の自己申告から引かれ、 旧世代は申告を持たなかった / 「出た分はよい」 が「既存の出力には触らない」 と記録され隔離が消えた。 instance = conventions/form-case-pipeline.md#regate |
 | 2026-10-04 | §8.80 新設「止める gate は『払う』 を『取り下げる』 より安くする — でないと、 止めた分だけ要る追記が黙って落ちる」 | 常時読み込まれる file の大きさの gate で、 止められた回の大半が払わずに追記の取り下げか削りで終わっていた (実測)。 払う道具が無く、 足した分だけ払う形で線に張り付き、 予告の線が止める線の上にあった。 instance = conventions/memory-file-slimming.md#pay-command |
+| 2026-10-04 | §8.81 新設「残してほしいものは、 それが生まれる前に頼む — 事後の回収手順は、 書き出されなかったものを回収できない」 | 委ねた agent の考えたことを締めの整理で拾う手順を足したが、 agent の考え中は記録に中身が残らず、 頼む時点が遅すぎた (実測)。 instance = hooks/delegation-record-clause.py / conventions/multi-session-coordination.md#worker-record-clause |
