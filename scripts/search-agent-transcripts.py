@@ -8,6 +8,10 @@ repo に無くても、 会話そのものから発言者と時刻を確かめ�
 
 読む記録:
   Claude Code : <claude-dir>/*/*.jsonl  (既定 ~/.claude/projects)
+                + その session が使った agent (subagent) の記録 <claude-dir>/*/<session>/subagents/agent-*.jsonl
+                  (session id = 親の session。 agent の発言は「assistant(agent)」、 親が agent に渡した指示は role「parent」
+                  = `--role user` には入らない。 agent が報告を受け渡しの呼び出し 〔SubagentHandback〕 で返した分も本文として読む。
+                  ⚠️ agent の「考え中」 は記録に中身が残らない = 考えたことは報告と成果物に書かれた分しか引けない)
                 record の type が user / assistant、 message.content は文字列か
                 {type: text, text} の list
                 ⚠️ agent が作業している途中に打たれた発話は user の行にならず、 type が attachment で
@@ -84,6 +88,9 @@ def _texts_claude(rec: dict) -> tuple[str | None, list[str]]:
         for x in c:
             if isinstance(x, dict) and x.get("type") == "text" and isinstance(x.get("text"), str):
                 out.append(x["text"])
+            elif (isinstance(x, dict) and x.get("type") == "tool_use" and x.get("name") == "SubagentHandback"
+                  and isinstance((x.get("input") or {}).get("message"), str)):
+                out.append(x["input"]["message"])  # agent が報告を受け渡しの呼び出しで返した分
     return t, out
 
 
@@ -105,12 +112,20 @@ def _session_of(path: Path, agent: str) -> str:
     if agent == "codex":
         m = re.search(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", name)
         return m.group(1) if m else name
+    if path.parent.name == "subagents":
+        return path.parent.parent.name  # agent の記録は親 session の id で引く
     return name
+
+
+def _is_subagent(path: Path) -> bool:
+    return path.parent.name == "subagents"
 
 
 def iter_files(agent: str, claude_dir: Path, codex_dirs):
     if agent in ("claude", "both") and claude_dir.is_dir():
         for f in sorted(claude_dir.glob("*/*.jsonl")):
+            yield "claude", f
+        for f in sorted(claude_dir.glob("*/*/subagents/agent-*.jsonl")):
             yield "claude", f
     if agent in ("codex", "both"):
         if isinstance(codex_dirs, (str, Path)):
@@ -159,6 +174,9 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
                 if until and ts[:10] > until:
                     continue
                 r, texts = (_texts_claude if ag == "claude" else _texts_codex)(rec)
+                sub_agent = ag == "claude" and _is_subagent(f)
+                if sub_agent and r == "user":
+                    r = "parent"  # 親が agent に渡した指示 (user 本人の発言ではない)
                 if r is None or (role != "any" and r != role):
                     continue
                 for tx in texts:
@@ -175,6 +193,8 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
                     j = m.end() if m is not None else i + len(pattern)
                     snip = tx[max(0, i - context): j + context].replace("\n", " ")
                     shown = r + "(写し)" if QUOTED_SPEAKER_RE.search(tx[max(0, i - 40): i]) else r
+                    if sub_agent and r == "assistant":
+                        shown += "(agent)"
                     hits.append((ts, ag, sid[:8], shown, snip))
     hits.sort()
     return hits[:limit] if limit else hits
@@ -267,6 +287,13 @@ def selftest() -> int:
             {"type": "assistant", "timestamp": "2099-01-01T00:00:02Z", "message": {"content": [{"type": "text", "text": "りんごは赤で記録します"}]}},
             {"type": "user", "timestamp": "2099-01-03T00:00:00Z", "message": {"content": "みかんの話"}},
         ]) + "\n", encoding="utf-8")
+        sa = cl / "aaaaaaaa-1111" / "subagents"
+        sa.mkdir(parents=True)
+        (sa / "agent-zz.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in [
+            {"type": "user", "timestamp": "2099-01-06T00:00:00Z", "message": {"content": "メロンを調べて"}},
+            {"type": "assistant", "timestamp": "2099-01-06T00:00:01Z", "message": {"content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "メロンは緑だった (報告)"}}]}},
+        ]) + "\n", encoding="utf-8")
         codex_msg = {"type": "response_item", "timestamp": "2099-01-02T00:00:00Z",
                      "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "りんごは青では"}]}}
         (cx / "rollout-2099-01-02T00-00-00-00000000-0000-4000-8000-00000000c0de.jsonl").write_text(
@@ -294,6 +321,10 @@ def selftest() -> int:
             check("--regex", len(search("りんごは(赤|青)", **{**base, "regex": True})) == 2),
             check("--session で session を絞る", [x[2] for x in search("りんご", **{**base, "session": "aaaa"})] == ["aaaaaaaa"]),
             check("event_msg など会話でない record は読まない", all("task" not in x[4] for x in search("りんご", **{**base, "role": "any"}))),
+            check("agent の記録も読む: 受け渡しの報告が assistant(agent) で、 親の session id で出る",
+                  [(x[2], x[3]) for x in search("メロン", **{**base, "role": "assistant", "session": "aaaa"})] == [("aaaaaaaa", "assistant(agent)")]),
+            check("親が agent に渡した指示は --role user に入らない (role = parent)",
+                  search("メロン", **base) == [] and [x[3] for x in search("メロン", **{**base, "role": "parent"})] == ["parent"]),
         ]
         # アーカイブされた Codex session (平置き) と、 別 session に貼られた会話の抜粋
         arch = Path(td) / "codex-archived"
@@ -375,7 +406,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Claude Code と Codex の会話記録を横断して発言を探す")
     ap.add_argument("pattern", nargs="?")
     ap.add_argument("--regex", action="store_true", help="pattern を正規表現として扱う")
-    ap.add_argument("--role", default="user", choices=["user", "assistant", "developer", "any"])
+    ap.add_argument("--role", default="user", choices=["user", "assistant", "developer", "parent", "any"])
     ap.add_argument("--agent", default="both", choices=["claude", "codex", "both"])
     ap.add_argument("--since", help="YYYY-MM-DD (この日を含む)")
     ap.add_argument("--until", help="YYYY-MM-DD (この日を含む)")
