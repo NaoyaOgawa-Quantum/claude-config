@@ -1,6 +1,6 @@
 # 子原稿を読み込みから外す 2 段の経路: 塞ぎ方の提案 (裁定前)
 
-**状態: 裁定前。** engine 本体と [原稿の所有権](../conventions/manuscript-claim-ownership.md) にはまだ当てていない。 当てるのは本人の裁定の後。 差分 = [manuscript-guard-input-detach-proposal.diff](manuscript-guard-input-detach-proposal.diff) (基準 = 改名・移動の扱いを入れた版の [manuscript-claim-guard.py](../scripts/manuscript-claim-guard.py)、 `git apply --check` で当たることを確認済み)。
+**状態: 適用済み (2026-10-04、 本人「両方入れて当ててよし」)。** engine と [原稿の所有権](../conventions/manuscript-claim-ownership.md) に入った。 以下は提案時の記録。
 
 ## <a id="hole"></a>穴
 
