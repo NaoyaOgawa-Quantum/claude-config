@@ -102,6 +102,9 @@ session 内で作る。 「あとで整備」 は ID 喪失の前兆)。 **汎�
   push しない運用の repo は local が恒久的に ahead になる。 status 行末尾に
   `ahead-expected` token を付ける (= template の `AHEAD_EXPECTED=1`) と検出器が
   ahead INFO を抑制する (= dashboard を恒久 INFO で汚さない。 behind 検出は不変)
+- **中身の照合**: status 行に `content-diff=K [file,…]` を出す (= Overleaf が持つ file の
+  うち、 HEAD の中身が `overleaf/master` と違う数と名前。 template が出す)。 検出器は K>0 を
+  WARN にする。 理由と直し方 = 下の [#content-parity](#content-parity)
 - token は `~/.secrets/overleaf-token` から読み、 出力は `olp_…` を自動マスク
   (上記 §Token 管理)
 - 連携を廃止したら script を削除せず **冒頭で `DEPRECATED` を表示して exit 0** に
@@ -116,6 +119,28 @@ behind>0 / ID 未設定 / 未 bootstrap / 「Overleaf 連携の記述がある�
 を surface する。 **汎用実装 = `scripts/check-overleaf-drift.py`** (本 repo、 finding
 0 件なら silent / `--selftest` 内蔵 / `--root` で走査 root 変更)。 個人層の dashboard
 末尾から呼んで毎 session 発火させる (odakin の case: unified-dashboard 統合)。
+
+### <a id="content-parity"></a>取り込み済み (behind=0) は「同じ中身」 を意味しない
+
+`behind=0` は `overleaf/master` が手元の履歴の祖先になったことしか言わない。 Overleaf が持つ file の
+中身が手元と同じかは別に確かめる。
+
+**実測した壊れ方**: Overleaf 側で file を改名した commit (旧版を別名で残し、 新版を新しい名前で足す) を、
+改名前の file を手元で編集していた branch に merge すると、 git の rename 検出が手元の編集を**改名先の
+file に適用する**。 conflict は出ず、 `behind=0` になる。 結果、 「旧版をそのまま保存した」 はずの file が
+手元でだけ新版の中身になる。 その file を基準に作る成果物 (latexdiff の旧側など) は、 差分がほぼ消えた形で
+黙って作り直される。 Overleaf 側の file は正しいままなので、 共著者からは見えない。
+
+**検出**: sync script の status 行の `content-diff=K [file,…]` (template が出す) と、 それを WARN にする
+`scripts/check-overleaf-drift.py`。 手で見るなら
+`git diff --stat overleaf/master HEAD -- $(git ls-tree -r --name-only overleaf/master)` が空か。
+改名を含む Overleaf 側 commit を merge した直後は必ず見る。
+
+**直し方**: `git checkout overleaf/master -- <file>` で Overleaf の版に戻して commit し、 その file から
+作った成果物を作り直す。 壊れた成果物を人に送っていたら差し替える。
+
+手元で未反映の編集を持つ file もここに出る (= 「Overleaf にまだ無い」 の表示として正しい)。 手元でだけ
+違う中身を持ち続ける運用の repo は、 template の `CONTENT_DIFF_EXPECTED=1` で宣言する。
 
 ### <a id="new-integration-checklist"></a>新規連携 checklist (= 連携を張った session 内で完遂、 計 ~2 分)
 

@@ -42,6 +42,10 @@ MERGE_OPTS="-X theirs"
 # check-overleaf-drift.py が ahead INFO を出さなくなる (behind 検出には影響しない)
 AHEAD_EXPECTED=0
 
+# Overleaf が持つ file を、 手元でだけ違う中身のまま持ち続ける運用 (= 未反映の編集を main に置く) なら 1 にすると、
+# status 行に content-diff-expected marker が付き check-overleaf-drift.py が中身の相違を WARN にしなくなる
+CONTENT_DIFF_EXPECTED=0
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOKEN_FILE="${OVERLEAF_TOKEN_FILE:-$HOME/.secrets/overleaf-token}"
 
@@ -75,13 +79,33 @@ AHEAD=$(git -C "$REPO_ROOT" rev-list --count overleaf/master..HEAD 2>/dev/null |
 BEHIND=$(git -C "$REPO_ROOT" rev-list --count HEAD..overleaf/master 2>/dev/null || echo "?")
 MARK=""
 [ "$AHEAD_EXPECTED" = "1" ] && MARK=" ahead-expected"
-echo "[overleaf-sync] ahead=$AHEAD behind=$BEHIND$MARK"
+
+# 中身の照合: Overleaf が持つ file のうち、 HEAD の中身が overleaf/master と違うもの。
+# behind=0 は「取り込み済み」 であって「同じ中身」 ではない (改名を含む merge では、 改名先の file に手元の編集が乗る。
+# 規約 = conventions/overleaf-integration.md#content-parity)。 手元で編集中の file もここに出る。
+OL_FILES=$(git -C "$REPO_ROOT" ls-tree -r --name-only overleaf/master 2>/dev/null || true)
+DIFF_FILES=""
+if [ -n "$OL_FILES" ]; then
+  DIFF_FILES=$(git -C "$REPO_ROOT" diff --name-only overleaf/master HEAD 2>/dev/null \
+    | grep -Fx -f <(printf '%s\n' "$OL_FILES") || true)
+fi
+NDIFF=$(printf '%s' "$DIFF_FILES" | grep -c . || true)
+CD=" content-diff=$NDIFF"
+[ "$NDIFF" != "0" ] && CD="$CD [$(printf '%s\n' "$DIFF_FILES" | head -5 | paste -sd, -)]"
+[ "$CONTENT_DIFF_EXPECTED" = "1" ] && CD="$CD content-diff-expected"
+echo "[overleaf-sync] ahead=$AHEAD behind=$BEHIND$MARK$CD"
 
 case "$MODE" in
   --status|status)
     if [ "$BEHIND" != "0" ] && [ "$BEHIND" != "?" ]; then
       echo "[overleaf-sync] ⚠️ Overleaf に未取込みの編集 $BEHIND commits。 取り込みは:" >&2
       echo "    bash scripts/overleaf-sync.sh --merge" >&2
+    fi
+    if [ "$NDIFF" != "0" ] && [ "$CONTENT_DIFF_EXPECTED" != "1" ]; then
+      echo "[overleaf-sync] ⚠️ Overleaf が持つ file のうち、 手元 (HEAD) の中身が違うもの:" >&2
+      printf '%s\n' "$DIFF_FILES" | sed 's/^/    /' >&2
+      echo "    手元で編集中なら想定どおり。 心当たりが無ければ merge で中身が混ざっている" >&2
+      echo "    (Overleaf の版に戻す: git checkout overleaf/master -- <file>)" >&2
     fi
     ;;
   --merge|merge)
