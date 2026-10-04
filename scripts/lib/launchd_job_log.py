@@ -21,6 +21,8 @@
     その run の分の log が書かれていない = 起動しなかった run か、 終わらずに止まっている run
     (終了コードも log 末尾も前回の run のことしか言わない = conventions/scheduled-tasks.md#missed-run-detection)。
     log が毎回書かれる job (= headless `claude -p` は終わる時に結果を書く、 runs_claude_p) にだけ使う
+  - deferred_tail: log の最後の行が本番ホストの関門の待機 (GATE_DEFER_MARKER) = 直近の起動は run でない。
+    本番でない機械では毎回この 1 行が書かれる = log の新しさは run の証拠にならない
 """
 from __future__ import annotations
 
@@ -109,6 +111,7 @@ MISSED_GRACE_H = 3        # 予定の時刻からこれだけたっても log �
 MISSED_SLACK_S = 6 * 60   # log の時刻の丸め (beat の log_age_h は 0.1 時間単位) を見込む
 _CLAUDE_P_RE = re.compile(r'\bclaude"?\s+(?:-p|--print)(?=\s|$)')
 _GATE_RE = re.compile(r"routine-host-gate\.py")
+GATE_DEFER_MARKER = "[routine-host-gate] defer:"   # 関門が待機を選んだ時に stderr (= job の log) へ書く行の頭
 _CAL_KEYS = ("Minute", "Hour", "Day", "Weekday", "Month")
 
 
@@ -122,8 +125,14 @@ def runs_claude_p(plist: dict | None) -> bool:
 
 
 def is_gated(plist: dict | None) -> bool:
-    """起動行が本番ホストの関門 (routine-host-gate.py) を通るか (= 本番でない機械では log を書かずに休む job)。"""
+    """起動行が本番ホストの関門 (routine-host-gate.py) を通るか (= 本番でない機械では待機の 1 行を書いて休む job)。"""
     return bool(_GATE_RE.search(_command(plist)))
+
+
+def deferred_tail(path) -> bool:
+    """log の最後の (空でない) 行が関門の待機 = 直近の起動は、 本番でないと判断して休んだ (run ではない)。"""
+    tail = [ln for ln in log_tail(path) if ln.strip()]
+    return bool(tail) and GATE_DEFER_MARKER in tail[-1]
 
 
 def schedule_of(plist: dict | None) -> dict | None:
@@ -248,6 +257,10 @@ def selftest() -> int:
                  "StartCalendarInterval": {"Hour": 7, "Minute": 30}}
         ck("claude -p を起動する job", runs_claude_p(gated) and not runs_claude_p({"ProgramArguments": ["sh", "-c", "claude-p x"]}))
         ck("関門を通る job", is_gated(gated) and not is_gated(pl))
+        (d / "defer.log").write_text("result\n[routine-host-gate] defer: active host=b != me ['a']\n\n")
+        (d / "ran.log").write_text("[routine-host-gate] defer: active host=b != me ['a']\nresult of the run\n")
+        ck("最後の行が関門の待機", deferred_tail(d / "defer.log") and not deferred_tail(d / "ran.log")
+           and not deferred_tail(d / "none.log"))
         ck("予定 (dict 1 つ)", schedule_of(gated) == {"cal": [{"Minute": 30, "Hour": 7}]})
         ck("予定 (list / interval / 無し)",
            schedule_of({"StartCalendarInterval": [{"Hour": 7, "Minute": 10}, {"Hour": 13, "Minute": 10}]})
