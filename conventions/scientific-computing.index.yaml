@@ -112,6 +112,15 @@ sections:
   - id: threshold-by-root-not-grid
     level: 2
     title: "符号や大小が変わる点は、 格子の値から読まずに根で出す"
+  - id: symmetry-of-prescription-finite-part
+    level: 2
+    title: "計算の処方が対称性を保つかは発散の係数では分からない — Ward 恒等式を極と有限部で別々に検査する"
+  - id: literature-sign-map
+    level: 2
+    title: "文献の式との符号の対応は、 規約に依らない項で固定する"
+  - id: cas-library-traps
+    level: 2
+    title: "記号計算・数値積分 library の罠と、 自作 engine の検算 (sympy / mpmath)"
   - id: research-script-homes
     level: 2
     title: "研究スクリプトと知見の配置・全数索引"
