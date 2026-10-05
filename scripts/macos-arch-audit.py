@@ -299,9 +299,42 @@ def check_apps(native: str, findings: list) -> list[str]:
     if dead:
         lines.append(f"  ⛔ どの現行 Mac でも起動しない (i386 / ppc だけ) {len(dead)} 個:")
         lines += [f"       {a}" for a in dead]
+    updaters = foreign_support_bundles(native)
+    if updaters:
+        findings.append(f"別 arch の自動更新係・補助アプリ {len(updaters)} 個")
+        lines.append(f"  🟠 /Applications の外の別 arch の bundle (自動更新係など) {len(updaters)} 個 — "
+                     "Rosetta の下の更新係は別 arch として更新を取りに行き、 入れ替えたアプリを戻しうる "
+                     "(直し方 = conventions/macos-cpu-arch.md#app-replacement):")
+        lines += [f"       {a}" for a in updaters]
     if not lines:
         lines.append("  ✅ アプリはすべてネイティブ")
     return lines
+
+
+def foreign_support_bundles(native: str) -> list[str]:
+    """Application Support と ~/Library/<vendor>/ に置かれた .app (自動更新係・補助) のうち別 arch だけのもの。
+
+    移行アシスタントは旧機の arch の更新係を運ぶ。 本体を入れ替えても更新係が別 arch のままだと、
+    更新係が自分の arch を名乗って更新を取り、 本体を旧 arch の版に戻しうる (実測)。 /Applications の走査では見えない。
+    """
+    pats = []
+    for base in ("/Library/Application Support", str(HOME / "Library/Application Support")):
+        pats += [base + "/*/*.app", base + "/*/*/*.app", base + "/*/*/*/*.app"]
+    pats.append(str(HOME / "Library") + "/*/*.app")
+    seen, out = set(), []
+    for app in sorted({a for p in pats for a in glob.glob(p)}):
+        real = os.path.realpath(app)
+        if real in seen or "/Script Editor/" in app:  # Apple の雛形 (droplet) は対象外
+            continue
+        seen.add(real)
+        try:
+            d = plistlib.loads((Path(app) / "Contents" / "Info.plist").read_bytes())
+        except Exception:  # noqa: BLE001
+            continue
+        exe = d.get("CFBundleExecutable")
+        if exe and verdict(archs_of(str(Path(app) / "Contents" / "MacOS" / exe)), native) == "foreign":
+            out.append(app)
+    return out
 
 
 # ---------------------------------------------------------------- 本体
@@ -330,7 +363,7 @@ def run(args) -> int:
     for title, lines in sections:
         out.append(f"\n## {title}")
         out += lines
-    red = [f for f in findings if not f.startswith(("別 arch だけのアプリ", "npx cache", "別 arch の Homebrew"))]
+    red = [f for f in findings if not f.startswith(("別 arch だけのアプリ", "別 arch の自動更新係", "npx cache", "別 arch の Homebrew"))]
     out.append(f"\n{'🔴 実行経路に別 arch あり ' + str(len(red)) + ' 件' if red else '✅ 実行経路に別 arch なし'}"
                f" (アプリ・cache・残置 Homebrew を含む指摘は全 {len(findings)} 件)。 直し方 = conventions/macos-cpu-arch.md")
     if args.json:
