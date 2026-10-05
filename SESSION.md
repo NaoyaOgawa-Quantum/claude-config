@@ -19,8 +19,6 @@
 
 ## Open items（forward-looking）
 
-- [ ] **headless worker への記録条項** — 差し戻し対応を検証し、再提出・検収の段階。次は受領結果に応じた対応。実装・射程・再現検査 = [headless-record-clause-nudge.py](hooks/headless-record-clause-nudge.py)、規則 = [worker-record-clause](conventions/multi-session-coordination.md#worker-record-clause)。
-
 - [ ] **collaborator-check の未実走の面** — Claude Code の project hook は headless で発火を確認、 共同編集者の実機・Windows (Git Bash)・Codex (hook なし = CLAUDE.md の「1 回実行」 頼み) は未確認。 共同編集者の最初の session の報告で確かめる
 - [ ] **規則保護 gate の `apply` は対象と候補が同じだと何もしない** — installer が先に file を書き、 commit の gate で止まった場合に当たる。 実測では `approve --candidate <写し> --region …` で記録して通した。 `apply` が記録だけは行うようにするかは owner 判断
 - [ ] **新しい hook 2 つ (書き換えられた履歴への追従 / 検査を切る操作) と commit 時の識別子の検査の、 他の machine での初回の実走** — 配線は各 machine の次の session 開始で入る。 最初の session で、 追従が沈黙するか・解除の command が止まるか・commit が 0.3 秒程度で通るかを見る。
