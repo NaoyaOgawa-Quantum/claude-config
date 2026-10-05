@@ -58,6 +58,29 @@ def receipt_engine():
     return _RECEIPTS
 
 
+def literal_options(engine, args, kind) -> tuple[str | None, str | None]:
+    """Report literal CLI flags only; do not guess expanded or effective settings."""
+    if kind == 'claude':
+        positions = list(engine.claude_option_indices(args))
+    else:
+        positions, i = [], 1
+        while i < len(args):
+            arg = args[i] or ''
+            if arg == '--':
+                break
+            key = arg.partition('=')[0]
+            positions.append((i, key))
+            i += 2 if key in engine.CODEX_VALUES and '=' not in arg else 1
+    values = {'model': [], 'effort': []}
+    for i, key in positions:
+        target = 'model' if key == '--model' or (kind == 'codex' and key == '-m') else 'effort' if key == '--effort' else None
+        if target:
+            arg = args[i] or ''
+            value = arg.partition('=')[2] if '=' in arg else args[i+1] if i+1 < len(args) else None
+            values[target].append(value)
+    return tuple(v[0] if len(v) == 1 and isinstance(v[0], str) else None for v in values.values())
+
+
 def projects_dirs(explicit=None) -> list[Path]:
     if explicit:
         return [Path(p).expanduser() for p in explicit]
@@ -100,9 +123,19 @@ def launches(transcript: Path) -> list[dict]:
                 cmd = str((b.get("input") or {}).get("command", ""))
                 sid = str(obj.get('sessionId') or obj.get('session_id') or transcript.stem)
                 tool_id = b.get('id') if isinstance(b.get('id'), str) else ''
+                parsed = []
                 try:
                     engine = receipt_engine()
                     receipts = engine.read_receipts(engine.receipt_root(transcript), sid, tool_id, cmd)
+                    try:
+                        for words in engine.shell_commands(cmd):
+                            position = engine.executable_index(words)
+                            argv = [word.value for word in words[position:]] if position is not None else []
+                            kind = engine.worker_kind(argv)
+                            if kind:
+                                parsed.append((kind, argv))
+                    except ValueError:
+                        parsed = []
                 except Exception:
                     receipts = []  # Legacy inspection stays available; no receipt means unverified.
                 m = LAUNCH_RE.search(cmd)
@@ -111,18 +144,21 @@ def launches(transcript: Path) -> list[dict]:
                 cds = re.findall(r"(?:^|[\s;&|(])cd\s+((?:\"[^\"]+\"|'[^']+'|[^\s;&|]+))", cmd[:m.start() + 1] if m else cmd)
                 cwd = expand(cds[-1]) if cds else (Path(obj["cwd"]) if obj.get("cwd") else None)
                 cfg = re.search(r"CLAUDE_CONFIG_DIR=(\S+)", cmd)
-                model = re.search(r"--model[ =](\S+)", cmd)
-                effort = re.search(r"--effort[ =](\S+)", cmd)
                 for receipt in receipts or [None]:
+                    index = (receipt or {}).get('launch_index', 0)
+                    kind = (receipt or {}).get('kind') or ('codex' if m and 'codex' in m.group(1) else 'claude' if m else 'unknown')
+                    model = effort = None
+                    if index < len(parsed) and parsed[index][0] == kind:
+                        model, effort = literal_options(engine, parsed[index][1], kind)
                     worker = (receipt or {}).get('worker') or {}
                     if not isinstance(worker, dict):
                         worker = {}
                     out.append({
                         "ts": obj.get("timestamp"),
                         "cwd": Path(worker['cwd']) if isinstance(worker.get('cwd'), str) else cwd,
-                        "kind": (receipt or {}).get('kind') or ('codex' if m and 'codex' in m.group(1) else 'claude' if m else 'unknown'),
+                        "kind": kind,
                         "config": Path(worker['config_dir']) if isinstance(worker.get('config_dir'), str) else expand(cfg.group(1)) if cfg else None,
-                        "model": model.group(1) if model else None, "effort": effort.group(1) if effort else None,
+                        "model": model, "effort": effort,
                         "marker": MARKER in cmd,
                         "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
                         "parent_session": sid, "tool_use_id": tool_id,
@@ -179,7 +215,7 @@ def worker_transcripts(launch: dict) -> list[Path]:
 
 def report(launch: dict, n: int, max_chars: int) -> None:
     cwd = launch["cwd"]
-    print(f"== 起動 {n}: {launch['ts']}  {launch['kind']}  model={launch['model'] or '既定'}  effort={launch['effort'] or '既定'}")
+    print(f"== 起動 {n}: {launch['ts']}  {launch['kind']}  model指定={launch['model'] or '未特定'}  effort指定={launch['effort'] or '未特定'}")
     print(f"   作業 dir: {cwd if cwd else '不明 (command に cd が無く、 記録に cwd も無い)'}")
     print(f"   記録の約束: {promise(launch)}")
     if not cwd or not cwd.is_dir():
@@ -335,6 +371,13 @@ print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
         result = report()
         assert result.count('== 起動 ') == 2 and result.count('注入記録: added') == 2, result
         print('OK both workers in one tool call keep their own receipts')
+        launch('claude --model sample-a -p first; codex exec --model sample-b second', 'tool-models')
+        result = report()
+        assert 'sample-a' in result and 'sample-b' in result, result
+        launch("claude -p 'explain --model sample-decoy' --model sample-real", 'tool-model-mention')
+        result = report()
+        assert 'sample-real' in result and 'sample-decoy' not in result, result
+        print('OK model arguments belong to their own launch, not another launch or prompt text')
 
         # A bare HANDOFF mention never stands in for the three-item obligation.
         (work/'CLAUDE.md').write_text('See old HANDOFF.md files for background.\n')
