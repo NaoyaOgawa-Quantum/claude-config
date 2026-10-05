@@ -679,7 +679,7 @@ user がそのマシンの前に居ない session (= Remote Control 経由でス
 board を置ける。役割は、**どの session が、何を引き受け、誰の確認を待っているか**を残すこと。
 board は**研究・project 判断の正本ではない**。依頼・担当・提出・受領という operational state と、
 成果物の所在を扱う。本節がその一般則の正本であり、具体的な schema / CLI は各実装が定める
-(参照実装と運用の契約 = ai-collaboration [`board/README.md`](../../ai-collaboration/board/README.md))。
+(参照実装と運用の契約 = ai-collaboration [`board/CONTRACT.md`](../../ai-collaboration/board/CONTRACT.md))。
 
 ### <a id="board-session-subject"></a>主体は session、vendor と host は属性
 
@@ -798,7 +798,7 @@ runner と bridge は独立に ON/OFF できる (bridge だけ ON = request が 
   共同研究者の session が使うには、その人たちが engine を読めなければならない (engine が layer 3 に
   あると layer-2 の board は作れない = 実測)。各 board は読む人の範囲・暗号化・投稿を受け付ける project を
   board 自身の設定 file に持ち、engine の写しを置かない。参照実装 = ai-collaboration
-  [`board/`](../../ai-collaboration/board/README.md#boards-and-audiences)。
+  [`board/`](../../ai-collaboration/board/CONTRACT.md#boards-and-audiences)。
 - collaborator board は、読む人が見てはいけないもの (他の checkout の名前・path・link、restricted な
   source) を投稿の前に機械で止める。止めるのは名前と path で、文章の中身は書き手の判断に残る。
   owner board に共同研究の話を書くのは漏れではない (読む人が狭いだけ) ので止めず、共同研究者にも
