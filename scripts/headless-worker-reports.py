@@ -60,6 +60,8 @@ def receipt_engine():
 
 def literal_options(engine, args, kind) -> tuple[str | None, str | None]:
     """Report literal CLI flags only; do not guess expanded or effective settings."""
+    if any(arg is None for arg in args):
+        return None, None  # An expansion can also introduce an option terminator.
     if kind == 'claude':
         positions = list(engine.claude_option_indices(args))
     else:
@@ -377,6 +379,8 @@ print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
         launch("claude -p 'explain --model sample-decoy' --model sample-real", 'tool-model-mention')
         result = report()
         assert 'sample-real' in result and 'sample-decoy' not in result, result
+        launch('flag=--; claude -p "$flag" --model=sample-prompt', 'tool-dynamic-option-boundary')
+        assert 'sample-prompt' not in report()
         print('OK model arguments belong to their own launch, not another launch or prompt text')
 
         # A bare HANDOFF mention never stands in for the three-item obligation.
