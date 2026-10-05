@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: macOS で直接入力と IME のキー配列を分けたいとき
+when: macOS で直接入力と IME のキー配列を分けたいとき + IME 自体 (Apple の日本語入力 ⇄ 第三者の IME) を CLI で切り替えるとき (#cli-input-source-switch)
 category: macos
-summary: macOS で「直接入力=非 US 配列、IME 中=US 配列」を共存させる gotchas (= IME のキー変換は MRU ASCII-capable layout 従属 / TISSetInputMethodKeyboardLayoutOverride は外部から効かない / 無効化 layout は MRU 候補外 / CGEvent 書き換え 2 経路は IME バイパス・mozc の Option=ALT 扱いで不成立 / 成立解 = IME 切替検知 + US layout 動的有効化+瞬間選択〔権限不要〕 / CLI バイナリの tap は .app bundle 化で TCC 安定)
+summary: macOS で「直接入力=非 US 配列、IME 中=US 配列」を共存させる gotchas (= IME のキー変換は MRU ASCII-capable layout 従属 / TISSetInputMethodKeyboardLayoutOverride は外部から効かない / 無効化 layout は MRU 候補外 / CGEvent 書き換え 2 経路は IME バイパス・mozc の Option=ALT 扱いで不成立 / 成立解 = IME 切替検知 + US layout 動的有効化+瞬間選択〔権限不要〕 / CLI バイナリの tap は .app bundle 化で TCC 安定) + IME の CLI 切替 (= scripts/macos-input-sources.py、 IME 本体 → モードの順に有効化 / 第三者 IME の有効一覧は com.apple.inputsources にあり、 外部 process からの無効化は status 0 でも外れない = 外すのは本人がシステム設定で)
 -->
 # macOS IME × 非 US キーボードレイアウト共存の gotchas
 
@@ -56,3 +56,15 @@ TISCopyCurrentASCIICapableKeyboardLayoutInputSource()  // IME が使う変換 la
 ## §5 関連 (CGEvent tap を別用途で使う場合の TCC note)
 
 tap 方式自体は本件で廃案だが、素の CLI バイナリで `CGEvent.tapCreate` する場合: アクセシビリティ許可が **バイナリの cdhash に紐付く**ため、再ビルドのたびに **System Settings 上は ON のまま実際は無効**という stale 状態になる (= [`macos-claude-code-tcc-recurring-prompt.md`](macos-claude-code-tcc-recurring-prompt.md) と同族の versioned-binary TCC 問題)。`tccutil reset` も path ベースの client は受け付けない。緩和 = **Info.plist (CFBundleIdentifier + LSUIElement) 付きの .app bundle に包んで ad-hoc 署名** (= TCC が bundle ID で管理され、設定画面の表示名もまともになり、`tccutil reset Accessibility <bundle-id>` が効くようになる)。
+
+## <a id="cli-input-source-switch"></a>§6 IME 自体を CLI で切り替える (Apple の日本語入力 ⇄ 第三者の IME)
+
+道具 = [`scripts/macos-input-sources.py`](../scripts/macos-input-sources.py) (`list` / `enable` / `disable` / `select`。 TIS を ctypes で呼ぶ = compile 不要・権限不要。 変更のあとは別 process で読み直して、 効いたかを終了値で返す = §2 の 5 の対策)。 Apple の日本語入力 (ローマ字入力) に切り替える手順は同 script の冒頭。
+
+| # | 事実 (macOS 26 で実測) | 帰結 |
+|---|---|---|
+| 1 | Apple の IME は「IME 本体」 と「モード」 が別の入力ソース (例: `com.apple.inputmethod.Kotoeri.RomajiTyping` と `….RomajiTyping.Japanese`)。 本体は選択できない (select-capable = 0) | 本体 → モードの順に `enable`、 `select` はモードに当てる |
+| 2 | 第三者の IME (例: Google 日本語入力) の有効一覧は `com.apple.HIToolbox` の `AppleEnabledInputSources` に無く、 `com.apple.inputsources` の `AppleEnabledThirdPartyInputSources` にある | `defaults read com.apple.HIToolbox` だけを見て「第三者 IME は有効でない」 と読まない |
+| 3 | 第三者の IME への `TISDisableInputSource` は、 外部 process から呼ぶと status=0 を返すが外れない (本体にもモードにも。 日をおいて呼び直しても同じ) | 外すのは本人がシステム設定 (キーボード → 入力ソースの「編集…」 → 選んで「−」)。 道具は「効いていない」 と出して終了値 1 |
+| 4 | `com.apple.inputsources` への `defaults write` は `Could not write domain` で拒否される | 設定 file を直接書いて外そうとしない (保護の回避になる) |
+| 5 | Apple の IME の設定 (`com.apple.inputmethod.Kotoeri`、 例: 数字を全角で入力) は移行アシスタントで旧機の値が来る | 久しぶりに Apple の IME へ戻すと、 昔の設定が生きている。 切り替えたら設定を本人に一度見せる |
