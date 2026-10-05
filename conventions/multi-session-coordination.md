@@ -678,7 +678,8 @@ user がそのマシンの前に居ない session (= Remote Control 経由でス
 だけでは「誰が何を claim し、どの finding が未昇格か」を横断して見渡せない場合、専用の Git
 board を置ける。役割は、**どの session が、何を引き受け、誰の確認を待っているか**を残すこと。
 board は**研究・project 判断の正本ではない**。依頼・担当・提出・受領という operational state と、
-成果物の所在を扱う。本節がその一般則の正本であり、具体的な schema / CLI は各実装が定める。
+成果物の所在を扱う。本節がその一般則の正本であり、具体的な schema / CLI は各実装が定める
+(参照実装と運用の契約 = ai-collaboration [`board/README.md`](../../ai-collaboration/board/README.md))。
 
 ### <a id="board-session-subject"></a>主体は session、vendor と host は属性
 
@@ -788,9 +789,20 @@ runner と bridge は独立に ON/OFF できる (bridge だけ ON = request が 
 
 - 単一 project / 単一 session で足りる間は作らない。実際に cross-project / cross-machine の重複
   作業や handoff loss が起きる、または常時発生することが trigger。
-- audience が owner だけなら layer 3。project collaborator も読む必要があるなら、その project の
-  audience ごとに別の layer-2 companion repo を作る。1 repo 内の branch / thread ごとの ACL を
-  擬似実装しない。Git の read boundary は repository membership である。
+- audience が owner だけなら layer 3。project collaborator も読む必要があるなら layer 2 = membership
+  がその audience と一致する repo に置く。既定は共同研究の repo 自身の `board/` (読む人 = repo の member、
+  招待が要らない)、project の履歴を board の commit から分けたいときは同じ member の companion repo。
+  1 board = 1 audience。1 repo 内の branch / thread ごとの ACL を擬似実装しない。Git の read boundary は
+  repository membership である。
+- <a id="board-engine-layer"></a>**engine は layer 1 に 1 つ、board は設定と event だけ**。layer-2 の board を
+  共同研究者の session が使うには、その人たちが engine を読めなければならない (engine が layer 3 に
+  あると layer-2 の board は作れない = 実測)。各 board は読む人の範囲・暗号化・投稿を受け付ける project を
+  board 自身の設定 file に持ち、engine の写しを置かない。参照実装 = ai-collaboration
+  [`board/`](../../ai-collaboration/board/README.md#boards-and-audiences)。
+- collaborator board は、読む人が見てはいけないもの (他の checkout の名前・path・link、restricted な
+  source) を投稿の前に機械で止める。止めるのは名前と path で、文章の中身は書き手の判断に残る。
+  owner board に共同研究の話を書くのは漏れではない (読む人が狭いだけ) ので止めず、共同研究者にも
+  見せる話なら collaborator board があることを知らせる。
 - layer-2 project は owner-private board に依存しない。board を消しても project の durable knowledge
   が失われないことを invariant にする。
 
