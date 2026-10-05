@@ -45,5 +45,5 @@ Codex の rollout では、 Stop hook の差し戻し文 (`<hook_prompt …>`) �
 症状 = task は終わっているのに、 画面の最後の message が「push してから終える」 型の差し戻しへの返事 (push できない理由の説明) で、 結果の要約が見当たらない。 表示が「作業中」 のまま残ることもある (実測。 表示の残りの原因が gate かは未確認)。
 
 - **読み方**: rollout (`~/.codex/sessions/<年>/<月>/<日>/rollout-…jsonl`) を末尾から読む。 `<hook_prompt …>` で始まる user message の直前の agent message が本当の結果 (時刻を `task_complete` と並べる)。 成果物は commit・file に残っているので、 画面が壊れて見えても作り直さない。
-- **原因の一つ**: 完了 gate ([`codex/hooks/session_touch.py`](../codex/hooks/session_touch.py) の `nudge`) は、 remote を持つ repo で HEAD が remote の先頭と違うと終了を 1 回差し戻す (remote が 0 本なら黙る)。 push しない仕事では満たせないので、 worker は理由を述べてもう 1 turn 使って終わる。 その turn も利用枠を食う。
-- **予防**: push しない仕事を渡す写しは、 渡す前に remote を外す (手順 = ai-collaboration [`physics-verification-cycle.md#cross-vendor-repo-copy`](../../ai-collaboration/conventions/physics-verification-cycle.md#cross-vendor-repo-copy) の 1)。
+- **原因の一つ**: 完了 gate ([`codex/hooks/session_touch.py`](../codex/hooks/session_touch.py) の `nudge`) は、 remote を持つ repo で HEAD が remote の先頭と違うと終了を 1 回差し戻す (remote が 0 本なら黙る)。 push しない仕事では満たせないので、 worker は理由を述べてもう 1 turn 使って終わる。 その turn も利用枠を食う。 push 先が手元の作業ツリーの checkout 中の branch (git が push を拒む = 手元の repo から clone した写し) なら、 gate は head を比べない。
+- **予防**: push しない仕事を渡す写しで remote が手元の作業ツリー以外 (GitHub など) を指すなら、 渡す前に remote を外す (手順 = ai-collaboration [`physics-verification-cycle.md#cross-vendor-repo-copy`](../../ai-collaboration/conventions/physics-verification-cycle.md#cross-vendor-repo-copy) の 1)。

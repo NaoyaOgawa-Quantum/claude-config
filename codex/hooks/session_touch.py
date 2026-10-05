@@ -5,7 +5,11 @@ This is a turn-end forcing function, not an auto-commit or auto-push engine.
 PreToolUse captures repository baselines before Bash/apply_patch work. Stop
 then checks repositories whose state changed, compares local HEAD with the
 configured upstream's live remote head, and asks Codex for one continuation
-when unresolved Git state remains.
+when unresolved Git state remains. The head comparison is skipped when the
+upstream is a local non-bare checkout that has the tracked branch checked out
+and refuses a push to it (Git's default), because no push can land there; a
+review copy cloned from a local working tree is the usual case. Task-created
+dirt is still reported.
 
 Semantic rule: CONVENTIONS.md#completion-git-gate.
 Codex coverage: codex/PARITY.md#completion-git-gate-hook.
@@ -241,6 +245,39 @@ def remote_count(root: Path) -> int:
     return len([line for line in result.stdout.splitlines() if line])
 
 
+def local_push_target(root: Path, remote: str) -> Path | None:
+    """Return the directory a remote's push URL names when it is on this machine."""
+    result = run_git(root, "remote", "get-url", "--push", remote, timeout=3)
+    if result is None or result.returncode != 0:
+        return None
+    url = result.stdout.strip()
+    if url.startswith("file://"):
+        url = url[len("file://"):]
+    elif "://" in url or re.match(r"^[^/]+:", url):
+        return None
+    path = Path(url).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    return path if path.is_dir() else None
+
+
+def push_refused_by_checkout(root: Path, remote: str, merge_ref: str) -> bool:
+    """True when the upstream is a local non-bare checkout whose checked-out branch
+    is the push target and which refuses that push, so a push cannot land."""
+    target = local_push_target(root, remote)
+    if target is None:
+        return False
+    bare = run_git(target, "rev-parse", "--is-bare-repository", timeout=3)
+    if bare is None or bare.returncode != 0 or bare.stdout.strip() != "false":
+        return False
+    head = run_git(target, "symbolic-ref", "--quiet", "HEAD", timeout=3)
+    if head is None or head.returncode != 0 or head.stdout.strip() != merge_ref:
+        return False
+    deny = run_git(target, "config", "--get", "receive.denyCurrentBranch", timeout=3)
+    value = deny.stdout.strip().lower() if deny is not None and deny.returncode == 0 else ""
+    return value in ("", "refuse", "true")
+
+
 def repo_issues(root: Path, entry: dict[str, Any]) -> list[str]:
     current = repo_signature(root)
     baseline = entry.get("baseline")
@@ -267,6 +304,8 @@ def repo_issues(root: Path, entry: dict[str, Any]) -> list[str]:
         issues.append(f"{root}: remote exists but the current branch has no configured upstream")
         return issues
     branch, remote, merge_ref = upstream
+    if push_refused_by_checkout(root, remote, merge_ref):
+        return issues
     remote_head, remote_error = live_remote_head(root, remote, merge_ref)
     if remote_error:
         issues.append(f"{root}: live remote head could not be verified ({remote_error})")
