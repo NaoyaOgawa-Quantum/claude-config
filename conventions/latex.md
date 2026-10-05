@@ -39,6 +39,7 @@ LaTeX を含むリポで適用。CLAUDE.md から参照: `~/Claude/claude-config
 
 - LaTeX 2022-06 以降の `\MakeUppercase` は expl3 の case changing で、 `\NoCaseChange{f}` の中身を変えない (それより古い kernel は `textcase` package の `\NoCaseChange`)。
 - template に値を流す生成器は、 大文字化から守る字を指定できる入口 (例 = 題の LaTeX 版を上書きする設定の key) を持つ。 公開用の plain な題には `\NoCaseChange` を入れない (web や一覧に命令が漏れる)。
+- 入口を持つだけでは、 書き忘れた回にまた化ける (実測 = 記号と単位で 2 回)。 生成器は題に化ける形 (小文字の直後に大文字の語 = `eV`・`GeV`・`pH` / 数字/小文字 = `1/f` / 小文字 1 字の関数 = `f(R)`) を見つけたら、 守る版が書かれていない限り止まる。 普通の英単語と頭字語 (all-caps の語) は拾わない形にする。
 - PDF の文字層で題を照合する検査が大文字小文字を無視していると、 この誤りは通る = 大文字化した版の検査では「守った字が小文字で残っているか」 を別に見る。
 
 ## <a id="cite-set-after-commentout"></a>comment-out 流儀の編集後は live `\cite` 集合を照合する
