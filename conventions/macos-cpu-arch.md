@@ -106,6 +106,7 @@ agent の Bash の snapshot を補う [`hooks/fix-snapshot-path-patch.sh`](../ho
 | Unity エディタ (Hub の `Editor/<版>/`) | Hub の `--headless` は移行直後に応答しないことがある。 release API (`services.api.unity.com/unity/editor/release/v1/releases?version=<版>&architecture=ARM64&platform=MAC_OS`) から `MacEditorInstallerArm64/Unity-<版>.pkg` を取り、 `pkgutil --expand-full` の Payload (`Unity/`) を `Editor/<版>/` に置けば sudo 不要。 `Documentation`・`modules.json`・言語の `.po` は旧 install から写せる。 ⚠️ WebGL 等の target module は arch 共通の 1 本で中の toolchain が x86_64 = その build だけは Rosetta が要る |
 | 32-bit だけ | 起動しない。 後継が入っているなら退避 (新旧が同じ bundle id を持つ一式は LaunchServices がどちらを引くか曖昧になる) |
 | 消えたアプリ・Intel だけの部品を起動する LaunchAgent | `launchctl bootout gui/$(id -u)/<label>` → plist を退避先へ (点検の「LaunchAgents」 節が対象を出す) |
+| 自動更新係 (`/Library/Application Support/<vendor>/<Updater>/` と `~/Library/Application Support/...`) | 移行で来た Intel 版の更新係は Rosetta の下で自分を x64 と名乗って更新を取る (実測: updater の log の request が `"arch":"x64"`、 OS は arm64) = 本体を入れ替えても次の更新で Intel 版に戻りうる。 本体に同梱の universal 版 (`<App>.app/Contents/.../Helpers/<Updater>.app`) で入れ直す。 system の Chromium 系 updater は `sudo <Intel 版> --uninstall --system` → `sudo <同梱版> --install --system` で、 入った版が universal・`ARM_64` で動くことを log で確かめた (実測)。 user 領域の更新係は退避すれば本体が次の起動で同梱版を入れる想定 (未確認)。 点検の「アプリ」 節がこの置き場も見る。 Sparkle などが残した旧版の写し (`<App> <版>/`) も同じ置き場に出る = 本体がネイティブなら片付けの対象 (ゴミ箱へ) |
 
 点検の終わり = `macos-arch-audit.py` の「実行経路に別 arch なし」 + 定期ジョブを 1 本手で回して最後まで走ること。
 アプリ・npx cache・退避した Intel Homebrew の残置は 🟠 として出続ける (= 片付けるまでの carrier)。
