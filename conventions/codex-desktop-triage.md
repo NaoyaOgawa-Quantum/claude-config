@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: ChatGPT app (Codex desktop) の task が 401 / auth error で止まったとき + 「Incorrect API key provided: sk-svcacct…」 が出たとき + Codex の hook が走らない・監査が untrusted と言うとき + app の更新で Codex の binary の path が変わったとき + 承認 CLI が「本人の発言が無い」 と言うとき
+when: ChatGPT app (Codex desktop) の task が 401 / auth error で止まったとき + 「Incorrect API key provided: sk-svcacct…」 が出たとき + Codex の hook が走らない・監査が untrusted と言うとき + app の更新で Codex の binary の path が変わったとき + 承認 CLI が「本人の発言が無い」 と言うとき + task の結果の要約が見当たらず最後の message が完了 gate への返事のとき
 category: harness-core
-summary: Codex desktop の auth error は client の鍵でなく backend 側のことが多い (= 手元に sk-svcacct は無い、 status page を見る、 再ログインしない) / 切り分けの読み方 (auth.json の auth_mode、 logs_2.sqlite の feedback_tags、 rollout の task_complete) / hook の信頼は hooks.json の定義 hash に束縛され TUI の /hooks で付け直す (agent は書かない) / app 同梱 binary の path は更新で動く = process から探す / 承認の引用元は生成文を除く
+summary: Codex desktop の auth error は client の鍵でなく backend 側のことが多い (= 手元に sk-svcacct は無い、 status page を見る、 再ログインしない) / 切り分けの読み方 (auth.json の auth_mode、 logs_2.sqlite の feedback_tags、 rollout の task_complete) / hook の信頼は hooks.json の定義 hash に束縛され TUI の /hooks で付け直す (agent は書かない) / app 同梱 binary の path は更新で動く = process から探す / 承認の引用元は生成文を除く / 結果が見当たらないときは rollout で gate の差し戻しの直前を読む
 -->
 # Codex desktop の切り分け (auth error / hook 信頼 / binary の path)
 
@@ -39,3 +39,11 @@ zsh -lic 'echo ${OPENAI_API_KEY:+set}'; launchctl getenv OPENAI_API_KEY
 ## <a id="approval-source"></a>承認の引用元に生成文が混ざる
 
 Codex の rollout では、 Stop hook の差し戻し文 (`<hook_prompt …>`) や環境の注入 (`<environment_context>`、 `<turn_aborted>` ほか) が **user role の message として**入る。 本人の発言を読む側 (承認 CLI の `--latest` / `--quote`) は、 先頭が tag 形の message を生成文とみなして除き、 本人の形だけを通す (実装 = `scripts/manuscript-claim-guard.py` の `human_text_segments`、 集計 = `scripts/approval-source-census.py` = 本文を出さず先頭の tag 名だけ数える)。 「本人の発言が無い」 と言われたら、 診断行の tag 名を見る (本文は出ない)。 規則の正本 = [`agent-rule-ownership.md`](agent-rule-ownership.md) の引用元の定義。
+
+## <a id="result-before-completion-gate"></a>結果の要約が見当たらず、 最後の message が完了 gate への返事
+
+症状 = task は終わっているのに、 画面の最後の message が「push してから終える」 型の差し戻しへの返事 (push できない理由の説明) で、 結果の要約が見当たらない。 表示が「作業中」 のまま残ることもある (実測。 表示の残りの原因が gate かは未確認)。
+
+- **読み方**: rollout (`~/.codex/sessions/<年>/<月>/<日>/rollout-…jsonl`) を末尾から読む。 `<hook_prompt …>` で始まる user message の直前の agent message が本当の結果 (時刻を `task_complete` と並べる)。 成果物は commit・file に残っているので、 画面が壊れて見えても作り直さない。
+- **原因の一つ**: 完了 gate ([`codex/hooks/session_touch.py`](../codex/hooks/session_touch.py) の `nudge`) は、 remote を持つ repo で HEAD が remote の先頭と違うと終了を 1 回差し戻す (remote が 0 本なら黙る)。 push しない仕事では満たせないので、 worker は理由を述べてもう 1 turn 使って終わる。 その turn も利用枠を食う。
+- **予防**: push しない仕事を渡す写しは、 渡す前に remote を外す (手順 = ai-collaboration [`physics-verification-cycle.md#cross-vendor-repo-copy`](../../ai-collaboration/conventions/physics-verification-cycle.md#cross-vendor-repo-copy) の 1)。
