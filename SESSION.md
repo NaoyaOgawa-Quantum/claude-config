@@ -19,7 +19,7 @@
 
 ## Open items（forward-looking）
 
-- [ ] **headless worker への記録条項** — 注入 hook と配線の検証を終え、規則・事後検出の説明を更新中。次は説明の照合と依頼元の検収。実装・射程 = [headless-record-clause-nudge.py](hooks/headless-record-clause-nudge.py)、規則 = [worker-record-clause](conventions/multi-session-coordination.md#worker-record-clause)。
+- [ ] **headless worker への記録条項** — 実装・配線・説明の照合を終え、依頼元の検収待ち。次は受領結果に応じた対応。実装・射程・再現検査 = [headless-record-clause-nudge.py](hooks/headless-record-clause-nudge.py)、規則 = [worker-record-clause](conventions/multi-session-coordination.md#worker-record-clause)。
 
 - [ ] **collaborator-check の未実走の面** — Claude Code の project hook は headless で発火を確認、 共同編集者の実機・Windows (Git Bash)・Codex (hook なし = CLAUDE.md の「1 回実行」 頼み) は未確認。 共同編集者の最初の session の報告で確かめる
 - [ ] **規則保護 gate の `apply` は対象と候補が同じだと何もしない** — installer が先に file を書き、 commit の gate で止まった場合に当たる。 実測では `approve --candidate <写し> --region …` で記録して通した。 `apply` が記録だけは行うようにするかは owner 判断

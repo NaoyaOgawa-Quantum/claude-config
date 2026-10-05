@@ -9,8 +9,9 @@ worker の報告は端末の log と作業 dir にしか残らず、 起動し�
 
 出すもの (起動ごと):
   - 起動時刻、 作業 dir (command の `cd <dir>`、 無ければ記録の cwd)、 model / effort、 config dir
-  - 「考えたことを書き残す約束」 が渡っているか: 起動文に約束の段 (MARKER) があるか、 作業 dir の CLAUDE.md が
-    HANDOFF を求めているか。 どちらも無ければ ⚠️ (worker の思考は記録に残らない = 書かせた分しか引けない)
+  - 記録の約束の根拠: 起動文の約束の段 (MARKER)、 自動注入 runner の指定、 作業 dir の HANDOFF 要件を区別する。
+    根拠が無ければ「受領を確認できない」 と ⚠️。 hook の updatedInput が元の tool 記録に反映されるか、
+    起動先で注入が成功したかはこの記録だけでは確定しない。 worker の報告・成果物で受領を確認する。
   - 作業 dir の成果物: HANDOFF.md / REVIEW-RESULTS.md / STAGE*-RESULTS.md / ledger.yaml / DONE /
     scratch/hoist-candidates.md と、 worker が書いた script (checks/・scratch/ の *.py) の一覧
   - HANDOFF.md と hoist-candidates.md の本文 (--max-chars、 0 = 全部)
@@ -92,6 +93,7 @@ def launches(transcript: Path) -> list[dict]:
                     "config": expand(cfg.group(1)) if cfg else None,
                     "model": model.group(1) if model else None, "effort": effort.group(1) if effort else None,
                     "marker": MARKER in cmd,
+                    "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
                 })
     return out
 
@@ -99,12 +101,14 @@ def launches(transcript: Path) -> list[dict]:
 def promise(launch: dict) -> str:
     if launch["marker"]:
         return "起動文に約束の段あり"
+    if launch.get("runner"):
+        return "起動文に自動注入 runner の指定あり (受領は worker の報告・成果物で確認)"
     cwd = launch["cwd"]
     for name in ("CLAUDE.md", "AGENTS.md"):
         p = cwd / name if cwd else None
         if p and p.is_file() and "HANDOFF" in p.read_text(encoding="utf-8", errors="replace"):
             return f"作業 dir の {name} が HANDOFF を求めている"
-    return "⚠️ 約束が渡っていない (思考は記録に残らない。 成果物に書かれた分しか引けない)"
+    return "⚠️ 記録から約束の受領を確認できない (hook の有効性・起動形式と、worker の報告・成果物を確認する)"
 
 
 def worker_transcripts(launch: dict) -> list[Path]:
@@ -193,12 +197,15 @@ def selftest() -> int:
             + bash("T2", "ls -la && echo claude -pretend")
             + bash("T3", "claude --print 'x'", cwd=str(bare))
             + bash("T4", f"cd '{bare}' ; codex exec \"y {MARKER}\"")
-            + bash("T5", "git commit -m 'mention claude -p in text'"))
+            + bash("T5", "git commit -m 'mention claude -p in text'")
+            + bash("T6", "python3 '/opt/sample/headless-record-clause-nudge.py' --run claude -p task", cwd=str(bare)))
         ls = launches(proj / "abcd1234-x.jsonl")
-        assert [l["ts"] for l in ls] == ["T1", "T3", "T4", "T5"], [l["ts"] for l in ls]   # T5: 文中の言及も拾う (過剰側に倒す)
+        assert [l["ts"] for l in ls] == ["T1", "T3", "T4", "T5", "T6"], [l["ts"] for l in ls]   # T5: 文中の言及も拾う (過剰側に倒す)
         assert ls[0]["cwd"] == box and ls[0]["model"] == "m1" and ls[0]["effort"] == "high" and ls[0]["config"] == tmp / "wcfg"
         assert ls[1]["cwd"] == bare and ls[2]["kind"] == "codex" and ls[2]["marker"]
         assert "HANDOFF を求めている" in promise(ls[0]) and promise(ls[1]).startswith("⚠️") and "約束の段あり" in promise(ls[2])
+        assert "受領を確認できない" in promise(ls[1]) and "渡っていない" not in promise(ls[1])
+        assert "自動注入 runner" in promise(ls[4]) and "受領は worker" in promise(ls[4])
         wslug = re.sub(r"[^A-Za-z0-9]", "-", str(box))
         (tmp / "wcfg" / "projects" / wslug).mkdir(parents=True)
         (tmp / "wcfg" / "projects" / wslug / "w.jsonl").write_text("{}\n")
