@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: API を持たないアプリ (個人向けメッセンジャー・業務アプリ) で「届いたものを読む」 機械経路が要るとき + macOS の通知センター DB を script から読むとき + 読めずに Operation not permitted が出たとき
 category: macos
-summary: API の無いアプリでも、 macOS の通知として表示された内容 (題・副題・本文・時刻) は通知センターの SQLite DB に残る → 写しを取って読めば「受信を読む」 を段 4 に降ろせる (#mechanism、 engine = scripts/macos-notification-db.py)。 DB は TCC の下 = 起動側 app にフルディスクアクセス、 読めない時は exit 3 で 0 件と区別 (#tcc)。 限界 = app が起動していた間の通知だけ・消した通知は消える・本文は切れる (#limits)。 アプリは必要時に背景起動し、 自分が起こしたものは読み終わったら閉じる (#launch-on-demand / #close-what-you-launched)。 個人アカウントのプロトコルを模倣する非公式 client は使わない (#no-unofficial-client)。 定期の surface は「見た印」 の台帳と組にする (#seen-ledger)
+summary: API の無いアプリでも、 macOS の通知として表示された内容 (題・副題・本文・時刻) は通知センターの SQLite DB に残る → 写しを取って読めば「受信を読む」 を段 4 に降ろせる (#mechanism、 engine = scripts/macos-notification-db.py)。 DB は TCC の下 = 起動側 app にフルディスクアクセス、 読めない時は exit 3 で 0 件と区別 (#tcc)。 限界 = app が起動していた間の通知だけ・消した通知は消える・本文は切れる (#limits)。 アプリは必要時に背景起動し、 自分が起こしたものは読み終わったら閉じる (#launch-on-demand / #close-what-you-launched)。 全部残すなら常時起動の機械 1 台で写し取り、 暗号化した専用 repo に書き換えない束で積む (#always-on-archive)。 個人アカウントのプロトコルを模倣する非公式 client は使わない (#no-unofficial-client)。 定期の surface は「見た印」 の台帳と組にする (#seen-ledger)
 -->
 # macOS の通知センター DB から、 API の無いアプリの受信を読む
 
@@ -59,7 +59,8 @@ engine = [`scripts/macos-notification-db.py`](../scripts/macos-notification-db.p
 
 - 普段アプリを起動していないなら、 読みたい時に `open -g -a <App>` (背景起動) → 同期を数十秒待って読む。
 - **閉じていた間に届いた分が、 起動時に通知として出るかはアプリ次第** = 1 回実測して shim の docstring に書く。
-  出ないアプリなら、 その分は画面で読むしかない (起動しっぱなしにするかは持ち主の判断)。
+  出ないアプリなら、 その分は画面で読むしかない。 届いたものを全部残したいなら、 必要時の起動でなく
+  常時起動の機械で写し取る ([#always-on-archive](#always-on-archive))。
 - SessionStart hook や dashboard からは GUI アプリを起こさない (起動は読みたい時の明示操作)。
 - <a id="close-what-you-launched"></a>**自分が起こしたアプリは、 読み終わったら通常の終了で閉じる** (元から起動していたものは閉じない)。
   メッセンジャーには「PC 版を使っている間はスマホに通知しない」 類の設定があり、 起こしたまま放置すると
@@ -67,6 +68,30 @@ engine = [`scripts/macos-notification-db.py`](../scripts/macos-notification-db.p
   process が消えたかで見る (実測: quit に -128 を返しつつ実際には終了するアプリがある)。 kill はしない。
   quit は持ち主の環境への介入なので、 この設計自体を持ち主と決めてから入れる
   ([`macos-gui-app-automation.md#ask-before-quit`](macos-gui-app-automation.md#ask-before-quit))。
+
+## <a id="always-on-archive"></a>全部残すなら: 常時起動の機械で写し取り、 暗号化した repo に積む
+
+通知 DB は保存場所ではない (起動中の分だけ・消すと消える・OS が捨てる・アプリが取り下げる)。 届いたものを
+全部残したいなら、 常時起動の機械 1 台でアプリを起動したままにし、 短い間隔 (1 分) で未記録の通知を写す。
+
+- **置き場**: 本文は持ち主と第三者のやりとり = 既定で全部暗号化した private repo (git-crypt の default-encrypt)。
+  無人の commit を対話で使う repo に混ぜない (別 session の未 commit の変更で `pull --rebase` が止まる) = 専用の repo。
+- **書き換えない束**: 暗号文は差分が効かない = 同じ file を書き換えて commit し続けると、 履歴が毎回 file 全体ぶん太る。
+  毎分の写しは手元の spool (git 管理外) に溜め、 一定時間ごとに**新しい file** として束ねて commit する
+  (書いたら書き換えない = 履歴の大きさ = 中身の大きさ)。 重複は uuid の索引で除く (索引が消えても束から作り直せる形に)。
+- **平文 push の防止**: commit した blob の先頭が暗号文の印 (`\0GITCRYPT`) かを確かめ、 違えば commit を戻して止める。
+  unlock されていない clone では commit しない。 launchd の PATH には package manager の dir が無く、 filter の
+  command が見つからないことがある = wrapper で PATH を足す。
+- **TCC**: 写す係は専用の applet にだけフルディスクアクセスを付ける ([`launchd-cloudstorage-tcc.md`](launchd-cloudstorage-tcc.md) の A')。
+  applet を作り直すと ad-hoc 署名が変わって付与が外れる → やることは applet が毎回読む script に置き、 applet の source の
+  hash を bundle に記録して、 変わった時だけ作り直す。
+- **写す係は 1 台**: メッセンジャーの PC 版は同時にログインできる台数が限られることがある (1 台など) = 別の機械で
+  ログインすると写す係のアプリがログアウトされる。 ログイン切れは機械で直接見えないので、 「記録の最新が N 日前」 を
+  疑いとして出す (届いていないだけの可能性も併記)。 係そのものの停止は最終実行時刻で見る。
+- **読む側**: 記録の clone を読めば、 他の機械・フルディスクアクセスの無い session でも読める。 初めて読む機械で
+  過去分が一気に出ないよう、 定期の surface は直近の窓だけにする。
+- 起動したままにする以上 [#close-what-you-launched](#close-what-you-launched) のスマホ通知の設定を持ち主と確かめる
+  (写す係の機械を普段だれも触らないなら、 「PC を使っていない時だけスマホに通知」 の類の設定でも実害は小さい)。
 
 ## <a id="no-unofficial-client"></a>非公式 client は使わない
 
