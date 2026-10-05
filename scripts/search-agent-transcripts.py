@@ -33,10 +33,11 @@ repo に無くても、 会話そのものから発言者と時刻を確かめ�
     写しの無い行を見る)
 
 --tool-runs (道具の実行を拾う):
-  pattern を**道具の呼び出しの入力** (Claude = tool_use の input、 Codex = function_call の arguments) に当て、
-  その呼び出しの**結果の冒頭** (tool_result / function_call_output) と対にして出す。 用途 = 「その script を
+  pattern を**道具の呼び出しの入力** (Claude = tool_use の input、 Codex = function_call の arguments / custom_tool_call の input) に当て、
+  その呼び出しの**結果の冒頭** (tool_result / function_call_output / custom_tool_call_output) と対にして出す。 用途 = 「その script を
   前にいつ走らせて、 どう終わったか」 (認証切れ・失敗が初めて出た時刻、 成功していた最後の時刻) を RCA で拾う。
   本文の検索と違い、 役割・注入文の絞り込みは使わない。 結果が記録に無い呼び出しは「(結果なし)」。
+  code-mode の JavaScript 入力も検索する。内側の tool 実行の成否は外側の完了だけでは決めず、結果を確認する。
   ⚠️ 入力の文字列に当てるので、 script の名前を grep / cat / 編集しただけの呼び出しも当たる (--context で読み分ける)。
 
 使い方:
@@ -220,12 +221,15 @@ def _tool_items(agent: str, rec: dict):
     elif rec.get("type") == "response_item":
         p = rec.get("payload")
         if isinstance(p, dict) and p.get("call_id"):
-            if p.get("type") == "function_call":
-                out.append(("call", p["call_id"], str(p.get("arguments") or ""), False))
-            elif p.get("type") == "function_call_output":
+            if p.get("type") in {"function_call", "custom_tool_call"}:
+                field = "input" if p["type"] == "custom_tool_call" else "arguments"
+                out.append(("call", p["call_id"], str(p.get(field) or ""), False))
+            elif p.get("type") in {"function_call_output", "custom_tool_call_output"}:
                 body = p.get("output")
                 if isinstance(body, dict):
                     body = body.get("output") or json.dumps(body, ensure_ascii=False)
+                if isinstance(body, list):
+                    body = " ".join(x["text"] for x in body if isinstance(x, dict) and isinstance(x.get("text"), str))
                 out.append(("result", p["call_id"], str(body or ""), False))
     return out
 
@@ -397,6 +401,28 @@ def selftest() -> int:
             check("--tool-runs: Codex の function_call も拾う", tr[3][1] == "codex" and "# 1 docs" in tr[3][4]),
             check("--tool-runs: --regex と --since", len(tool_runs(r"fruit-client\.py search", **{**tb, "regex": True, "since": "2099-02-02"})) == 2),
             check("--tool-runs: 本文の検索は道具の入力を拾わない", search("fruit-client", **{**base, "role": "any", "claude_dir": Path(td) / "claude-tools", "agent": "claude"}) == []),
+        ]
+        # Code-mode tools use custom_tool_call/input, not function_call/arguments.
+        custom = cxt / "rollout-2099-02-05T00-00-00-00000000-0000-4000-8000-0000000c0de3.jsonl"
+        custom.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in [
+            {"type":"response_item", "timestamp":"2099-02-05T00:00:00Z", "payload":
+             {"type":"custom_tool_call", "name":"exec", "call_id":"custom-one",
+              "input":"text(await tools.exec_command({cmd: 'python3 fruit-probe.py'}));"}},
+            {"type":"response_item", "timestamp":"2099-02-05T00:00:01Z", "payload":
+             {"type":"custom_tool_call_output", "call_id":"custom-one",
+              "output":[{"type":"input_text","text":"probe received"}]}},
+            {"type":"response_item", "timestamp":"2099-02-05T00:00:02Z", "payload":
+             {"type":"custom_tool_call", "name":"exec", "call_id":"custom-pending",
+              "input":"text(await tools.exec_command({cmd: 'python3 fruit-probe.py --pending'}));"}},
+        ])+"\n", encoding="utf-8")
+        cr = tool_runs("fruit-probe.py", **{**tb, "agent":"codex", "session":"00000000-0000-4000-8000-0000000c0de3"})
+        results += [
+            check("--tool-runs: code-mode custom call と text list の結果を結ぶ",
+                  len(cr) == 2 and "probe received" in cr[0][4]),
+            check("--tool-runs: code-mode の結果未着も消さない",
+                  len(cr) == 2 and "(結果なし)" in cr[1][4]),
+            check("--tool-runs: code-mode も session で絞る",
+                  tool_runs("fruit-probe.py", **{**tb,"session":"unrelated"}) == []),
         ]
     print(f"{ok}/{len(results)} PASS")
     return 0 if all(results) else 1
