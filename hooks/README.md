@@ -26,6 +26,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[git-state-nudge.test.sh](git-state-nudge.test.sh)** — git-state-nudge.sh の self-test (決定的 mock git repo ベース)
 - **[google-url-guard.sh](google-url-guard.sh)** — Google URL 安定性ガード — PreToolUse(Edit|Write|MultiEdit|Bash): /u/N/ 禁止 + `?authuser=<email>` 必須
 - **[google-url-guard.test.sh](google-url-guard.test.sh)** — google-url-guard.sh の self-test (hermetic)
+- **[headless-record-clause-nudge.py](headless-record-clause-nudge.py)** — Bash の headless worker 起動に記録の約束を追加する (PreToolUse、非 blocking、--selftest)。
+- **[headless-record-clause-nudge.test.sh](headless-record-clause-nudge.test.sh)** — 自動検査から headless 起動の注入・誤爆・stdin 保持の selftest を実行する
 - **[long-bash-command-guard.sh](long-bash-command-guard.sh)** — 長すぎる Bash command を block — PreToolUse(Bash): 閾値超は分割 / file 経由に誘導
 - **[long-bash-command-guard.test.sh](long-bash-command-guard.test.sh)** — long-bash-command-guard.sh の self-test (配信対象外)
 - **[manuscript-claim-guard.py](manuscript-claim-guard.py)** — PreToolUse(Edit|Write|MultiEdit|Bash): 原稿の保護領域 (表題・概要・序論・結論・数式) と agent の権限規約を、著者の項目ごとの承認なしに書き換える編集・commit を deny (engine = scripts/manuscript-claim-guard.py、 正本 = conventions/manuscript-claim-ownership.md)
