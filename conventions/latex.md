@@ -80,7 +80,7 @@ grep -nE '<element>' file.tex
 
 ## <a id="latexdiff-review-snapshot"></a>latexdiff で差分レビュー PDF を作る
 
-共著者に「どこを変えたか」を渡すとき、`latexdiff old.tex new.tex > diff.tex` で **追加=下線 / 削除=取り消し線** のレンダリング済み PDF を作れる。comment-out-keep 流儀（旧文を `%` 化）の編集は raw の git diff では読みにくいので、latexdiff の方が共著者に優しい。
+共著者に「どこを変えたか」を渡すとき（直した後だけでなく、まだ当てていない変更を提案して承認を求めるときも）、`latexdiff old.tex new.tex > diff.tex` で **追加=下線 / 削除=取り消し線** のレンダリング済み PDF を作る。文章で書いた変更の一覧だけでは、数式を含む変更はどこがどう変わるのかが読み取りにくい（実測）。comment-out-keep 流儀（旧文を `%` 化）の編集は raw の git diff でも読みにくい。提案の段階では原稿を変えず、仮に当てた版を一時 dir で組んで diff し、項目の一覧と照らせるよう印を付ける（[#latexdiff-item-labels](#latexdiff-item-labels)）。
 
 **baseline は git revision から都度取り出す**（aux file は symlink で借り、作業 tree を汚さない）:
 
