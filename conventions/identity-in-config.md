@@ -98,8 +98,9 @@ INSPIRE BAI (`T.Kono.1`, `H.Otsu.4` のような形式の author ID。 例は架
   - 最近の論文タイトル 2-3 件が本人の研究と一致するか
   - affiliation 履歴が本人の経歴と一致するか
   - 共著者 list の top 5 が知り合いか
-- **不一致を発見した場合**: `inspire_id: null` に戻し、`inspire_profile.txt` を削除、`collaborators.yaml` の該当 entry の `notes` に homonym 訂正経緯を記録する (実事例あり: 2026-04-14 に subscriber 1 名の homonym 誤同定を訂正)
-- **どうしても BAI が特定できない場合**: `inspire_id: null` のまま運用。scorer は `interest_profile.txt` のみを使う (精度は少し落ちるが誤同定リスクはゼロ)
+- **不一致を発見した場合**: 人物台帳の `inspire_id` と、digestの運用configの `inspire_bai` をそれぞれ未設定に戻す。運用configの自動カテゴリも空にし、`inspire_profile.txt` を削除する。`collaborators.yaml` の該当entryの `notes` に訂正経緯を記録する。
+- **BAIが特定できない場合**: 未設定のまま運用し、scorerは手書きの `interest_profile.txt` を使う。
+- **定期更新で復活させない**: 定期更新は実行時点の設定から対象の識別子を読み取る。取り違えを理由に消した値を、過去のコマンドや固定リストから補わない。設定にないIDを起動例が固定指定すると、修正済みの設定と生成物が再び汚染される（実測）。null・空文字・項目なしでは生成されないことと、有効な設定では生成されることを同じfixtureで確かめる。
 
 ## 変更履歴
 
