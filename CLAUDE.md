@@ -110,7 +110,7 @@ claude-config/
 │   ├── macos-filevault.md                  # FileVault を入れるか決めるとき + 有効か無効かを判断するとき + 復旧キーの置き場を決めるとき + 復旧キーを画面から書き取ったとき + 無人 routine を走らせる機を選ぶとき
 │   ├── macos-gui-app-automation.md         # macOS の GUI app (Office / Pages / Keynote / Preview 等) を osascript・AppleScript・JXA で駆動する script を書く・直すとき + app を quit / kill / 再起動しようとした瞬間 + 自動化のたびに app が前面に出る・user の文書が閉じられたと言われたとき + 本人が使っている browser に script から tab を開かせる・閉じるとき (#chromium-tab-scripting) + 自動化が止まった原因が app の dialog かを script から確かめるとき (#dialog-presence-probe)
 │   ├── macos-hdmi-external-display.md      # macOS で HDMI / USB-C 経由の外部ディスプレイ・テレビ・プロジェクター・会場 AV 設備を接続したのに画面が出ないとき + 投影側にミラーリング/拡張の選択を求める待機メッセージだけ出るとき + 「ディスプレイ」設定に中継機器名が見えるのに投影されないとき
-│   ├── macos-ime-ascii-layout.md           # macOS で直接入力と IME のキー配列を分けたいとき
+│   ├── macos-ime-ascii-layout.md           # macOS で直接入力と IME のキー配列を分けたいとき + IME 自体 (Apple の日本語入力 ⇄ 第三者の IME) を CLI で切り替えるとき (#cli-input-source-switch)
 │   ├── macos-notification-db.md            # API を持たないアプリ (個人向けメッセンジャー・業務アプリ) で「届いたものを読む」 機械経路が要るとき + macOS の通知センター DB を script から読むとき + 読めずに Operation not permitted が出たとき
 │   ├── macos-post-update-slowdown.md       # macOS update 直後に体感が重いとき + 定期メンテ棚卸し
 │   ├── macos-side-by-side-app-migration.md # macOS で「新しいバージョンを使用」「旧版は削除できます」等が繰り返し出るとき + 同じアプリの旧新版が別 bundle で共存するとき + 旧版を退避して書類の既定アプリを新版へ切り替えるとき
@@ -199,7 +199,7 @@ claude-config/
 ├── notify-app/                  # macOS 通知の投稿元 applet (= 通知の click に行き先を与える)。 install.sh が build + deploy、 click 先は --click-script で呼ぶ側の層が渡す（正本 = conventions/macos-clickable-notifications.md）
 <!-- agent-free:begin id=auto-tree-scripts -->
 <!-- AUTO-TREE:scripts BEGIN (generate-tree.py --write が生成 — 手編集禁止、 同期検査 = --check。 全列挙 + 説明は scripts/README.md 〔生成物〕 へ移設 = 2026-09-01) -->
-├── scripts/              # 運用 script 群 (299 file + formcase/ 26 module + lib/ 60 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
+├── scripts/              # 運用 script 群 (300 file + formcase/ 26 module + lib/ 60 helper。 全列挙 + 説明 = scripts/README.md 〔生成物〕、 説明の源 = 各 file header 1 行目)
 <!-- AUTO-TREE:scripts END -->
 <!-- agent-free:end id=auto-tree-scripts -->
 ├── templates/                          # 個人層 / 共有プロジェクトの bootstrap skeleton 一式
