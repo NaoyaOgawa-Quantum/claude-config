@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -125,6 +126,7 @@ def launches(transcript: Path) -> list[dict]:
                         "marker": MARKER in cmd,
                         "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
                         "parent_session": sid, "tool_use_id": tool_id,
+                        "command_sha256": hashlib.sha256(cmd.encode('utf-8', errors='surrogatepass')).hexdigest(),
                         "launch_index": (receipt or {}).get('launch_index', 0), "receipt": receipt,
                         "worker_session": worker.get('session_id'),
                     })
@@ -208,12 +210,25 @@ def run(session: str, dirs: list[Path], max_chars: int) -> int:
     all_l = []
     for f in files:
         all_l.extend(launches(f))
-    seen, uniq = set(), []
-    for l in all_l:                                     # 同じ dir への再起動は別の起動として残す (時刻で区別)
-        key = (l.get('parent_session'), l.get('tool_use_id'), l.get('launch_index'), str(l["cwd"]), l["ts"])
+    seen, uniq = {}, []
+
+    def evidence_rank(item):
+        receipt = item.get('receipt')
+        if not receipt:
+            return (0, 0)
+        if receipt.get('state') == 'unreadable':
+            return (2, 0)  # Do not hide corrupt evidence behind a successful copy.
+        return (1, receipt.get('issued_ns', 0))
+
+    for l in all_l:  # Native tool identity keeps launches separate; legacy rows also use cwd/time.
+        key = (l.get('parent_session'), l.get('tool_use_id'), l.get('command_sha256'), l.get('launch_index'))
+        if not l.get('tool_use_id'):
+            key += (str(l['cwd']), l['ts'])
         if key not in seen:
-            seen.add(key)
+            seen[key] = len(uniq)
             uniq.append(l)
+        elif evidence_rank(l) > evidence_rank(uniq[seen[key]]):
+            uniq[seen[key]] = l
     print(f"見た記録: {', '.join(str(f) for f in files)}")
     print(f"headless の起動候補: {len(uniq)} 件 (session {session})")
     for i, l in enumerate(uniq, 1):
@@ -275,6 +290,14 @@ print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
         result = report()
         assert '注入記録: added' in result and '⚠️' not in result, result
         print('OK original transcript input joins the actual runner receipt')
+        shadow = root/'shadow'/'projects'/'synthetic'/parent_log.name
+        shadow.parent.mkdir(parents=True)
+        shadow.write_text(parent_log.read_text())
+        duplicate = subprocess.run([sys.executable,str(reporter),'parent-synthetic',
+                                    '--projects-dir',str(root/'shadow'/'projects'),
+                                    '--projects-dir',str(parent_cfg/'projects')],env=env,text=True,capture_output=True,check=True).stdout
+        assert duplicate.count('注入記録: added') == 1 and '⚠️' not in duplicate, duplicate
+        print('OK a duplicate transcript without receipts cannot hide matching execution evidence')
         receipts = list((parent_cfg/'state/headless-record-clause').rglob('*.json'))
         assert receipts and all('SYNTHETIC_PROMPT_PRIVATE' not in p.read_text() for p in receipts)
         print('OK receipt stores no prompt text')
