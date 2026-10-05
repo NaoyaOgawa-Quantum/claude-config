@@ -56,7 +56,7 @@ claude-config/
 │   ├── claude-ai-routines.md               # claude.ai routines (RemoteTrigger / cloud cron) を作成・管理するとき
 │   ├── claude-app-bundle-reading.md        # Claude desktop app (Code タブ等) の画面の挙動・文言の原因を、 docs や推測でなく app 本体で確かめたいとき + hook や規約が desktop の挙動を前提にする前 + 読んだ結論を user の画面で裏付ける実験を頼むとき
 │   ├── claude-app-cwd-pin.md               # Claude.app の folder picker 起点固定 (launchd) を設定・解除するとき
-│   ├── claude-code-permissions.md          # Claude Code の permission prompt 削減・deny/ask/allow 設計を触るとき + tool call が拒否されて原因 (rule / hook / classifier) を切り分けるとき (#hook-masks-deny) + user が chat で「許可」 と言ったのに同じ call がまた拒否されたとき (#chat-consent-does-not-reach-classifier) + 本人の口座番号などを、 本人が印刷して出す様式に印字するとき (#own-numbers-in-local-forms)
+│   ├── claude-code-permissions.md          # Claude Code の permission prompt 削減・deny/ask/allow 設計を触るとき + tool call が拒否されて原因 (rule / hook / classifier) を切り分けるとき (#hook-masks-deny) + classifier に止められた操作を user に chat で承認してもらうとき・承認したのにまた止まったとき (#chat-approval-reaches-classifier) + 本人の口座番号などを、 本人が印刷して出す様式に印字するとき (#own-numbers-in-local-forms)
 │   ├── clipboard-cleaner.md                # PDF コピー由来の段落内改行・RTF 書式をクリップボードで整形したいとき
 │   ├── codex-desktop-triage.md             # ChatGPT app (Codex desktop) の task が 401 / auth error で止まったとき + 「Incorrect API key provided: sk-svcacct…」 が出たとき + Codex の hook が走らない・監査が untrusted と言うとき + app の更新で Codex の binary の path が変わったとき + 承認 CLI が「本人の発言が無い」 と言うとき + task の結果の要約が見当たらず最後の message が完了 gate への返事のとき
 │   ├── cold-eyes-isolation.md              # cold-eyes / 盲検 review を別 session に投げる前 / referee 版の原稿を用意する時 / review 結果の独立性を判定する時

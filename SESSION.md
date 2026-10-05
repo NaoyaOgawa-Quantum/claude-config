@@ -32,8 +32,6 @@
 
 - [ ] **macOS の exec kill の仕組みは推定のまま** ([`#killed-hook-stub`](conventions/hook-authoring.md#killed-hook-stub)): syspolicyd の scan 失敗が vnode に kill として残る・vnode の回収で消える・再起動で全部消える、 の 3 点は未確認。 次に起きたら kill される file を 1 本 hard link で控え (作り直しは元の path だけ新しくするので控えは古い inode のまま)、 再起動の後にその控えの exec が通るかを見る (見たら同節の「推定」 を「実測」 に直す)
 
-- [ ] **[`#chat-consent-does-not-reach-classifier`](conventions/claude-code-permissions.md#chat-consent-does-not-reach-classifier) の「判定は変わらない」 に反例の候補 (実測 1 件)** — classifier が止めた操作 (PR の merge) が、 user が chat で同じ操作を求め直した後に単独の command で打ち直すと通った。 command の形 (複合 → 単独) と description も変えたので、 どれが効いたかは切り分けていない。 同節は打ち直しを禁じる規則の文で、 言い直すと緩める向きになる = owner の裁定待ち。 次に観測したら、 求め直しの有無と command の形の変化を分けて記録する
-
 - [ ] **auto mode で Read / Edit の ask rule が実際に dialog を出すか実地未確認** (公式 docs 由来のみ = [`#protected-settings-edit`](conventions/claude-code-permissions.md#protected-settings-edit))。 次に ask rule の対象を触る auto session で確かめる。
 - [ ] **Codex の会話冒頭表示と prompt-time cache を end-to-end で 1 回観測する** — 次の新規 Codex task で (期待値 = [conversation-start stamp](codex/PARITY.md#conversation-start-stamp) / [provenance](codex/PARITY.md#git-session-provenance))。 lift 元 = archive の 2026-09-10/11 provenance entry と 09-11 の Codex provenance 段落。
 - [ ] **Claude desktop session の commit trailer で model 欄が unknown** (2d5cc14 / session f7ca7877) — その session の provenance cache が無かった原因 (起動時入力に model が無いのか、 cache を書く hook が走らないのか) は未切り分け。 lift 元 = archive の 09-11 set -e entry。
