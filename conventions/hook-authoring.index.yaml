@@ -256,6 +256,9 @@ sections:
     level: 3
     title: "9.2 同種の「docs と乖離」 build 依存 feature"
     related: [build-dependent-behavior]
+  - id: rewritten-input-execution-receipt
+    level: 3
+    title: "書き換えた入力・実行の記録・モデルの受領を分ける"
   - id: frontend-dependent-cowork
     legacy: "9.3"
     level: 3
