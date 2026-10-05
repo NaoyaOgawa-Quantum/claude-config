@@ -777,6 +777,22 @@ claude-code の hook 関連挙動は **running build によって docs と乖離
 
 **メタ規律**: hook 挙動を docs だけで assert せず、 ① logic は stdin で unit-test、 ② live 発火・新 field は **実測** (= throwaway hook / 実 tool call / 新 session)、 ③ 不確実な feature は **古い build でも動く path** を選ぶ (= stderr narrative / deny / new-session verify)。
 
+### <a id="rewritten-input-execution-receipt"></a>書き換えた入力・実行の記録・モデルの受領を分ける
+
+`updatedInput` が実行へ届いても、親の会話記録には元の tool input が残ることがある (実測)。
+事後に「書き換え後の文字列が会話記録にあるはず」と探す検査は、その形式を実 tool call で照合してから使う。
+再現には [`probe-headless-record-clause.py`](../scripts/probe-headless-record-clause.py) の手動 probe を使える。
+実 CLI を loopback の固定応答で駆動し、偽 worker の argv と保存された親の tool input を両方見る。
+CLI の送信内容・hook の発火・記録の対応を測る方法であり、外部モデルの受領や遵守の検証ではない。
+
+- **意図と実行を結ぶ**: 別の実行記録を作るときは、親 session・tool call・元入力の hash・起動位置を鍵にする。
+  同じ cwd や近い時刻だけで他の worker の記録を借りない。再試行は別 attempt として選び直す。
+- **証拠の段階を残す**: hook の選択、runner の準備、stdin の送達、起動失敗、worker の報告を区別する。
+  遅れて着く成功が同じ attempt の失敗を消す競合と、複写されたログが証拠のある側を隠す順序依存を反例にする。
+- **読み手の範囲から保持を決める**: 事後検査が読む親ログがある間は対応する証拠を残す。
+  古さだけで切らず、由来と親ログの不在を照合する。読めない記録や対応不明を「不要な記録」と推測しない。
+  起動の hook と全記録の整理は処理時間を分け、整理が注入の時間切れを起こさない配置にする。
+
 ### <a id="frontend-dependent-cowork"></a>9.3 frontend 依存 — desktop app の hook 出力 honor は**反転して見えた (主因は root 限定の kill switch)。 前提にせず session ごとに測れ**
 
 hook の効きは build だけでなく **frontend (= terminal CLI / IDE 拡張 / desktop app)** にも依存する。 **ただしこの依存は固定の性質ではなく、 同じ version 文字列のまま反転した実績がある** — 下の 2026-09-09 実測を参照。 ⚠️ **2026-09-11**: 反転に見えたものの大部分は、 作業 root に入っていた `disableAllHooks` だった ([#disableallhooks-kill-switch](#disableallhooks-kill-switch))。

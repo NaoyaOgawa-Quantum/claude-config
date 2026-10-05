@@ -151,7 +151,7 @@ unresolved on that second Stop, the hook remains loud but cannot force a second
 continuation in the same turn. This is the product contract, not a claim of
 absolute enforcement.
 
-Coverage has four honest limits. Tool hooks can miss specialized execution
+Coverage has five honest limits. Tool hooks can miss specialized execution
 paths; a user must trust the current hook definition in the client; arbitrary
 shell syntax cannot be resolved perfectly; and a task that mutates a repository
 without any matched `PreToolUse` event has no reliable pre-work baseline. The
@@ -159,7 +159,16 @@ PostToolUse fallback treats such an observation conservatively. Pre-existing,
 unchanged dirty state is not attributed to this task, and repositories with no
 remote are left to the documented exception path. Git-side content gates and
 the instruction entry points therefore remain authoritative alongside this
-turn-end guard.
+turn-end guard. The fifth limit is attribution within a shared checkout: the
+baseline stores one hash of the porcelain status for the whole repository, not
+per-path authorship. Committing the task files while unrelated dirt remains, or
+another writer changing the dirty set, can keep the aggregate signature different.
+The warning reports repository state; it does not establish that every remaining
+path was changed by this task. A reported exception is not persisted as an
+acknowledgement, so a later read-only turn can receive the warning again. Use the
+semantic rule's explicit exception report for that case; never stage unrelated
+work to make the warning disappear. Changing the acknowledgement predicate needs
+separate rule-owner authorization and regression controls for new task changes.
 
 `codex-hooks.test.sh` supplies negative controls for dirty completion,
 commit-only/ahead completion, a later separate push, and behind state. The
