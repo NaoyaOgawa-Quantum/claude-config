@@ -83,11 +83,29 @@ agent の Bash の snapshot を補う [`hooks/fix-snapshot-path-patch.sh`](../ho
 | python.org の Framework Python / pyenv の版 | `python3` が Intel 版に化ける | `.zprofile` の Framework を PATH に足す行を外す。 pyenv は版を作り直すか `pyenv global system` |
 | git-crypt の filter | `git status` すら `external filter ... git-crypt clean failed 126/127` | unlock 時の git-crypt の**絶対 path** が各 repo の `.git/config` に焼かれている。 `macos-arch-audit.py --fix-git-crypt-paths --repos-root <dir>` が今の git-crypt に書き換える |
 | launchd plist | ジョブが毎回 `exit 126` | 生成した installer を再実行して plist を作り直す (焼かれた PATH・interpreter・機械名も更新される) |
-| アプリ | Rosetta 頼み / 32-bit は起動不能 | Homebrew cask で入れ直す (旧 bundle を退避してから。 ⚠️ cask が**同じ bundle id** かを先に確かめる = 改名したアプリで別物を入れない。 `.pkg` の cask は sudo が要る。 配布停止の cask もある)。 32-bit (i386 / ppc だけ) は削除候補 |
+| アプリ | Rosetta 頼み / 32-bit は起動不能 | Homebrew cask で入れ直す (旧 bundle を退避してから。 ⚠️ cask が**同じ bundle id** かを先に確かめる = 改名したアプリで別物を入れない。 `.pkg` の cask は sudo が要る。 配布停止の cask もある)。 32-bit (i386 / ppc だけ) は削除候補。 種類ごとの入れ替え方 = 下の [§アプリの入れ替え](#app-replacement) |
 | クラウド同期フォルダ (File Provider) | 同期クライアントが「フォルダが見つからない」 / 二重 | `~/Library/CloudStorage/<service>` は File Provider として移らず、 **ただのフォルダの写し**として来る。 写しを同期フォルダとして拾わせない (古い写しが、 移行後にクラウド側で消したファイルを復活させうる) = 写しを改名して退避 → 同期クライアントを入れ直して再リンク → 同期後に写しとの差を点検してから写しを消す |
 | CLI の認証 (keychain) | headless の CLI が未 login | config-dir ごとに login し直す ([`remote-control-server.md#account-auth-keychain`](remote-control-server.md#account-auth-keychain)) |
 
 ⚠️ `brew` を `while read` の loop の中で呼ぶと、 brew が loop の入力を食べて 2 件目以降が黙って飛ぶ = `brew ... </dev/null`。
+
+### <a id="app-replacement"></a>アプリの入れ替え (実測)
+
+棚卸し = `macos-arch-audit.py` の「アプリ」 節か、 `system_profiler SPApplicationsDataType -json` の `arch_kind`
+(`arch_i64` = Intel だけ / `arch_i32`・`arch_other` = 32-bit・PPC の混在 = 起動しない)。 ⚠️ 移行直後は Spotlight の
+最終使用日 (`kMDItemLastUsedDate`) が全部空 = 「使っていないアプリ」 の判定に使えない。 旧 bundle は消さずに退避先へ移す
+(入れ替えが合わなければ戻せる)。
+
+| 種類 | 入れ替え方 |
+|---|---|
+| cask があり bundle id が同じ | 旧 bundle を退避 → `brew install --cask <name> </dev/null` → main executable を `lipo -archs` で確かめる。 `app` artifact の cask は sudo 不要 (root:admin 所有の bundle でも admin group に書込権があれば退避できる) |
+| cask の後継が別 bundle id (版番号つきの id・改名) | 既定アプリが旧 bundle id のまま残る = 関連付けを書き換える ([`macos-side-by-side-app-migration.md#file-association-engine`](macos-side-by-side-app-migration.md#file-association-engine))。 ⚠️ 有料アプリは旧版のライセンスが新版で通るとは限らない = 旧版を退避先に残し、 認証が通らなければ戻す |
+| `.pkg` の cask | sudo が要る = 1 本の script にまとめ、 user が terminal のタブでパスワードを 1 回入れる。 arch 別の sub-pkg (`*_arm64.pkg`) を内包する pkg もある = 頼む前に `pkgutil --expand-full` で中身の arch を確かめる |
+| cask の URL が Intel 版 / ベンダーが配布終了 | ネイティブ版が無い = Rosetta のまま残すか web 版などで代替。 user に判断を渡す |
+| Java の `.app` (`JavaApplicationStub` / `JavaAppLauncher` が Intel、 同梱 JRE も Intel) | jar は arch 非依存。 arm64 の JDK (`brew install openjdk`) を入れ、 `Contents/MacOS/<CFBundleExecutable>` を `exec /opt/homebrew/opt/openjdk/bin/java <Info.plist の JVMOptions> -cp <jar> <main class>` の shell script に差し替える。 確認 = `-Djava.awt.headless=true` で `HeadlessException` まで進めば class は読めている + `open -g -a` で起動した java process が arm64 |
+| Unity エディタ (Hub の `Editor/<版>/`) | Hub の `--headless` は移行直後に応答しないことがある。 release API (`services.api.unity.com/unity/editor/release/v1/releases?version=<版>&architecture=ARM64&platform=MAC_OS`) から `MacEditorInstallerArm64/Unity-<版>.pkg` を取り、 `pkgutil --expand-full` の Payload (`Unity/`) を `Editor/<版>/` に置けば sudo 不要。 `Documentation`・`modules.json`・言語の `.po` は旧 install から写せる。 ⚠️ WebGL 等の target module は arch 共通の 1 本で中の toolchain が x86_64 = その build だけは Rosetta が要る |
+| 32-bit だけ | 起動しない。 後継が入っているなら退避 (新旧が同じ bundle id を持つ一式は LaunchServices がどちらを引くか曖昧になる) |
+| 消えたアプリ・Intel だけの部品を起動する LaunchAgent | `launchctl bootout gui/$(id -u)/<label>` → plist を退避先へ (点検の「LaunchAgents」 節が対象を出す) |
 
 点検の終わり = `macos-arch-audit.py` の「実行経路に別 arch なし」 + 定期ジョブを 1 本手で回して最後まで走ること。
 アプリ・npx cache・退避した Intel Homebrew の残置は 🟠 として出続ける (= 片付けるまでの carrier)。

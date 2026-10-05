@@ -55,6 +55,18 @@ exit code は 0 = 全 mapping 一致、1 = 読み取り済みだが不一致、2
 
 ただし agent sandbox / GUI session の LaunchServices context が分かれる環境では、engine の exit 2 は GUI 側の不一致を意味しない。その場合は Finder の「情報を見る」で確認し、CLI の null を成功にも不在にも読み替えない。
 
+<a id="lshandlers-rewrite"></a>⚠️ `duti -s` が exit 0 を返しても `duti -x` の read-back が前の版のまま変わらないことがある (実測: 移行アシスタントで来た `LSHandlers` が前の版の bundle id を指し、 後継が別の bundle id のとき。 後継を `lsregister -f` しても変わらず、 前の版を `lsregister -u` すると handler は後継でなく別のアプリへ移った)。 そのときは設定を書き換えて LaunchServices の daemon を立て直す:
+
+```bash
+D=com.apple.LaunchServices/com.apple.launchservices.secure
+defaults export $D ~/launchservices-secure-backup.plist   # 控え
+# 書き出した plist の LSHandlers で前の版の bundle id を後継の bundle id に置き換え (plistlib 等) → defaults import $D <new.plist>
+killall lsd   # user の lsd は launchd が立て直す
+duti -x py    # read-back
+```
+
+`defaults import` の直後は read-back が変わらず、 `killall lsd` の後に反映した。 置き換えはその bundle id を指す全 entry (拡張子・UTI の両方) に効く。
+
 ## <a id="iwork-15-transition"></a>Keynote / Pages / Numbers 14.5 → 15.1 以降
 
 Source check: 2026-09-15。Apple は Mac 用 Keynote、Pages、Numbers 15.1 以降を、14.5 の上書き更新でなく**新しいアプリ**として配布している。旧版を残せる一方、ストレージを空けるなら14.5をゴミ箱へ移せる。通常の作成・表示・編集・共同作業はサブスクリプションなしでも利用でき、サブスクリプションはプレミアム content / intelligence 機能を加える。
