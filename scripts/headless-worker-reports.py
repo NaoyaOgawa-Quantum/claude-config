@@ -5,7 +5,7 @@
 用途: Agent tool の subagent は subagent-reports.py、 掲示板と token の子は各々の道具で引けるが、
 Bash から直接起動した headless の worker (封じた sandbox の盲検 reviewer など) はどの口にも現れない。
 worker の報告は端末の log と作業 dir にしか残らず、 起動した側が拾わないと session の終わりに消える。
-締めの整理 (知見を正本へ移す) で取りこぼさないために、 起動の事実を記録から機械で引く。
+締めの整理 (知見を正本へ移す) で取りこぼさないために、 実行位置の分かる候補と文字列だけの候補を分けて引く。
 
 出すもの (起動ごと):
   - 起動時刻、 作業 dir (command の `cd <dir>`、 無ければ記録の cwd)、 model / effort、 config dir
@@ -25,6 +25,11 @@ usage:
   headless-worker-reports.py <session id の先頭> [--max-chars N] [--projects-dir DIR ...]
   headless-worker-reports.py --selftest
   headless-worker-reports.py --selftest --against-root OLD_CHECKOUT  # 元 command のままの連結試験 (旧版は赤)
+検出: 注入器と同じ lexer で単純コマンドの実行位置を読み、1 呼出しの複数 worker も数える。
+引用・commit message などの文字列一致と未対応構文は別表示 (起動の件数や成果物の読出しに混ぜない)。
+従来の regex に一致する呼出しは文字列候補として残すので、未対応構文の手確認経路を失わない。
+各実行で検索対象 config の古い孤立した注入記録を整理する (保持条件は注入器の docstring)。
+--prune-receipts は整理だけを行う。未使用期間中の定期実行は設けない。
 0 件のときは、 見た記録 file を出して終わる (= 使っていない、 と区別できる)。 標準 library だけ。
 """
 from __future__ import annotations
@@ -133,25 +138,36 @@ def launches(transcript: Path) -> list[dict]:
                         for words in engine.shell_commands(cmd):
                             position = engine.executable_index(words)
                             argv = [word.value for word in words[position:]] if position is not None else []
+                            runner = False
+                            if argv and argv[0] and Path(argv[0]).name.startswith('python') and len(argv) > 2:
+                                if argv[1] and Path(argv[1]).name == 'headless-record-clause-nudge.py' and argv[2] == '--run':
+                                    argv, runner = argv[3:], True
                             kind = engine.worker_kind(argv)
                             if kind:
-                                parsed.append((kind, argv))
+                                parsed.append((kind, argv, runner))
                     except ValueError:
                         parsed = []
                 except Exception:
                     receipts = []  # Legacy inspection stays available; no receipt means unverified.
                 m = LAUNCH_RE.search(cmd)
-                if not m and not receipts:
+                if not m and not receipts and not parsed:
                     continue
                 cds = re.findall(r"(?:^|[\s;&|(])cd\s+((?:\"[^\"]+\"|'[^']+'|[^\s;&|]+))", cmd[:m.start() + 1] if m else cmd)
                 cwd = expand(cds[-1]) if cds else (Path(obj["cwd"]) if obj.get("cwd") else None)
                 cfg = re.search(r"CLAUDE_CONFIG_DIR=(\S+)", cmd)
-                for receipt in receipts or [None]:
-                    index = (receipt or {}).get('launch_index', 0)
-                    kind = (receipt or {}).get('kind') or ('codex' if m and 'codex' in m.group(1) else 'claude' if m else 'unknown')
+                by_index = {r.get('launch_index', 0): r for r in receipts}
+                entries, automatic = [], 0
+                for item in parsed:
+                    receipt = None if item[2] else by_index.pop(automatic, None)
+                    automatic += not item[2]
+                    entries.append((item, receipt))
+                entries.extend((None, r) for r in by_index.values())
+                for index, (item, receipt) in enumerate(entries or [(None, None)]):
+                    kind = (receipt or {}).get('kind') or (item[0] if item else
+                            'codex' if m and 'codex' in m.group(1) else 'claude' if m else 'unknown')
                     model = effort = None
-                    if index < len(parsed) and parsed[index][0] == kind:
-                        model, effort = literal_options(engine, parsed[index][1], kind)
+                    if item and item[0] == kind:
+                        model, effort = literal_options(engine, item[1], kind)
                     worker = (receipt or {}).get('worker') or {}
                     if not isinstance(worker, dict):
                         worker = {}
@@ -162,10 +178,11 @@ def launches(transcript: Path) -> list[dict]:
                         "config": Path(worker['config_dir']) if isinstance(worker.get('config_dir'), str) else expand(cfg.group(1)) if cfg else None,
                         "model": model, "effort": effort,
                         "marker": MARKER in cmd,
-                        "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
+                        "runner": item[2] if item else False,
+                        "detection": 'execution' if item or receipt else 'text',
                         "parent_session": sid, "tool_use_id": tool_id,
                         "command_sha256": hashlib.sha256(cmd.encode('utf-8', errors='surrogatepass')).hexdigest(),
-                        "launch_index": (receipt or {}).get('launch_index', 0), "receipt": receipt,
+                        "launch_index": index, "receipt": receipt,
                         "worker_session": worker.get('session_id'),
                     })
     return out
@@ -216,6 +233,11 @@ def worker_transcripts(launch: dict) -> list[Path]:
 
 
 def report(launch: dict, n: int, max_chars: int) -> None:
+    if launch.get('detection') == 'text':
+        print(f"== 文字列候補 {n}: {launch['ts']}  {launch['kind']} (実行位置は未確認)")
+        print("   引用・引数内の言及、または未対応構文。起動と数えず、元の tool call を確認する。")
+        print(f"   tool call: {launch.get('tool_use_id') or 'ID なし'}")
+        return
     cwd = launch["cwd"]
     print(f"== 起動 {n}: {launch['ts']}  {launch['kind']}  model指定={launch['model'] or '未特定'}  effort指定={launch['effort'] or '未特定'}")
     print(f"   作業 dir: {cwd if cwd else '不明 (command に cd が無く、 記録に cwd も無い)'}")
@@ -241,6 +263,7 @@ def report(launch: dict, n: int, max_chars: int) -> None:
 
 
 def run(session: str, dirs: list[Path], max_chars: int) -> int:
+    cleanup(dirs)
     files = session_files(dirs, session)
     if not files:
         print(f"session {session} の記録が見つからない (見た dir: {', '.join(map(str, dirs))})")
@@ -268,10 +291,19 @@ def run(session: str, dirs: list[Path], max_chars: int) -> int:
         elif evidence_rank(l) > evidence_rank(uniq[seen[key]]):
             uniq[seen[key]] = l
     print(f"見た記録: {', '.join(str(f) for f in files)}")
-    print(f"headless の起動候補: {len(uniq)} 件 (session {session})")
+    count = sum(l.get('detection') != 'text' for l in uniq)
+    print(f"headless の起動候補: {count} 件 / 文字列候補: {len(uniq) - count} 件 (session {session})")
     for i, l in enumerate(uniq, 1):
         report(l, i, max_chars)
     return 0
+
+
+def cleanup(dirs):
+    engine = receipt_engine()
+    for root in dict.fromkeys(d.parent / 'state' / 'headless-record-clause' for d in dirs):
+        result = engine.prune_receipts(root, dirs)
+        if result['removed'] or result['errors']:
+            print(f"注入記録の整理: {root}: 削除 {result['removed']} 件 / 保留を伴うエラー {result['errors']} 件")
 
 
 def receipt_regression(repo):
@@ -373,6 +405,11 @@ print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
         result = report()
         assert result.count('== 起動 ') == 2 and result.count('注入記録: added') == 2, result
         print('OK both workers in one tool call keep their own receipts')
+        launch(shlex.quote(sys.executable)+' '+shlex.quote(str(hook))+' --run claude -p explicit; codex exec automatic', 'tool-mixed-wrapper')
+        result = report()
+        assert result.count('== 起動 ') == 2 and result.count('注入記録: added') == 1, result
+        assert result.index('自動注入 runner の指定') < result.index('注入記録: added'), result
+        print('OK an explicit wrapper does not shift the automatic launch receipt index')
         launch('claude --model sample-a -p first; codex exec --model sample-b second', 'tool-models')
         result = report()
         assert 'sample-a' in result and 'sample-b' in result, result
@@ -436,6 +473,135 @@ print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
 
 
 
+def followup_regression(repo, case=None):
+    """Behavioral regressions runnable against an unmodified old checkout."""
+    import subprocess
+    import time
+    import shlex
+    reporter = repo / 'scripts/headless-worker-reports.py'
+    hook = repo / 'hooks/headless-record-clause-nudge.py'
+    with tempfile.TemporaryDirectory(prefix='headless-followup-test-') as td:
+        root = Path(td).resolve()
+        projects = root/'cfg'/'projects'
+        logs = projects/'synthetic'
+        logs.mkdir(parents=True)
+        env = dict(os.environ, CLAUDE_CONFIG_DIR=str(projects.parent))
+
+        def row(command, tool='synthetic-tool', sid='synthetic-parent'):
+            return json.dumps({'sessionId':sid, 'timestamp':'SYNTHETIC', 'cwd':str(root),
+                               'message':{'content':[{'type':'tool_use','name':'Bash','id':tool,
+                                                      'input':{'command':command}}]}})+'\n'
+
+        def output(sid, more=()):
+            return subprocess.run([sys.executable,str(reporter),sid,'--projects-dir',str(projects),*more],
+                                  env=env,text=True,capture_output=True,check=True).stdout
+
+        if case in (None, 'detection'):
+            log = logs/'synthetic-parent.jsonl'
+            mentions = [
+                "git commit -m 'mention claude -p in prose'",
+                "echo 'use codex exec for this task'",
+                "python3 -c 'print(\"codex exec sample\")'",
+                "grep 'claude -p' sample.txt",
+                "cat <<'END'\nclaude -p sample\nEND\n",
+                "# codex exec sample\necho done",
+                "python3 board.py request --summary 'run codex exec sample'",
+                "cat <<< 'codex exec sample'",
+                "export NOTE='codex exec sample'",
+            ]
+            for n, command in enumerate(mentions):
+                log.write_text(row(command, 'mention-'+str(n)))
+                result = output('synthetic-parent')
+                assert '== 起動 ' not in result, (command,result)
+                if LAUNCH_RE.search(command):
+                    assert '== 文字列候補 ' in result, (command,result)
+                assert '作業 dir の成果物' not in result, result
+            print('OK quoted arguments, commit messages, comments and heredoc data are not counted as launches')
+            positive = [
+                'claude -p task', 'claude --print task', 'codex exec task',
+                'cd /tmp && CLAUDE_CONFIG_DIR=/tmp/cfg claude --model sample -p task',
+                'printf task | codex exec -', '(claude -p task)',
+                'env NOTE=sample command claude -p task', '/opt/sample/claude -p task',
+                'codex -m sample exec task', 'codex e task',
+                'claude -p "$(cat prompt.txt)" < /dev/null',
+                "python3 /opt/sample/headless-record-clause-nudge.py --run claude -p task",
+            ]
+            log.write_text(''.join(row(c,'positive-'+str(n)) for n,c in enumerate(positive)))
+            result = output('synthetic-parent')
+            assert result.count('== 起動 ') == len(positive), result
+            log.write_text(row('claude -p first; codex exec second'))
+            assert output('synthetic-parent').count('== 起動 ') == 2
+            # Unsupported or nested execution still has a visible manual-inspection route.
+            for c in ('if true; then claude -p task; fi', 'bash -c "cd /tmp; codex exec task"',
+                      'echo "$(codex exec task)"'):
+                log.write_text(row(c))
+                assert '== 文字列候補 ' in output('synthetic-parent'), c
+            print('OK executable-position positives, multiple launches and unsupported-syntax fallback remain visible')
+
+        if case in (None, 'retention'):
+            state = projects.parent/'state'/'headless-record-clause'
+            old = time.time_ns() - 40*24*60*60*1_000_000_000
+
+            def make(sid, *, age=True, legacy=False):
+                log = logs/(sid+'.jsonl')
+                log.write_text('{}\n')
+                ev = {'hook_event_name':'PreToolUse','tool_name':'Bash','session_id':sid,
+                      'tool_use_id':'synthetic-tool','transcript_path':str(log),
+                      'tool_input':{'command':'claude -p synthetic'}}
+                p = subprocess.run([sys.executable,str(hook)],input=json.dumps(ev),env=env,
+                                   text=True,capture_output=True,check=True)
+                assert 'updatedInput' in p.stdout
+                paths = list((state/hashlib.sha256(sid.encode()).hexdigest()).glob('*.json'))
+                assert paths
+                for path in paths:
+                    receipt = json.loads(path.read_text())
+                    if age:
+                        receipt['issued_ns'] = old
+                    if legacy:
+                        receipt.pop('parent_transcript',None)
+                    path.write_text(json.dumps(receipt))
+                    if age:
+                        os.utime(path,ns=(old,old))
+                return log, paths
+
+            live_log, live = make('live-parent')
+            gone_log, gone = make('gone-parent')
+            recent_log, recent = make('recent-parent',age=False)
+            legacy_log, legacy = make('legacy-parent',legacy=True)
+            corrupt_log, corrupt = make('corrupt-parent')
+            copy_log, copied = make('copied-parent')
+            fresh_log, fresh = make('fresh-phase-parent')
+            # A new phase for a long-lived attempt must survive the grace period.
+            os.utime(fresh[0],None)
+            corrupt[0].write_text('{broken')
+            os.utime(corrupt[0],ns=(old,old))
+            shadow = root/'shadow'/'projects'/'moved'
+            shadow.mkdir(parents=True)
+            (shadow/copy_log.name).write_text(copy_log.read_text())
+            more = ['--projects-dir',str(shadow.parent)]
+            output('live-parent',more)
+            assert all(p.exists() for p in live+gone+recent+legacy+corrupt+copied+fresh)
+            for p in (gone_log,recent_log,legacy_log,corrupt_log,copy_log,fresh_log):
+                p.unlink()
+            result = output('live-parent',more)
+            assert not any(p.exists() for p in gone), 'old orphan receipt was not removed: '+result
+            assert all(p.exists() for p in live+recent+legacy+corrupt+copied+fresh)
+            assert live_log.exists() and not gone_log.exists()
+            assert not gone[0].parent.exists(), 'empty receipt dir left behind'
+            output('live-parent',more)  # idempotent
+            print('OK old orphans are pruned; live, young, copied, legacy, corrupt and freshly written evidence survives')
+            # Symlinked metadata never grants deletion authority over another directory.
+            target = root/'unrelated'
+            target.mkdir()
+            sentinel = target/'keep.json'
+            sentinel.write_text('keep')
+            (state/('a'*64)).symlink_to(target,target_is_directory=True)
+            output('live-parent',more)
+            assert sentinel.read_text() == 'keep'
+            print('OK cleanup is idempotent and does not follow receipt-directory symlinks')
+    return 0
+
+
 def selftest() -> int:
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -465,7 +631,7 @@ def selftest() -> int:
             + bash("T5", "git commit -m 'mention claude -p in text'")
             + bash("T6", "python3 '/opt/sample/headless-record-clause-nudge.py' --run claude -p task", cwd=str(bare)))
         ls = launches(proj / "abcd1234-x.jsonl")
-        assert [l["ts"] for l in ls] == ["T1", "T3", "T4", "T5", "T6"], [l["ts"] for l in ls]   # T5: 文中の言及も拾う (過剰側に倒す)
+        assert [l["ts"] for l in ls] == ["T1", "T3", "T4", "T5", "T6"], [l["ts"] for l in ls]   # T5 remains visible as text, separately from executable-position candidates.
         assert ls[0]["cwd"] == box and ls[0]["model"] == "m1" and ls[0]["effort"] == "high" and ls[0]["config"] == tmp / "wcfg"
         assert ls[1]["cwd"] == bare and ls[2]["kind"] == "codex" and ls[2]["marker"]
         assert "記録条項あり" in promise(ls[0]) and promise(ls[1]).startswith("⚠️") and "MARKER あり" in promise(ls[2])
@@ -482,22 +648,34 @@ def selftest() -> int:
         assert run("abcd1234", [tmp / "cfg" / "projects"], 0) == 0
         assert run("zzzz", [tmp / "cfg" / "projects"], 0) == 1
     receipt_regression(Path(__file__).resolve().parents[1])
+    followup_regression(Path(__file__).resolve().parents[1])
     print("selftest OK")
     return 0
 
 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if "--followup-selftest" in argv:
+        repo = Path(argv[argv.index('--against-root')+1]).resolve() if '--against-root' in argv else Path(__file__).resolve().parents[1]
+        case = argv[argv.index('--case')+1] if '--case' in argv else None
+        return followup_regression(repo, case)
     if "--selftest" in argv:
         if "--against-root" in argv:
             return receipt_regression(Path(argv[argv.index("--against-root")+1]).resolve())
         return selftest()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("session")
+    ap.add_argument("session", nargs="?")
+    ap.add_argument("--prune-receipts", action="store_true")
     ap.add_argument("--max-chars", type=int, default=2000)
     ap.add_argument("--projects-dir", action="append")
     a = ap.parse_args(argv)
-    return run(a.session, projects_dirs(a.projects_dir), a.max_chars)
+    dirs = projects_dirs(a.projects_dir)
+    if a.prune_receipts:
+        cleanup(dirs)
+        return 0
+    if not a.session:
+        ap.error('session または --prune-receipts が必要です')
+    return run(a.session, dirs, a.max_chars)
 
 
 if __name__ == "__main__":

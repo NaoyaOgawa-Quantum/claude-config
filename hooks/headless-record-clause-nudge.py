@@ -21,6 +21,11 @@ files are mode 0600 in private directories. Metadata also records actual cwd/con
 and an explicitly provided Claude session ID for precise transcript lookup.
 Recording failure never prevents injection. These local records are not a security
 boundary or an authenticated audit log; missing records remain unverified.
+New records also bind the parent transcript path. The report reader prunes records
+older than 30 days only after that transcript is gone (and no same-session copy is
+found in its searched projects directories). Age alone never expires a readable
+parent's evidence. Legacy records lacking that path, corrupt records and symlinks
+are retained. Cleanup runs with the reader, outside the latency-sensitive hook.
 
 Scope: POSIX Bash simple command lists/pipelines/subshells, literal executable
 names/paths, assignment/env/command/exec prefixes. Unsupported shell grammar,
@@ -87,6 +92,8 @@ CODEX_FLAGS = {'--json', '--experimental-json', '--ephemeral', '--ignore-user-co
                '--no-alt-screen'}
 CONTEXT_KEYS = {'version', 'root', 'session_id', 'tool_use_id', 'command_sha256',
                 'launch_index', 'kind', 'issued_ns', 'attempt'}
+OPTIONAL_CONTEXT_KEYS = {'parent_transcript'}
+RECEIPT_RETENTION_NS = 30 * 24 * 60 * 60 * 1_000_000_000
 RECEIPT_STATES = {'selected', 'added', 'present', 'empty', 'unsupported',
                   'prepare_failed', 'exec_failed', 'stdin_failed', 'stdin_unconsumed'}
 FAILURE_STATES = {'unsupported', 'prepare_failed', 'exec_failed', 'stdin_failed', 'stdin_unconsumed'}
@@ -106,7 +113,11 @@ def receipt_root(transcript: str | Path | None = None) -> Path:
 
 
 def valid_context(ctx) -> bool:
-    return (isinstance(ctx, dict) and set(ctx) == CONTEXT_KEYS and ctx['version'] == 1
+    return (isinstance(ctx, dict) and CONTEXT_KEYS <= set(ctx) <= CONTEXT_KEYS | OPTIONAL_CONTEXT_KEYS and ctx['version'] == 1
+            and ('parent_transcript' not in ctx or
+                 (isinstance(ctx['parent_transcript'], str) and
+                  Path(ctx['parent_transcript']).is_absolute() and
+                  Path(ctx['parent_transcript']).suffix == '.jsonl'))
             and all(isinstance(ctx[k], str) and 0 < len(ctx[k]) <= 4096
                     for k in ('root', 'session_id', 'tool_use_id', 'command_sha256', 'kind', 'attempt'))
             and Path(ctx['root']).is_absolute() and ctx['kind'] in ('claude', 'codex')
@@ -165,7 +176,7 @@ def read_receipts(root: Path, session: str, tool_id: str, command: str) -> list[
     for path in (root / digest(session)).glob(call + '-*.json'):
         try:
             row = json.loads(path.read_text(encoding='utf-8'))
-            ctx = {k: row[k] for k in CONTEXT_KEYS}
+            ctx = {k: row[k] for k in CONTEXT_KEYS | OPTIONAL_CONTEXT_KEYS if k in row}
             if not valid_context(ctx) or row.get('state') not in RECEIPT_STATES:
                 raise ValueError('invalid receipt')
             worker = row.get('worker', {})
@@ -195,10 +206,99 @@ def read_receipts(root: Path, session: str, tool_id: str, command: str) -> list[
 def receipt_context(ev: dict, command: str, index: int, kind: str):
     if not all(isinstance(ev.get(k), str) and ev[k] for k in ('session_id', 'tool_use_id')):
         return None
-    return dict(version=1, root=str(receipt_root(ev.get('transcript_path'))),
+    ctx = dict(version=1, root=str(receipt_root(ev.get('transcript_path'))),
                 session_id=ev['session_id'], tool_use_id=ev['tool_use_id'],
                 command_sha256=digest(command), launch_index=index, kind=kind,
                 issued_ns=time.time_ns(), attempt=uuid.uuid4().hex)
+    path = ev.get('transcript_path')
+    if isinstance(path, str) and Path(path).suffix == '.jsonl':
+        ctx['parent_transcript'] = str(Path(path).expanduser().resolve())
+    return ctx
+
+
+def prune_receipts(root: Path, projects=(), now_ns=None) -> dict:
+    """Remove only old, valid orphan files; never read or delete parent transcripts.
+
+    Check both issue time and last write time: a long-running worker can write a
+    fresh phase for an old attempt. Unknown provenance and filesystem errors keep
+    evidence. Per-file unlink plus a stat recheck preserves new concurrent writes;
+    nonempty directories are never recursively removed.
+    """
+    result = {'removed': 0, 'retained': 0, 'errors': 0}
+    cutoff = (time.time_ns() if now_ns is None else now_ns) - RECEIPT_RETENTION_NS
+    root = Path(root)
+    if root.is_symlink():
+        return result
+    try:
+        parents = list(root.iterdir())
+    except FileNotFoundError:
+        return result
+    except OSError:
+        result['errors'] += 1
+        return result
+    search = list(dict.fromkeys([root.parent.parent / 'projects', *map(Path, projects)]))
+    transcript_names = set()
+    try:
+        for directory in search:
+            try:
+                with os.scandir(directory) as entries:
+                    children = [Path(p.path) for p in entries if p.is_dir()]
+            except FileNotFoundError:
+                continue
+            for child in children:
+                with os.scandir(child) as entries:
+                    transcript_names.update(p.name for p in entries if p.name.endswith('.jsonl'))
+    except OSError:
+        result['errors'] += 1
+        return result  # An unreadable search location is not proof of absence.
+    for parent in parents:
+        if parent.is_symlink() or not re.fullmatch(r'[0-9a-f]{64}', parent.name) or not parent.is_dir():
+            continue
+        try:
+            paths = list(parent.iterdir())
+        except OSError:
+            result['errors'] += 1
+            continue
+        for path in paths:
+            try:
+                stat = path.lstat()
+                if path.is_symlink() or not path.is_file() or stat.st_mtime_ns >= cutoff:
+                    result['retained'] += 1
+                    continue
+                row = json.loads(path.read_text(encoding='utf-8'))
+                ctx = {k: row[k] for k in CONTEXT_KEYS | OPTIONAL_CONTEXT_KEYS if k in row}
+                if not valid_context(ctx) or 'parent_transcript' not in ctx or row.get('state') not in RECEIPT_STATES:
+                    result['retained'] += 1
+                    continue
+                phase = 'failed' if row['state'] in FAILURE_STATES else 'selected' if row['state'] == 'selected' else 'applied'
+                call = digest(ctx['tool_use_id'] + '\0' + ctx['command_sha256'])
+                expected = f"{call}-{ctx['launch_index']}-{ctx['attempt']}-{phase}.json"
+                if (path.name != expected or parent.name != digest(ctx['session_id']) or
+                        Path(ctx['root']).resolve() != root.resolve() or ctx['issued_ns'] >= cutoff):
+                    result['retained'] += 1
+                    continue
+                transcript = Path(ctx['parent_transcript'])
+                try:
+                    transcript.stat()
+                    exists = True
+                except FileNotFoundError:
+                    # Use filename equality, not a glob containing a session ID.
+                    names = {transcript.name, ctx['session_id'] + '.jsonl'}
+                    exists = bool(names & transcript_names)
+                current = path.lstat()
+                unchanged = (current.st_dev, current.st_ino, current.st_mtime_ns, current.st_size) == (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
+                if exists or not unchanged:
+                    result['retained'] += 1
+                    continue
+                path.unlink()
+                result['removed'] += 1
+            except (OSError, ValueError, TypeError, KeyError):
+                result['errors'] += 1
+        try:
+            parent.rmdir()  # Only empty receipt directories, never their contents.
+        except OSError:
+            pass
+    return result
 
 
 def worker_metadata(args: list[str], kind: str | None) -> dict:
