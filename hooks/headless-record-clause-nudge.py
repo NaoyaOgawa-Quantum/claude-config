@@ -11,6 +11,17 @@ the prompt comes from stdin. Config, environment, cwd, redirections and exit
 status remain with the original command. Permission decisions stay with the
 normal tool policy; hook/parser/preparation failures are non-blocking.
 
+Observation: the parent transcript retains the original command, not updatedInput.
+When session_id and tool_use_id are supplied, record selected/applied/failed phases
+in the parent config's state/headless-record-clause directory. Bind each attempt
+to parent session, tool call, original-command SHA-256 and launch index. The runner
+records argv preparation or stdin delivery, not model receipt/compliance. Failure
+records win over a delayed stdin success. Original prompt/command text is omitted;
+files are mode 0600 in private directories. Metadata also records actual cwd/config
+and an explicitly provided Claude session ID for precise transcript lookup.
+Recording failure never prevents injection. These local records are not a security
+boundary or an authenticated audit log; missing records remain unverified.
+
 Scope: POSIX Bash simple command lists/pipelines/subshells, literal executable
 names/paths, assignment/env/command/exec prefixes. Unsupported shell grammar,
 shell -c, substitutions, computed commands, aliases/functions, script contents
@@ -21,10 +32,13 @@ is an advisory instruction, not a guarantee of worker compliance.
 
 Usage: hook stdin JSON; --run <claude|codex> ... for explicit wrapper use;
        --selftest [--against OLD_HOOK] runs synthetic shell/worker fixtures.
+End-to-end receipt regression: scripts/headless-worker-reports.py --selftest.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -32,6 +46,9 @@ import re
 import runpy
 import shlex
 import sys
+import tempfile
+import time
+import uuid
 
 MARKER = '記録の約束'
 ASSIGNMENT = re.compile(r'^[A-Za-z_][A-Za-z_0-9]*=')
@@ -47,6 +64,18 @@ CLAUDE_VALUES = {
     '--max-turns', '--max-budget-usd', '--setting-sources', '--debug-file',
     '--fallback-model', '--system-prompt-snapshot', '--plugin-dir', '--plugin-url',
 }
+CLAUDE_VARIADIC = {'--add-dir', '--allowedTools', '--allowed-tools', '--disallowedTools',
+                   '--disallowed-tools', '--mcp-config', '--tools', '--file', '--betas'}
+CLAUDE_OPTIONAL = {'--resume', '-r', '--from-pr', '--worktree', '-w', '--debug', '-d',
+                   '--teleport', '--remote-control', '--cloud', '--prompt-suggestions'}
+CLAUDE_FLAGS = {'-p', '--print', '-c', '--continue', '--bare', '--no-session-persistence',
+                '--verbose', '--strict-mcp-config', '--chrome', '--no-chrome',
+                '--include-hook-events', '--include-partial-messages', '--disable-slash-commands',
+                '--allow-dangerously-skip-permissions', '--dangerously-skip-permissions',
+                '--fork-session', '--replay-user-messages', '--forward-subagent-text',
+                '--ide', '--safe-mode', '--restricted', '--bg', '--background', '--brief',
+                '--ax-screen-reader', '--exclude-dynamic-system-prompt-sections',
+                '-h', '--help', '-v', '--version'}
 CODEX_VALUES = {'-c', '--config', '-m', '--model', '-p', '--profile', '-s',
                 '--sandbox', '-C', '--cd', '--add-dir', '--enable', '--disable',
                 '--local-provider', '--thread-source', '--output-schema',
@@ -56,6 +85,133 @@ CODEX_FLAGS = {'--json', '--experimental-json', '--ephemeral', '--ignore-user-co
                '--approve-for-me', '--dangerously-bypass-approvals-and-sandbox',
                '--dangerously-bypass-hook-trust', '--full-auto', '--search',
                '--no-alt-screen'}
+CONTEXT_KEYS = {'version', 'root', 'session_id', 'tool_use_id', 'command_sha256',
+                'launch_index', 'kind', 'issued_ns', 'attempt'}
+RECEIPT_STATES = {'selected', 'added', 'present', 'empty', 'unsupported',
+                  'prepare_failed', 'exec_failed', 'stdin_failed', 'stdin_unconsumed'}
+FAILURE_STATES = {'unsupported', 'prepare_failed', 'exec_failed', 'stdin_failed', 'stdin_unconsumed'}
+
+
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
+
+def receipt_root(transcript: str | Path | None = None) -> Path:
+    if transcript:
+        path = Path(transcript).expanduser().resolve()
+        if path.parent.parent.name == 'projects':
+            return path.parent.parent.parent / 'state' / 'headless-record-clause'
+    cfg = Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home() / '.claude').expanduser()
+    return cfg.resolve() / 'state' / 'headless-record-clause'
+
+
+def valid_context(ctx) -> bool:
+    return (isinstance(ctx, dict) and set(ctx) == CONTEXT_KEYS and ctx['version'] == 1
+            and all(isinstance(ctx[k], str) and 0 < len(ctx[k]) <= 4096
+                    for k in ('root', 'session_id', 'tool_use_id', 'command_sha256', 'kind', 'attempt'))
+            and Path(ctx['root']).is_absolute() and ctx['kind'] in ('claude', 'codex')
+            and re.fullmatch(r'[0-9a-f]{64}', ctx['command_sha256']) is not None
+            and re.fullmatch(r'[0-9a-f]{32}', ctx['attempt']) is not None
+            and type(ctx['launch_index']) is int and ctx['launch_index'] >= 0
+            and type(ctx['issued_ns']) is int and ctx['issued_ns'] > 0)
+
+
+def record_receipt(ctx, state: str, worker=None) -> None:
+    """Atomic, private metadata only. A failure event cannot race away an applied event.
+
+    Each attempt has separate selected/applied/failed files; the reader gives
+    failure priority and chooses the latest issued attempt per launch position.
+    Neither command nor prompt text is stored. Recording errors never block.
+    """
+    if ctx is None:
+        return
+    temporary = None
+    try:
+        if not valid_context(ctx) or state not in RECEIPT_STATES:
+            raise ValueError('invalid receipt context')
+        root = Path(ctx['root'])
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        parent = root / digest(ctx['session_id'])
+        parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        call = digest(ctx['tool_use_id'] + '\0' + ctx['command_sha256'])
+        phase = 'failed' if state in FAILURE_STATES else 'selected' if state == 'selected' else 'applied'
+        dest = parent / f"{call}-{ctx['launch_index']}-{ctx['attempt']}-{phase}.json"
+        row = dict(ctx, state=state, recorded_at=datetime.now(timezone.utc).isoformat())
+        if worker:
+            row['worker'] = worker
+        fd, temporary = tempfile.mkstemp(prefix='.', dir=parent)
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(row, stream, ensure_ascii=False)
+            stream.write('\n')
+        os.replace(temporary, dest)
+        temporary = None
+    except Exception as exc:
+        warn('注入記録を書けません (' + type(exc).__name__ + ')。起動は続行します。')
+    finally:
+        if temporary:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+
+
+def read_receipts(root: Path, session: str, tool_id: str, command: str) -> list[dict]:
+    """Read only the exact parent/session/tool/command key, never nearby sessions."""
+    if not session or not tool_id:
+        return []
+    command_hash = digest(command)
+    call = digest(tool_id + '\0' + command_hash)
+    attempts = {}
+    for path in (root / digest(session)).glob(call + '-*.json'):
+        try:
+            row = json.loads(path.read_text(encoding='utf-8'))
+            ctx = {k: row[k] for k in CONTEXT_KEYS}
+            if not valid_context(ctx) or row.get('state') not in RECEIPT_STATES:
+                raise ValueError('invalid receipt')
+            worker = row.get('worker', {})
+            if not isinstance(worker, dict) or set(worker) - {'cwd', 'config_dir', 'session_id', 'resume'}:
+                raise ValueError('invalid worker metadata')
+            if any(not isinstance(worker[k], str) or not Path(worker[k]).is_absolute()
+                   for k in ('cwd', 'config_dir') if k in worker):
+                raise ValueError('invalid worker path')
+            if (ctx['session_id'], ctx['tool_use_id'], ctx['command_sha256']) != (session, tool_id, command_hash):
+                continue
+            if Path(ctx['root']).resolve() != root.resolve():
+                continue
+            key = ctx['launch_index'], ctx['attempt']
+            priority = 2 if row['state'] in FAILURE_STATES else 0 if row['state'] == 'selected' else 1
+            if key not in attempts or priority > attempts[key][0]:
+                attempts[key] = priority, row
+        except (OSError, ValueError, KeyError, TypeError):
+            return [{'state': 'unreadable', 'launch_index': 0}]
+    latest = {}
+    for _, row in attempts.values():
+        i = row['launch_index']
+        if i not in latest or row['issued_ns'] > latest[i]['issued_ns']:
+            latest[i] = row
+    return [latest[i] for i in sorted(latest)]
+
+
+def receipt_context(ev: dict, command: str, index: int, kind: str):
+    if not all(isinstance(ev.get(k), str) and ev[k] for k in ('session_id', 'tool_use_id')):
+        return None
+    return dict(version=1, root=str(receipt_root(ev.get('transcript_path'))),
+                session_id=ev['session_id'], tool_use_id=ev['tool_use_id'],
+                command_sha256=digest(command), launch_index=index, kind=kind,
+                issued_ns=time.time_ns(), attempt=uuid.uuid4().hex)
+
+
+def worker_metadata(args: list[str], kind: str | None) -> dict:
+    result = {'cwd': str(Path.cwd()), 'config_dir': str(Path(os.environ.get('CLAUDE_CONFIG_DIR') or Path.home()/'.claude').expanduser().resolve())}
+    if kind == 'claude':
+        options = list(claude_option_indices(args))
+        result['resume'] = any(key in ('--resume', '-r', '--continue', '-c') for _, key in options)
+        for i, key in options:
+            if key == '--session-id':
+                value = args[i].partition('=')[2] if '=' in args[i] else args[i+1]
+                if re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
+                    result['session_id'] = value
+    return result
 
 
 @dataclass
@@ -281,7 +437,16 @@ def claude_option_indices(args: list[str | None]):
             return
         key = arg.partition('=')[0]
         yield i, key
-        i += 2 if key in CLAUDE_VALUES and '=' not in arg else 1
+        i += 1
+        if '=' in arg:
+            continue
+        if key in CLAUDE_VALUES:
+            i += 1
+        elif key in CLAUDE_OPTIONAL and i < len(args) and not (args[i] or '').startswith('-'):
+            i += 1
+        elif key in CLAUDE_VARIADIC:
+            while i < len(args) and not (args[i] or '').startswith('-'):
+                i += 1
 
 
 def codex_prompt_index(args: list[str | None]) -> int | None:
@@ -347,24 +512,43 @@ def rewrite(ev: dict) -> dict | None:
     positions = []
     for words in shell_commands(command):
         i = executable_index(words)
-        if i is not None and worker_kind([w.value for w in words[i:]]):
-            positions.append(words[i].start)
+        kind = worker_kind([w.value for w in words[i:]]) if i is not None else None
+        if kind:
+            positions.append((words[i].start, kind))
     if not positions:
         return None
-    prefix = shlex.quote(sys.executable) + ' ' + shlex.quote(str(Path(__file__).resolve())) + ' --run '
-    for pos in reversed(positions):
+    for index in reversed(range(len(positions))):
+        pos, kind = positions[index]
+        ctx = receipt_context(ev, inp['command'], index, kind)
+        prefix = shlex.quote(sys.executable) + ' ' + shlex.quote(str(Path(__file__).resolve()))
+        if ctx:
+            token = json.dumps(ctx, ensure_ascii=False, separators=(',', ':'))
+            prefix += ' --receipt-context ' + shlex.quote(token)
+            record_receipt(ctx, 'selected')
+        prefix += ' --run '
         command = command[:pos] + prefix + command[pos:]
     return {'hookSpecificOutput': {'hookEventName': 'PreToolUse',
                                   'updatedInput': dict(inp, command=command)}}
 
 
 def warn(message: str) -> None:
-    print('headless-record-clause-nudge: ' + message, file=sys.stderr)
+    try:
+        if sys.stderr is not None:
+            print('headless-record-clause-nudge: ' + message, file=sys.stderr)
+    except Exception:
+        pass
 
 
 def claude_args(args: list[str], clause: str) -> list[str]:
     out = list(args)
     options = list(claude_option_indices(args))
+    # A literal positional prompt can already carry the user's own record clause.
+    known = CLAUDE_VALUES | CLAUDE_VARIADIC | CLAUDE_OPTIONAL | CLAUDE_FLAGS
+    unambiguous = all(not key.startswith('-') or key in known for _, key in options)
+    if unambiguous and any(MARKER in args[i] for i, key in options if key and not key.startswith('-')):
+        return args
+    if '--' in args and any(MARKER in arg for arg in args[args.index('--') + 1:]):
+        return args
     appends = [(i, key) for i, key in options if key in ('--append-system-prompt', '--append-system-prompt-file')]
     if len({key for _, key in appends}) > 1:
         raise ValueError('conflicting append options')
@@ -385,11 +569,11 @@ def claude_args(args: list[str], clause: str) -> list[str]:
     return out
 
 
-def append_stdin(clause: str) -> None:
+def append_stdin(clause: str, ctx=None, worker=None) -> None:
     """POSIX pipe relay: stream original input unchanged, then append the clause.
 
     Allocate/fork before changing fd 0, so preparation failures leave stdin
-    untouched. The runner execs the worker (same process/exit/signal semantics);
+    untouched. The runner execs the worker (same process and exit status);
     the small relay exits on EOF or a closed reader. No prompt file is persisted.
     """
     if os.isatty(0):
@@ -431,9 +615,12 @@ def append_stdin(clause: str) -> None:
                     view = memoryview(clause.encode('utf-8'))
                     while view:
                         view = view[output.write(view):]
+                # Write the receipt before EOF reaches a full-input reader.
+                record_receipt(ctx, 'present' if found else 'added' if has_content else 'empty', worker)
         except BrokenPipeError:
-            pass  # The worker can reject arguments or stop reading early.
+            record_receipt(ctx, 'stdin_unconsumed', worker)
         except Exception:
+            record_receipt(ctx, 'stdin_failed', worker)
             warn('stdin の追加処理に失敗しました。worker の受領を確認してください。')
         finally:
             os._exit(0)
@@ -448,31 +635,41 @@ def append_stdin(clause: str) -> None:
         os.close(read_fd)
 
 
-def run_worker(args: list[str]) -> int:
+def run_worker(args: list[str], ctx=None) -> int:
     if not args:
         warn('--run requires an executable')
         return 2
     original = list(args)
+    worker = None
     try:
         clause = runpy.run_path(str(Path(__file__).resolve().with_name('delegation-record-clause.py')))['CLAUSE']
         kind = worker_kind(args)
+        try:
+            worker = worker_metadata(args, kind) if ctx else None
+        except Exception:
+            warn('補助メタデータを取得できません。条項の注入は続行します。')
         if kind == 'claude':
             args = claude_args(args, clause)
+            record_receipt(ctx, 'added' if args != original else 'present', worker)
         elif kind == 'codex':
             i = codex_prompt_index(args)
             if i < len(args) and args[i] != '-':
                 if args[i].strip() and MARKER not in args[i]:
                     args[i] += clause
+                record_receipt(ctx, 'added' if args != original else 'present' if args[i].strip() else 'empty', worker)
             else:
-                append_stdin(clause)
+                append_stdin(clause, ctx, worker)
         else:
+            record_receipt(ctx, 'unsupported', worker)
             warn('この起動形式は自動注入の対象外です。記録の約束を起動文に書いてください。')
     except Exception as exc:
+        record_receipt(ctx, 'prepare_failed', worker)
         warn('注入の準備を省略 (' + type(exc).__name__ + ')。元の worker を起動します。')
         args = original
     try:
         os.execvp(args[0], args)
     except OSError as exc:
+        record_receipt(ctx, 'exec_failed', worker)
         # An oversized added argument must not prevent the original launch.
         import errno
         if exc.errno == errno.E2BIG and args != original:
@@ -483,8 +680,17 @@ def run_worker(args: list[str]) -> int:
 
 
 def main() -> int:
-    if sys.argv[1:2] == ['--run']:
-        return run_worker(sys.argv[2:])
+    arguments, ctx = sys.argv[1:], None
+    if arguments[:1] == ['--receipt-context'] and len(arguments) >= 3:
+        try:
+            candidate = json.loads(arguments[1])
+            if valid_context(candidate):
+                ctx = candidate
+        except Exception:
+            warn('注入記録の識別情報を読めません。起動は続行します。')
+        arguments = arguments[2:]
+    if arguments[:1] == ['--run']:
+        return run_worker(arguments[1:], ctx)
     if '--selftest' in sys.argv[1:]:
         target = Path(sys.argv[sys.argv.index('--against') + 1]).resolve() if '--against' in sys.argv else Path(__file__).resolve()
         return selftest(target)
