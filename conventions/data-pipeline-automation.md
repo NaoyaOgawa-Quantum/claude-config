@@ -278,6 +278,7 @@ clean 前提を preflight で保証してから `git clean -fd <dirs>` する設
 4. **gate 述語は純関数に抽出して selftest** (= prefix 判定・untracked の扱い・rename 行の扱いを fixture で固定。 untracked は dirty 扱いのまま = 保存直後の未 commit source は保守側で延期される)。
 5. ⚠️ **多層 gate の整合**: engine の外側 (= 呼び出し手順 / SKILL / wrapper) に**粗い blanket 指示** (「dirty repo には publish しない」) が残っていると、 内側の精密 gate が dead code 化する。 判断は**最も精密な層 (= engine) に委譲**し、 外層は自分の mutation target の保護だけを言う。
 6. 兄弟 pattern: gate で書けない時に **書き込みを退避 dir に defer して後で回収** (= writer 側が dirty tree を汚さない選択肢。 clean gate を「止める」 でなく「迂回する」 形)。
+7. **出力の実体から保存先を決める**: 保存する生成物はsymlinkを解決した実体pathから所属repoを判定する。各実体の親directoryで `git rev-parse --show-toplevel` を照合し、そのrepoで当該runの変更pathだけをcommit・pushする。symlink越しに別repoへ書いた出力は、呼出元のrepoだけを保存すると残る（実測）。保存対象の各fileが所属repoの `git ls-files` に含まれ、push先にも保存されたことまで確かめる。
 
 ### 関連
 
