@@ -9,24 +9,28 @@ worker の報告は端末の log と作業 dir にしか残らず、 起動し�
 
 出すもの (起動ごと):
   - 起動時刻、 作業 dir (command の `cd <dir>`、 無ければ記録の cwd)、 model / effort、 config dir
-  - 記録の約束の根拠: 起動文の約束の段 (MARKER)、 自動注入 runner の指定、 作業 dir の HANDOFF 要件を区別する。
-    根拠が無ければ「受領を確認できない」 と ⚠️。 hook の updatedInput が元の tool 記録に反映されるか、
-    起動先で注入が成功したかはこの記録だけでは確定しない。 worker の報告・成果物で受領を確認する。
-  - 作業 dir の成果物: HANDOFF.md / REVIEW-RESULTS.md / STAGE*-RESULTS.md / ledger.yaml / DONE /
-    scratch/hoist-candidates.md と、 worker が書いた script (checks/・scratch/ の *.py) の一覧
+  - 記録の約束の根拠: 親 session・tool call・元 command の hash に一致する機械ローカルの注入記録、
+    起動文の MARKER、明示 runner の指定、作業 dir 文書の3項目の記載を区別する。
+    会話記録は元 command のままなので、自動注入の判定は updatedInput の文字列に頼らない。
+    selected だけ・準備/起動失敗・記録破損は ⚠️。added/present は runner の処理の証拠で、モデル受領は別確認。
+  - 作業 dir の成果物候補: HANDOFF.md / REVIEW-RESULTS.md / STAGE*-RESULTS.md / ledger.yaml / DONE /
+    scratch/hoist-candidates.md と script (checks/・scratch/ の *.py) の一覧。作成者は別に確認する。
   - HANDOFF.md と hoist-candidates.md の本文 (--max-chars、 0 = 全部)
-  - worker 自身の会話記録の場所 (<config dir>/projects/<作業 dir の slug>/*.jsonl)
+  - worker 自身の会話記録: runner が記録した明示 session UUID に一致し、起動以降に更新された1 file だけ。
+    ID が不明なら列挙しない。同じ cwd の他 session を worker の記録と扱わない。
 
 作業 dir が sandbox なら、 進み具合と受領検査は ai-collaboration scripts/inspect-review-sandbox.py。
 
 usage:
   headless-worker-reports.py <session id の先頭> [--max-chars N] [--projects-dir DIR ...]
   headless-worker-reports.py --selftest
+  headless-worker-reports.py --selftest --against-root OLD_CHECKOUT  # 元 command のままの連結試験 (旧版は赤)
 0 件のときは、 見た記録 file を出して終わる (= 使っていない、 と区別できる)。 標準 library だけ。
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -38,6 +42,19 @@ LAUNCH_RE = re.compile(r"(?:^|[\s;&|(])(claude\b[^\n;&|]*?\s(?:-p|--print)\b|cod
 MARKER = "記録の約束"
 TOP = ("HANDOFF.md", "REVIEW-RESULTS.md", "ledger.yaml", "DONE")
 TEXTS = ("HANDOFF.md", "scratch/hoist-candidates.md")
+_RECEIPTS = None
+
+
+def receipt_engine():
+    global _RECEIPTS
+    if _RECEIPTS is None:
+        path = Path(__file__).resolve().parents[1] / 'hooks' / 'headless-record-clause-nudge.py'
+        spec = importlib.util.spec_from_file_location('headless_record_receipts', path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _RECEIPTS = module
+    return _RECEIPTS
 
 
 def projects_dirs(explicit=None) -> list[Path]:
@@ -80,49 +97,82 @@ def launches(transcript: Path) -> list[dict]:
                 if not isinstance(b, dict) or b.get("type") != "tool_use" or b.get("name") != "Bash":
                     continue
                 cmd = str((b.get("input") or {}).get("command", ""))
+                sid = str(obj.get('sessionId') or obj.get('session_id') or transcript.stem)
+                tool_id = b.get('id') if isinstance(b.get('id'), str) else ''
+                try:
+                    engine = receipt_engine()
+                    receipts = engine.read_receipts(engine.receipt_root(transcript), sid, tool_id, cmd)
+                except Exception:
+                    receipts = []  # Legacy inspection stays available; no receipt means unverified.
                 m = LAUNCH_RE.search(cmd)
-                if not m:
+                if not m and not receipts:
                     continue
-                cds = re.findall(r"(?:^|[\s;&|(])cd\s+((?:\"[^\"]+\"|'[^']+'|[^\s;&|]+))", cmd[:m.start() + 1])
+                cds = re.findall(r"(?:^|[\s;&|(])cd\s+((?:\"[^\"]+\"|'[^']+'|[^\s;&|]+))", cmd[:m.start() + 1] if m else cmd)
                 cwd = expand(cds[-1]) if cds else (Path(obj["cwd"]) if obj.get("cwd") else None)
                 cfg = re.search(r"CLAUDE_CONFIG_DIR=(\S+)", cmd)
                 model = re.search(r"--model[ =](\S+)", cmd)
                 effort = re.search(r"--effort[ =](\S+)", cmd)
-                out.append({
-                    "ts": obj.get("timestamp"), "cwd": cwd, "kind": "codex" if "codex" in m.group(1) else "claude",
-                    "config": expand(cfg.group(1)) if cfg else None,
-                    "model": model.group(1) if model else None, "effort": effort.group(1) if effort else None,
-                    "marker": MARKER in cmd,
-                    "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
-                })
+                for receipt in receipts or [None]:
+                    worker = (receipt or {}).get('worker') or {}
+                    if not isinstance(worker, dict):
+                        worker = {}
+                    out.append({
+                        "ts": obj.get("timestamp"),
+                        "cwd": Path(worker['cwd']) if isinstance(worker.get('cwd'), str) else cwd,
+                        "kind": (receipt or {}).get('kind') or ('codex' if m and 'codex' in m.group(1) else 'claude' if m else 'unknown'),
+                        "config": Path(worker['config_dir']) if isinstance(worker.get('config_dir'), str) else expand(cfg.group(1)) if cfg else None,
+                        "model": model.group(1) if model else None, "effort": effort.group(1) if effort else None,
+                        "marker": MARKER in cmd,
+                        "runner": bool(re.search(r"headless-record-clause-nudge\.py['\"]?\s+--run\b", cmd)),
+                        "parent_session": sid, "tool_use_id": tool_id,
+                        "launch_index": (receipt or {}).get('launch_index', 0), "receipt": receipt,
+                        "worker_session": worker.get('session_id'),
+                    })
     return out
 
 
 def promise(launch: dict) -> str:
+    receipt = launch.get('receipt')
+    if receipt:
+        state = receipt.get('state')
+        resume = (receipt.get('worker') or {}).get('resume')
+        if state in ('added', 'present'):
+            return f"注入記録: {state} (runner の処理を照合済み、モデル受領は未確認{'、resume snapshot に注意' if resume else ''})"
+        return f"⚠️ 注入記録: {state} (runner の注入成功を確認できない。起動結果を確認する)"
     if launch["marker"]:
-        return "起動文に約束の段あり"
+        return "起動文に約束の MARKER あり (内容・受領は未確認)"
     if launch.get("runner"):
         return "起動文に自動注入 runner の指定あり (受領は worker の報告・成果物で確認)"
     cwd = launch["cwd"]
     for name in ("CLAUDE.md", "AGENTS.md"):
         p = cwd / name if cwd else None
-        if p and p.is_file() and "HANDOFF" in p.read_text(encoding="utf-8", errors="replace"):
-            return f"作業 dir の {name} が HANDOFF を求めている"
+        if p and p.is_file():
+            text = p.read_text(encoding="utf-8", errors="replace")
+            # Require the three record items together, not a mere HANDOFF reference.
+            for paragraph in re.split(r'\n\s*\n', text):
+                low = paragraph.lower()
+                japanese = all(t in paragraph for t in ('捨てた案', '気づいた', '確かめていない'))
+                english = all(t in low for t in ('discarded', 'noticed', 'unverified'))
+                if ('HANDOFF' in paragraph or MARKER in paragraph) and (japanese or english):
+                    return f"作業 dir の {name} に3項目の記録条項あり (読込・受領は未確認)"
     return "⚠️ 記録から約束の受領を確認できない (hook の有効性・起動形式と、worker の報告・成果物を確認する)"
 
 
 def worker_transcripts(launch: dict) -> list[Path]:
     cwd = launch["cwd"]
-    if not cwd:
+    worker_id = launch.get('worker_session')
+    issued = (launch.get('receipt') or {}).get('issued_ns')
+    if ((launch.get('receipt') or {}).get('state') not in ('added', 'present')
+            or launch.get('kind') != 'claude' or not cwd or not launch.get('config')
+            or not isinstance(worker_id, str) or not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', worker_id)
+            or not isinstance(issued, int) or issued <= 0):
         return []
     slug = re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-    roots = [launch["config"] / "projects"] if launch["config"] else projects_dirs()
-    found = []
-    for r in roots:
-        d = r / slug
-        if d.is_dir():
-            found.extend(sorted(d.glob("*.jsonl")))
-    return found
+    path = launch['config'] / 'projects' / slug / (worker_id + '.jsonl')
+    try:
+        return [path] if path.stat().st_mtime_ns >= issued and path.is_file() else []
+    except OSError:
+        return []
 
 
 def report(launch: dict, n: int, max_chars: int) -> None:
@@ -136,11 +186,11 @@ def report(launch: dict, n: int, max_chars: int) -> None:
     have = [n_ for n_ in TOP if (cwd / n_).exists()] + [p.name for p in sorted(cwd.glob("STAGE*-RESULTS.md"))]
     if (cwd / "scratch" / "hoist-candidates.md").exists():
         have.append("scratch/hoist-candidates.md")
-    print("   成果物: " + (", ".join(have) or "なし"))
+    print("   作業 dir の成果物候補: " + (", ".join(have) or "なし"))
     scripts = [str(p.relative_to(cwd)) for sub in ("checks", "scratch") for p in sorted((cwd / sub).glob("*.py"))]
-    print(f"   worker が書いた script ({len(scripts)}): " + (", ".join(scripts) or "なし"))
+    print(f"   作業 dir の script 候補・作成者未確認 ({len(scripts)}): " + (", ".join(scripts) or "なし"))
     ts = worker_transcripts(launch)
-    print(f"   worker の会話記録 ({len(ts)}): " + (", ".join(str(t) for t in ts) or "見つからない"))
+    print(f"   worker の会話記録 ({len(ts)}): " + (", ".join(str(t) for t in ts) or "起動と結び付く session ID / 記録なし (同じ作業 dir の他 session は列挙しない)"))
     for name in TEXTS:
         p = cwd / name
         if p.is_file():
@@ -160,15 +210,160 @@ def run(session: str, dirs: list[Path], max_chars: int) -> int:
         all_l.extend(launches(f))
     seen, uniq = set(), []
     for l in all_l:                                     # 同じ dir への再起動は別の起動として残す (時刻で区別)
-        key = (str(l["cwd"]), l["ts"])
+        key = (l.get('parent_session'), l.get('tool_use_id'), l.get('launch_index'), str(l["cwd"]), l["ts"])
         if key not in seen:
             seen.add(key)
             uniq.append(l)
     print(f"見た記録: {', '.join(str(f) for f in files)}")
-    print(f"headless の起動: {len(uniq)} 件 (session {session})")
+    print(f"headless の起動候補: {len(uniq)} 件 (session {session})")
     for i, l in enumerate(uniq, 1):
         report(l, i, max_chars)
     return 0
+
+
+def receipt_regression(repo):
+    import shlex
+    import subprocess
+    hook = repo / 'hooks/headless-record-clause-nudge.py'
+    reporter = repo / 'scripts/headless-worker-reports.py'
+    with tempfile.TemporaryDirectory(prefix='headless-receipt-test-') as td:
+        root = Path(td).resolve()
+        parent_cfg, child_cfg, work = root/'parent', root/'child', root/'work'
+        work.mkdir()
+        parent_log = parent_cfg/'projects'/'synthetic'/'parent-synthetic.jsonl'
+        parent_log.parent.mkdir(parents=True)
+        parent_log.write_text('')
+        fake_bin = root/'bin'
+        fake_bin.mkdir()
+        for name in ('claude', 'codex'):
+            fake = fake_bin/name
+            fake.write_text('#!'+sys.executable+'''\nimport json,sys,os,re
+from pathlib import Path
+if '--session-id' in sys.argv:
+    sid=sys.argv[sys.argv.index('--session-id')+1]
+    log=Path(os.environ['CLAUDE_CONFIG_DIR'])/'projects'/re.sub(r'[^A-Za-z0-9]', '-', os.getcwd())/(sid+'.jsonl')
+    log.parent.mkdir(parents=True,exist_ok=True)
+    log.write_text('{}\\n')
+print(json.dumps({"argv":sys.argv[1:],"stdin":sys.stdin.read()}))
+''')
+            fake.chmod(0o755)
+        env = dict(os.environ, PATH=str(fake_bin)+os.pathsep+os.environ['PATH'],
+                   CLAUDE_CONFIG_DIR=str(parent_cfg))
+
+        def launch(command, tool_id, execute=True, stdin=''):
+            ev = {'session_id':'parent-synthetic','tool_use_id':tool_id,
+                  'hook_event_name':'PreToolUse','tool_name':'Bash','cwd':str(work),
+                  'transcript_path':str(parent_log),'tool_input':{'command':command}}
+            p = subprocess.run([sys.executable,str(hook)],input=json.dumps(ev),text=True,capture_output=True,env=env,check=True)
+            updated = json.loads(p.stdout)['hookSpecificOutput']['updatedInput']['command']
+            if execute:
+                done = subprocess.run(['/bin/bash','-c',updated],cwd=work,env=env,input=stdin,text=True,capture_output=True)
+            else:
+                done = None
+            # The harness persists the ORIGINAL tool input, never updatedInput.
+            row = {'sessionId':'parent-synthetic','timestamp':'2042-01-01T00:00:00Z','cwd':str(work),
+                   'message':{'content':[{'type':'tool_use','id':tool_id,'name':'Bash','input':{'command':command}}]}}
+            parent_log.write_text(json.dumps(row)+'\n')
+            return done, row
+
+        def report():
+            return subprocess.run([sys.executable,str(reporter),'parent-synthetic','--projects-dir',str(parent_cfg/'projects')],env=env,text=True,capture_output=True,check=True).stdout
+
+        cmd = 'CLAUDE_CONFIG_DIR='+shlex.quote(str(child_cfg))+" claude -p 'SYNTHETIC_PROMPT_PRIVATE'"
+        done, row = launch(cmd, 'tool-one')
+        assert done.returncode == 0 and '記録の約束' in json.dumps(json.loads(done.stdout),ensure_ascii=False)
+        result = report()
+        assert '注入記録: added' in result and '⚠️' not in result, result
+        print('OK original transcript input joins the actual runner receipt')
+        receipts = list((parent_cfg/'state/headless-record-clause').rglob('*.json'))
+        assert receipts and all('SYNTHETIC_PROMPT_PRIVATE' not in p.read_text() for p in receipts)
+        print('OK receipt stores no prompt text')
+        for field in ('id','command','session'):
+            changed = json.loads(json.dumps(row))
+            block = changed['message']['content'][0]
+            if field == 'id':
+                block['id'] = 'another-tool'
+            elif field == 'command':
+                block['input']['command'] += ' '
+            else:
+                changed['sessionId'] = 'another-session'
+            parent_log.write_text(json.dumps(changed)+'\n')
+            assert '注入記録: added' not in report(), field
+        print('OK mismatched session, tool id and original command never borrow a receipt')
+        launch(cmd, 'tool-one', execute=False)
+        assert '注入記録: selected' in report() and '注入記録: added' not in report()
+        print('OK a new unexecuted attempt cannot reuse an older success')
+
+        launch('claude -p pending', 'tool-pending', execute=False)
+        assert '注入記録: selected' in report() and '⚠️' in report()
+        done, _ = launch('codex exec -', 'tool-stdin', stdin='original stdin task')
+        assert done.returncode == 0 and '注入記録: added' in report()
+        done, _ = launch('/nonexistent/claude -p task', 'tool-failure')
+        assert done.returncode == 127 and '注入記録: exec_failed' in report() and '⚠️' in report()
+        failed = next(p for p in (parent_cfg/'state/headless-record-clause').rglob('*-failed.json')
+                      if json.loads(p.read_text())['tool_use_id'] == 'tool-failure')
+        late = json.loads(failed.read_text())
+        late['state'] = 'added'
+        failed.with_name(failed.name.replace('-failed.json','-applied.json')).write_text(json.dumps(late))
+        assert '注入記録: exec_failed' in report() and '注入記録: added' not in report()
+        print('OK selection, stdin delivery and launch failure remain distinct')
+
+        launch('claude -p first; codex exec second', 'tool-two-workers')
+        result = report()
+        assert result.count('== 起動 ') == 2 and result.count('注入記録: added') == 2, result
+        print('OK both workers in one tool call keep their own receipts')
+
+        # A bare HANDOFF mention never stands in for the three-item obligation.
+        (work/'CLAUDE.md').write_text('See old HANDOFF.md files for background.\n')
+        row['message']['content'][0]['id']='unrecorded'
+        parent_log.write_text(json.dumps(row)+'\n')
+        assert '⚠️' in report() and 'HANDOFF を求めている' not in report()
+        (work/'CLAUDE.md').write_text('Write HANDOFF.md: options you discarded and why, what you noticed along the way, and what remains unverified or assumed.\n')
+        assert '記録条項' in report() and '⚠️' not in report()
+        print('OK HANDOFF mentions and actual record requirements are distinguished')
+
+        slug = ''.join(c if c.isascii() and c.isalnum() else '-' for c in str(work))
+        child_logs = child_cfg/'projects'/slug
+        child_logs.mkdir(parents=True)
+        child_id='44444444-4444-4444-8444-444444444444'
+        (child_logs/'unrelated-session.jsonl').write_text('{}\n')
+        (child_logs/(child_id+'.jsonl')).write_text('{}\n')
+        launch(cmd,'tool-no-child-id')
+        assert 'unrelated-session.jsonl' not in report() and child_id+'.jsonl' not in report()
+        launch(cmd+' --session-id '+child_id,'tool-child-id')
+        result=report()
+        assert child_id+'.jsonl' in result and 'unrelated-session.jsonl' not in result, result
+        os.utime(child_logs/(child_id+'.jsonl'), (1,1))
+        assert child_id+'.jsonl' not in report()
+        print('OK only a linked child session is listed')
+        done,_=launch("claude -p 'task: 記録の約束'",'tool-manual-promise')
+        assert '--append-system-prompt' not in json.loads(done.stdout)['argv']
+        assert '注入記録: present' in report()
+        done,_=launch("claude --bare --no-session-persistence -p 'task: 記録の約束'",'tool-manual-with-flags')
+        assert '--append-system-prompt' not in json.loads(done.stdout)['argv']
+        print('OK a clause marker in the prompt does not cause a second clause')
+        done,_=launch("claude --add-dir '記録の約束' -p task",'tool-marker-in-path')
+        assert '--append-system-prompt' in json.loads(done.stdout)['argv']
+        print('OK a marker in an option value does not masquerade as a prompt clause')
+        applied = next(p for p in (parent_cfg/'state/headless-record-clause').rglob('*-applied.json')
+                       if json.loads(p.read_text())['tool_use_id'] == 'tool-marker-in-path')
+        applied.write_text('{')
+        assert '注入記録: unreadable' in report() and '⚠️' in report()
+        print('OK a malformed receipt is uncertainty, never a successful injection')
+
+        blocked = root/'blocked'
+        (blocked/'projects'/'synthetic').mkdir(parents=True)
+        (blocked/'state').write_text('not a directory')
+        ev={'session_id':'synthetic-failure','tool_use_id':'tool-log-failure','tool_name':'Bash',
+            'transcript_path':str(blocked/'projects'/'synthetic'/'synthetic-failure.jsonl'),
+            'tool_input':{'command':'claude -p task'}}
+        p=subprocess.run([sys.executable,str(hook)],input=json.dumps(ev),env=env,text=True,capture_output=True,check=True)
+        rewritten=json.loads(p.stdout)['hookSpecificOutput']['updatedInput']['command']
+        done=subprocess.run(['/bin/bash','-c',rewritten],cwd=work,env=env,input='',text=True,capture_output=True)
+        assert done.returncode == 0 and '記録の約束' in json.dumps(json.loads(done.stdout),ensure_ascii=False)
+        print('OK a receipt write failure does not block or contaminate the worker')
+    return 0
+
 
 
 def selftest() -> int:
@@ -177,7 +372,7 @@ def selftest() -> int:
         box = tmp / "box"
         (box / "scratch").mkdir(parents=True)
         (box / "checks").mkdir()
-        (box / "CLAUDE.md").write_text("rule 7: write HANDOFF.md\n")
+        (box / "CLAUDE.md").write_text("Write HANDOFF.md: options discarded, things noticed, and what remains unverified.\n")
         (box / "HANDOFF.md").write_text("# handoff\nlesson\n")
         (box / "scratch" / "hoist-candidates.md").write_text("cand\n")
         (box / "checks" / "a.py").write_text("print(1)\n")
@@ -203,15 +398,20 @@ def selftest() -> int:
         assert [l["ts"] for l in ls] == ["T1", "T3", "T4", "T5", "T6"], [l["ts"] for l in ls]   # T5: 文中の言及も拾う (過剰側に倒す)
         assert ls[0]["cwd"] == box and ls[0]["model"] == "m1" and ls[0]["effort"] == "high" and ls[0]["config"] == tmp / "wcfg"
         assert ls[1]["cwd"] == bare and ls[2]["kind"] == "codex" and ls[2]["marker"]
-        assert "HANDOFF を求めている" in promise(ls[0]) and promise(ls[1]).startswith("⚠️") and "約束の段あり" in promise(ls[2])
+        assert "記録条項あり" in promise(ls[0]) and promise(ls[1]).startswith("⚠️") and "MARKER あり" in promise(ls[2])
         assert "受領を確認できない" in promise(ls[1]) and "渡っていない" not in promise(ls[1])
         assert "自動注入 runner" in promise(ls[4]) and "受領は worker" in promise(ls[4])
         wslug = re.sub(r"[^A-Za-z0-9]", "-", str(box))
         (tmp / "wcfg" / "projects" / wslug).mkdir(parents=True)
-        (tmp / "wcfg" / "projects" / wslug / "w.jsonl").write_text("{}\n")
+        child_id = '44444444-4444-4444-8444-444444444444'
+        (tmp / "wcfg" / "projects" / wslug / (child_id + '.jsonl')).write_text("{}\n")
+        assert worker_transcripts(ls[0]) == []
+        ls[0]['worker_session'] = child_id
+        ls[0]['receipt'] = {'issued_ns': 1, 'state': 'added'}
         assert len(worker_transcripts(ls[0])) == 1
         assert run("abcd1234", [tmp / "cfg" / "projects"], 0) == 0
         assert run("zzzz", [tmp / "cfg" / "projects"], 0) == 1
+    receipt_regression(Path(__file__).resolve().parents[1])
     print("selftest OK")
     return 0
 
@@ -219,6 +419,8 @@ def selftest() -> int:
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if "--selftest" in argv:
+        if "--against-root" in argv:
+            return receipt_regression(Path(argv[argv.index("--against-root")+1]).resolve())
         return selftest()
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("session")
