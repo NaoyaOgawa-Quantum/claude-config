@@ -335,6 +335,60 @@ assert "behind=1" in reason
 assert "local HEAD" in reason
 PY
 
+# A review copy cloned from a local working tree cannot push to its checked-out
+# branch (Git refuses by default), so its head is not compared; task dirt still blocks.
+WORK_COPY="$TEMP_ROOT/work-copy"
+git clone -q "$OTHER_REPO" "$WORK_COPY"
+git -C "$WORK_COPY" config user.name Test
+git -C "$WORK_COPY" config user.email "test""@""example.invalid"
+make_touch_input "$WORK_COPY" workcopy-session PreToolUse Bash 'git commit -m review' \
+  | CODEX_SESSION_TOUCH_STATE_DIR="$TEMP_ROOT/state" python3 "$SCRIPT_DIR/session_touch.py" track
+printf 'review\n' > "$WORK_COPY/review.txt"
+git -C "$WORK_COPY" add review.txt
+git -C "$WORK_COPY" commit -qm 'Review fixture'
+printf 'task dirt\n' > "$WORK_COPY/review.txt"
+make_stop_input "$WORK_COPY" workcopy-session false \
+  | CODEX_SESSION_TOUCH_STATE_DIR="$TEMP_ROOT/state" python3 "$SCRIPT_DIR/session_touch.py" nudge \
+  > "$TEMP_ROOT/nudge-workcopy-dirty.json"
+python3 - "$TEMP_ROOT/nudge-workcopy-dirty.json" <<'PY'
+import json
+import sys
+
+reason = json.load(open(sys.argv[1], encoding="utf-8"))["reason"]
+assert "dirty" in reason, reason
+assert "!= origin/" not in reason, reason
+PY
+git -C "$WORK_COPY" restore review.txt
+make_stop_input "$WORK_COPY" workcopy-session false \
+  | CODEX_SESSION_TOUCH_STATE_DIR="$TEMP_ROOT/state" python3 "$SCRIPT_DIR/session_touch.py" nudge \
+  > "$TEMP_ROOT/nudge-workcopy.json"
+python3 - "$TEMP_ROOT/nudge-workcopy.json" <<'PY'
+import json
+import sys
+
+assert json.load(open(sys.argv[1], encoding="utf-8")) == {}
+PY
+
+# Once the source checkout accepts pushes to its current branch, the heads are
+# compared again.
+git -C "$OTHER_REPO" config receive.denyCurrentBranch updateInstead
+make_touch_input "$WORK_COPY" workcopy-push-session PreToolUse Bash 'git commit -m again' \
+  | CODEX_SESSION_TOUCH_STATE_DIR="$TEMP_ROOT/state" python3 "$SCRIPT_DIR/session_touch.py" track
+printf 'again\n' > "$WORK_COPY/again.txt"
+git -C "$WORK_COPY" add again.txt
+git -C "$WORK_COPY" commit -qm 'Again fixture'
+make_stop_input "$WORK_COPY" workcopy-push-session false \
+  | CODEX_SESSION_TOUCH_STATE_DIR="$TEMP_ROOT/state" python3 "$SCRIPT_DIR/session_touch.py" nudge \
+  > "$TEMP_ROOT/nudge-workcopy-push.json"
+python3 - "$TEMP_ROOT/nudge-workcopy-push.json" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+assert payload["decision"] == "block"
+assert "!= origin/main" in payload["reason"], payload["reason"]
+PY
+
 # stale-state prune: a >30-day-old file is removed on the next track, a fresh one survives
 STALE_FILE="$TEMP_ROOT/state/stale-session.json"
 printf '/nonexistent\n' > "$STALE_FILE"

@@ -143,6 +143,13 @@ not contain `git push`. At `Stop`, a changed repository is checked for:
 - exact equality between local `HEAD` and the branch head returned by live
   `git ls-remote`.
 
+The head comparison is skipped when the upstream is a local non-bare checkout
+that has the tracked branch checked out and refuses a push to it (Git's default
+`receive.denyCurrentBranch`), because no push can land there; a review copy
+cloned from a local working tree is the usual case. Task-created dirt is still
+checked. The predicate reads the target repository's state, not a flag the
+agent could set, so it is not a way to switch the gate off.
+
 An unresolved state returns the [official Codex Hook](https://learn.chatgpt.com/docs/hooks) Stop output
 `{"decision":"block","reason":"..."}`. Codex then receives one automatic
 continuation prompt to commit/push/verify or to report a legitimate exception.
