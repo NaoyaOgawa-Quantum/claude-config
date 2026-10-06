@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: Claude for Mac (desktop / Code タブ) で思考 (thinking) の要約が画面に出ない・「考え中」 / 「思考」 の表示が見つからないとき + 思考の表示を既定にしたいとき + settings.json の showThinkingSummaries が desktop で効くか判断する前
 category: macos
-summary: desktop app は画面が「思考」 表示でないセッションを --thinking-display omitted で起動し、 表示を切り替えた時点から要約を要求する (前のターンは署名だけで後から出ない)。 起動引数が settings.json の showThinkingSummaries を上書きするので desktop ではその setting は効かない。 切替 = タイトル横の ⌄ → トランスクリプト表示 → 思考 / 思考をデフォルトにする (右上の ⋮ から移った、 日本語 UI は英語の Transcript view / Thinking と訳語が違う)。 画面と app 本体が噛み合わないと切替が本体に届かない → ウィンドウ再読み込み。 一発診断 = scripts/claude-app-thinking-diagnose.py
+summary: desktop app は画面が「思考」 表示でないセッションを --thinking-display omitted で起動し、 表示を切り替えた時点から要約を要求する (前のターンは署名だけで後から出ない)。 起動引数が settings.json の showThinkingSummaries を上書きするので desktop ではその setting は効かない。 切替 = タイトル横の ⌄ → トランスクリプト表示 → 思考 / 思考をデフォルトにする (右上の ⋮ から移った、 日本語 UI は英語の Transcript view / Thinking と訳語が違う)。 画面と app 本体が噛み合わないと切替が本体に届かない → ウィンドウ再読み込み。 一発診断 = scripts/claude-app-thinking-diagnose.py。 app 2.19675.0 の新しいレイアウトでは思考がツールのまとまりの中に畳まれる = 全部開くのは「詳細」 表示、 既定は設定 → 外観 →「デフォルトのトランスクリプト表示」
 -->
 # Claude for Mac で思考の要約が出ない — 仕組みと切り分け
 
@@ -30,12 +30,21 @@ engine は思考の表示を「起動引数 `--thinking-display` → settings.js
 - 画面にセッションが出ているのに `mcp__ccd_view__get_layout` が **「どのウィンドウにも開かれていない」** (`views: []`) と答える = 画面 (renderer) が app 本体に表示状態を報告していない。 この状態では画面で表示を変えても本体の切替 (log の view_open) が起きない。
 - 実測: ウィンドウの再読み込み (メニューバー「表示」 → 再読み込み) で `views` が返るようになり、 切替が届いた。 app を長く起動したままのときに起きやすい。
 
+## <a id="grouped-layout-collapsed"></a>思考は出ているのに畳まれて 1 行しか見えない: 新しいレイアウト
+
+- 読んだ版 = app 2.19675.0。 transcript の新しいレイアウト (サーバー側の feature gate `__gb__2846116625` で配られる。 user が切り替える設定は無い) では、 ツール呼び出しの前の思考がそのツールのまとまり (tool group) の中に入る。 「思考」 表示でもまとまりは**閉じた状態が既定**で、 上に思考の 1 行要約だけが出る。 全文はまとまりを開くと出る。
+- 旧レイアウト (gate の外) では思考は斜体の本文としてそのまま並んでいた (= 「前はずらずら出ていた」 の正体)。
+- 全部開いた状態で読むには **「詳細」 表示** (verbose)。 詳細ではまとまりと思考 (「思考プロセス」) が強制的に開く。 代わりにツールの出力も全部開くので画面は長くなる。 「思考」 表示のまま、 まとまりを既定で開く設定は無い。
+- 詳細を既定にする: そのセッションを詳細に切り替えた後、 同じ submenu に出る **「詳細をデフォルトにする」**、 または **設定 → 外観 →「デフォルトのトランスクリプト表示」** (通常 / 思考 / 詳細。 account 単位、 セッションのメニューで選んだ表示はそのセッションだけ)。
+- 確かめ方 = `claude-app-bundle.py grep 'zl6fNbo7RW'` (「思考プロセス」 の step。 `open:` が詳細表示の判定と結ばれている) と `'bTg9qb70sr'` (既定の表示の設定)。
+
 ## <a id="diagnose"></a>切り分けの順序
 
 1. `python3 scripts/claude-app-thinking-diagnose.py` (版 / engine の起動引数 / log の切替記録 / transcript の本文あり比率 / settings.json)。
 2. 起動引数が `omitted` ∧ log に view_open が無い → 画面が「思考」 表示になっていない。 [#where-in-ui](#where-in-ui) で切り替える。
 3. 画面は「思考」 なのに view_open が出ない → [#stale-renderer](#stale-renderer)。
-4. view_open が出た後の thinking block にも本文が無い → 版の違いか別の原因。 [`claude-app-bundle-reading.md`](claude-app-bundle-reading.md) で `thinking-display` を `--where asar` / `--where engine` から読み直す。
+4. 思考は出るがツールのまとまりの中に畳まれている → [#grouped-layout-collapsed](#grouped-layout-collapsed) (= 詳細表示)。
+5. view_open が出た後の thinking block にも本文が無い → 版の違いか別の原因。 [`claude-app-bundle-reading.md`](claude-app-bundle-reading.md) で `thinking-display` を `--where asar` / `--where engine` から読み直す。
 
 ## <a id="pitfalls"></a>落とし穴
 
