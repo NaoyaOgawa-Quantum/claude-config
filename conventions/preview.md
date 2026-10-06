@@ -104,6 +104,8 @@ rAF と timer は通常どおり動く。 実測: WebGL viewer が 60 fps で回
 
 `javascript_tool` の戻り値 (画素の probe 結果など) を Python 側で検査するとき、 **戻り値を読んで file に書き写さない** (数値の写し間違い = 生成の混入)。 戻り値は session の transcript に残るので、 [`scripts/transcript-tool-result.py`](../scripts/transcript-tool-result.py) で取り出して file にする (`--contains` で結果の中の目印、 `JSON.stringify` で返した値は `--json-string` で 1 段 decode)。 戻り値そのものも小さく保つ (画素の方向ではなく camera 基底を返す等)。
 
+**大きくなると分かっている値は、 そもそも戻り値で返さない**: 戻り値は取り出す前にまるごと会話の context に入る (probe を何十本も返すと数百 KB)。 page から localhost の受け口へ POST して file にだけ落とし、 戻り値は件数だけにする。 受け口 = [`scripts/browser-post-receiver.py`](../scripts/browser-post-receiver.py) `OUT_FILE` を Bash の background で起動してから、 page 側で `fetch("http://127.0.0.1:8802/", {method: "POST", mode: "no-cors", headers: {"Content-Type": "text/plain"}, body: JSON.stringify(data)})` (preflight を起こさない形なので、 page が別 port の localhost でも公開 site でも届く。 1 件受けたら終わる)。
+
 ### 誤誘導を避けるための書き方
 
 「`document.hidden=true` が原因」 は症状の一部で、 **原因は Chrome の occluded throttle 機構**。 override で解決するかもしれない、 という誤った workaround 期待を招かないよう、 「override しても効かない」 まで書く。 逆に「Browser pane では rAF が動かない」 と一般化もしない (表示中は動く)。
