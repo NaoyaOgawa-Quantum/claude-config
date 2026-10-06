@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: wolframscript を書く・debug するとき + 対数プロット (LogPlot / LogLogPlot) の目盛・凡例を触るとき
+when: wolframscript を書く・debug するとき + 対数プロット (LogPlot / LogLogPlot) の目盛・凡例を触るとき + Mathematica / wolframscript を Apple Silicon の Mac に入れ直すとき (#apple-silicon-install)
 category: research-domain
-summary: wolframscript の Print[NumberForm] literal stringification + ToString wrap helper、 SetDirectory[DirectoryName[$InputFileName]] の空文字 fallback、 PDF Plaintext import を secondary fallback として活用、 #plotlegends-export = PlotLegends は Graphics でなく Legended を返すため GUI 保存で凡例が落ち (対処 = 変数に入れて Export)、 位置調整で LineLegend を挟むと PlotStyle の色継承が切れて凡例だけ黒くなる (対処 = Placed にラベルだけ渡す)、 #logplot-ticks = LogLogPlot の目盛は user 指定が「データ座標」 で読み出し (ScaledTicks / AbsoluteOptions) が「自然対数座標」 という非対称があり Log を掛けて渡すとラベルが黙って全消失、 自動生成器は 6〜8 decade を境に decade 内の細目盛を落とす (実測表あり、 密度引数は効かない) (= scientific-computing.md の数値 silent failure とは別 scope の Wolfram tool semantics gotcha 集)
+summary: wolframscript の Print[NumberForm] literal stringification + ToString wrap helper、 SetDirectory[DirectoryName[$InputFileName]] の空文字 fallback、 PDF Plaintext import を secondary fallback として活用、 #plotlegends-export = PlotLegends は Graphics でなく Legended を返すため GUI 保存で凡例が落ち (対処 = 変数に入れて Export)、 位置調整で LineLegend を挟むと PlotStyle の色継承が切れて凡例だけ黒くなる (対処 = Placed にラベルだけ渡す)、 #logplot-ticks = LogLogPlot の目盛は user 指定が「データ座標」 で読み出し (ScaledTicks / AbsoluteOptions) が「自然対数座標」 という非対称があり Log を掛けて渡すとラベルが黙って全消失、 自動生成器は 6〜8 decade を境に decade 内の細目盛を落とす (実測表あり、 密度引数は効かない) 、 #apple-silicon-install = Apple Silicon ネイティブは 12.3.1 から・入手は Wolfram アカウントの Direct File Download (Platform を ARM に、 Standard のダウンロードマネージャは落ちた)・wolframscript は app 同梱の物を symlink・移行した機械では再アクティベーション (= scientific-computing.md の数値 silent failure とは別 scope の Wolfram tool semantics gotcha 集)
 -->
 # Wolfram / wolframscript scripting conventions
 
@@ -331,6 +331,18 @@ grep -o '(\*' foo.wls | wc -l; grep -o '\*)' foo.wls | wc -l   # 個数が合わ
 - 凡例には `|f|` と書く (符号つきの量をそのまま描いたと読ませない)。 図に `PlotLabel` で parameter を文字列で書いているなら、 代入表を変えた時にその文字列も変える (文字列は自動では追従しない)。
 
 関連: [#logplot-ticks](#logplot-ticks) (目盛の silent 消失)、 [scientific-computing.md](scientific-computing.md) の silent failure 群。
+
+---
+
+## <a id="apple-silicon-install"></a>8. Apple Silicon の Mac に入れ直す — 入手・`wolframscript`・アクティベーション
+
+Intel の Mac から移行アシスタントで移すと、 Intel 版の Mathematica と `wolframscript` がそのまま来て Rosetta の下で動く (macOS が「Intel プロセッサ用アプリの対応は終了します」 と出す)。 一般の入れ替えの手順 = [`macos-cpu-arch.md#app-replacement`](macos-cpu-arch.md#app-replacement)。 Wolfram 固有の点 (実測):
+
+- **Apple Silicon ネイティブは 12.3.1 から**。 永続ライセンスで使えるのはライセンスの版まで = その版が 12.3.1 以上なら、 支払いなしで Apple Silicon 版に替えられる (版は Wolfram アカウントの製品の頁に出る)。
+- **入手は Wolfram アカウント (`account.wolfram.com`) の製品の頁** → Downloads。 古い User Portal (`user.wolfram.com`) は移行済みのライセンスを「製品なし」 と出す。 Downloads の **Platform は Intel が既定のことがある** = macOS (ARM) に切り替える。
+- **「Direct File Download」 を選ぶ**。 「Standard Download」 は本体でなくダウンロードマネージャ (数 MB) で、 古い版のものは Intel 版のまま、 新しい macOS では起動直後に内部エラー (`ABORT - Pointer is NULL`) で落ちた。
+- **`wolframscript` は app に同梱の物を使う** (`Mathematica.app/Contents/MacOS/wolframscript`、 kernel と同じ arch)。 PATH の `wolframscript` をそこへの symlink にすれば、 別配布の WolframScript の pkg (管理者パスワードが要る) は要らない。 前の Intel 版の `wolframscript` は symlink を張る前に退避する。
+- **新しい機械では最初に 1 回アクティベーションが要る**。 移行で来たライセンス file (`~/Library/Mathematica/Licensing/mathpass`) は前の機械のもので通らない (`wolframscript` が「not activated」 で止まる)。 GUI を起動して Wolfram ID でサインインするか、 アカウントの頁で空いている activation key を入れる。 済んだら `wolframscript -code '{$Version, $SystemID}'` で `MacOSX-ARM64` が返るのを確かめる。
 
 ---
 

@@ -12,7 +12,7 @@
 使い方:
   python3 macos-arch-audit.py                       # 全項目
   python3 macos-arch-audit.py --repos-root ~/src    # その下の git repo の git-crypt filter path も見る
-  python3 macos-arch-audit.py --no-apps             # /Applications の走査を省く (速い)
+  python3 macos-arch-audit.py --no-apps             # アプリの走査 (/Applications と Application Support の自動更新係) を省く (速い)
   python3 macos-arch-audit.py --fix-git-crypt-paths --repos-root ~/src
                                                     # git-crypt filter の絶対 path を今の git-crypt に書き換える
   python3 macos-arch-audit.py --selftest
@@ -404,7 +404,7 @@ def selftest() -> int:
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--repos-root", help="git-crypt filter を見る repo 群の親 dir (2 階層まで)")
-    ap.add_argument("--no-apps", action="store_true", help="/Applications を走査しない")
+    ap.add_argument("--no-apps", action="store_true", help="アプリ (/Applications と Application Support の自動更新係) を走査しない")
     ap.add_argument("--fix-git-crypt-paths", action="store_true",
                     help="git-crypt filter の古い絶対 path を PATH 上の git-crypt に書き換える")
     ap.add_argument("--json", action="store_true")

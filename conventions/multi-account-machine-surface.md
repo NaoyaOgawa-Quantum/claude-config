@@ -68,7 +68,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 | 最初の turn の終わりの検査 | `hooks/first-turn-stamp-check.py` (Stop) | `codex/hooks/first_turn_stamp_check.py` | その turn のどの返信の 1 行目にも無ければ、 observe = 記録 / block = 1 回だけ差し戻して stamp 1 行を出させる。 位置は直せない = 床 |
 | 事後 audit | [`scripts/check-first-reply-stamp.py`](../scripts/check-first-reply-stamp.py) | 同 (Codex rollout も読む) | hook の外の物差し。 hook が止まっても率の劣化と「未同定」 の再発が見える |
 
-**「最初の返信の冒頭」 の定義**: この session で最初に書く text の 1 行目。 途中経過の 1 行・状況報告への返答も含む。 「stamp を確認します」 という予告は stamp の代わりにならない。 注入 stamp の account が埋まっていればそのまま出してよい (whoami は照合用)。 「未同定」 なら最初の text の前に whoami を実行する。
+**「最初の返信の冒頭」 の定義**: この session で最初に書く text の 1 行目。 途中経過の 1 行・状況報告への返答も含む。 ⚠️ 途中経過の行は会話記録に残らないことがある (実測: tool call の合間に書いた途中経過の 1 行目の stamp が記録に無く、 Stop の検査は stamp 無しと読んで差し戻した) = 途中経過に置いた場合も、 最初の turn の最後の返事の冒頭にもう一度置く。 「stamp を確認します」 という予告は stamp の代わりにならない。 注入 stamp の account が埋まっていればそのまま出してよい (whoami は照合用)。 「未同定」 なら最初の text の前に whoami を実行する。
 
 **範囲**: workspace base (= 本 repo の親 dir) の外の cwd では全段が黙る — 盲検 sandbox は base の外に作る規約 ([cold-eyes-isolation.md](cold-eyes-isolation.md)) なので注入が汚染源にならない。 Claude の headless (`CLAUDE_CODE_ENTRYPOINT=sdk-*`) と Codex の sub-agent rollout は後ろ 2 段の対象外。 全段の opt-out = env `FIRST_REPLY_STAMP=off`。
 
