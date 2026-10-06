@@ -26,6 +26,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[git-state-nudge.test.sh](git-state-nudge.test.sh)** — git-state-nudge.sh の self-test (決定的 mock git repo ベース)
 - **[google-url-guard.sh](google-url-guard.sh)** — Google URL 安定性ガード — PreToolUse(Edit|Write|MultiEdit|Bash): /u/N/ 禁止 + `?authuser=<email>` 必須
 - **[google-url-guard.test.sh](google-url-guard.test.sh)** — google-url-guard.sh の self-test (hermetic)
+- **[guard-cli-form-guard.py](guard-cli-form-guard.py)** — PreToolUse(Bash): 規則保護の guard の承認 CLI を、 宣言済みの allow に当たらない形 (繋いだ形・相対 path) で打つ command を止める (tool-call-robustness.md#classifier-blocks-guard-approval-cli)
+- **[guard-cli-form-guard.test.sh](guard-cli-form-guard.test.sh)** — guard-cli-form-guard.py の self-test (配信対象外)
 - **[headless-record-clause-nudge.py](headless-record-clause-nudge.py)** — Bash の headless worker 起動に記録の約束を追加する (PreToolUse、非 blocking、--selftest)。
 - **[headless-record-clause-nudge.test.sh](headless-record-clause-nudge.test.sh)** — 自動検査から headless 起動の注入・誤爆・stdin 保持の selftest を実行する
 - **[long-bash-command-guard.sh](long-bash-command-guard.sh)** — 長すぎる Bash command を block — PreToolUse(Bash): 閾値超は分割 / file 経由に誘導
