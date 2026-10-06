@@ -36,6 +36,12 @@ native / script 用途では **PKCE (S256) で app secret を使わない**: 保
 
 file でも folder でも同じ。 返る URL は `https://www.dropbox.com/scl/…?rlkey=…` 形式 (リンクを知る全員が閲覧可、 既定)。
 
+- <a id="members-only-link"></a>**共有フォルダのメンバーだけが開けるリンク** (私的な録音・下書きを、 すでにフォルダを共有している相手に指し示すとき):
+  `{"path": …, "settings": {"audience": "no_one", "access": "viewer"}}` で作る。 リンクは場所を指すだけで権限を足さない =
+  メンバーでない人が開いても中身は見えない (返る `link_permissions.effective_audience` が `no_one` であることを確かめる = 実測でこの値が返った)。 ⚠️ 先に `list_shared_links` を見る: 既定 (全員が閲覧可) のリンクが既にあると、
+  create は 409 で**その既存リンクを返す**ので、 狭いリンクのつもりで広いリンクを渡すことになる。
+  渡す相手がフォルダのメンバーかは [#sharing-read-recipes](#sharing-read-recipes) の `list_folder_members` で先に確かめる
+
 ## <a id="path-semantics"></a>path 変換と placeholder
 
 - API の path は **Dropbox 相対** (`/フォルダ/ファイル`)。 ローカル path から変換するなら realpath で sync root (`~/Dropbox` 等、 symlink 解決後) と照合して相対化する — root 外 path は reject
