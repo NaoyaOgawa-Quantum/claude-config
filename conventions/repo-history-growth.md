@@ -38,6 +38,7 @@ source (`.tex` / script / 元の data) が repo にあるなら、 生成物は 
    pre-push hook が push した文書の PDF を (古ければ組み直して) 共有フォルダへ背景で写す。 発火が各自の手元の push なので、 無人の定期実行
    (launchd は同期フォルダに書けない = [`launchd-cloudstorage-tcc.md`](launchd-cloudstorage-tcc.md)) も新しい API 権限も要らない。
    共同編集者は claude-config を持たないので、 repo には単体で動く写しを置く (drift は `install-pdf-publish.py check`)
+   ⚠️ push の直後に同じ文書を手元で組むと、 hook が背景で走らせている組み直しと aux・PDF を取り合って失敗する (実測: 終了値 12 で PDF が 0 頁、 別の回は PDF が無い状態で終わった)。 push の直後に組むときは、 背景の `latexmk` / `lualatex` が終わるのを待ってから組む (`pgrep -f 'latexmk|lualatex'` が空になるまで)
 3. **控えとして残す必要がある版だけ commit する** — 投稿した版・提出した版など節目だけ。 版は tag で指す
    (file 名に版番号を入れない = [`CONVENTIONS.md`](../CONVENTIONS.md#git-conventions))。 途中の build は commit しない
 
