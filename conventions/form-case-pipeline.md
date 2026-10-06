@@ -308,6 +308,12 @@ repo に institution の様式が漏れる。
 ([`office-automation.md#physical-seal-required`](office-automation.md#physical-seal-required))。 recipe の `seals` は両方の mode で使う
 (image では重ねる位置、 physical では案内する位置) ので、 mode を切り替えても recipe は書き換えない。
 
+- ⚠️ **案内の「『印』 の N 個目」 は PDF の字の並び (`search_for` の順) で数える = 見た目の上下と逆のことがある**
+  (同じ目印が相手の記入欄と自分の欄にある様式で、 上にある自分の欄が 2 個目だった = 実測)。 同じ目印が 1 頁に 2 つ以上ある様式は、
+  位置を言葉にした 1 行を `build_notices` ([#build-notices](#build-notices)) で出す。
+- ⚠️ **相手に送って記入してもらう書類にも、 自分の押印欄があることがある** — recipe で「当方の印なし」 と決める前に、
+  その頁の目印 (印・㊞) を全部数え、 どれが誰の欄かを確かめる (決め打ちすると build が押す場所を案内せず、 押し忘れの元になる = 実測)。
+
 ## <a id="limits"></a>12. 分かっている限界
 
 | 限界 | 何が見えないか | どう埋めるか |
