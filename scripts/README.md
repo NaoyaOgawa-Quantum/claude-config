@@ -26,6 +26,7 @@
 - **[bootstrap-stdio-mcps.sh](bootstrap-stdio-mcps.sh)** — generic auto-bootstrap library for self-hosted stdio MCPs.
 - **[bootstrap-stdio-mcps.test.sh](bootstrap-stdio-mcps.test.sh)** — self-test for the generic stdio MCP bootstrap library.
 - **[bootstrap-windows.ps1](bootstrap-windows.ps1)** — Claude Code を Windows で始めるための前提ツール一括導入
+- **[browser-post-receiver.py](browser-post-receiver.py)** — browser の page が POST した本文を 1 回だけ受けて file に書く (127.0.0.1)
 - **[build-sensitive-terms.py](build-sensitive-terms.py)** — 実名などの literal gate (Tier B) の term 一覧を SoT から生成する。
 - **[calendar-app-occurrence.py](calendar-app-occurrence.py)** — Mac の Calendar.app にある繰り返し予定の「この回だけ」 をずらす / 飛ばす、 写しの系列を丸ごと消す (EventKit、 既定 dry-run)。
 - **[calendar-events.py](calendar-events.py)** — Google Calendar の event を機械で読む / 足す / 直す / 消す。

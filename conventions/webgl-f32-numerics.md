@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: WebGL / GLSL shader で物理量を f32 で計算するとき + 事前計算 table (texture) の定義域の外まで写像を延ばすとき + shader の出力を f64 の参照実装と画素単位で照合するとき + 実時間 simulation の 1 frame の時間予算を決めるとき
+when: WebGL / GLSL shader で物理量を f32 で計算するとき + 事前計算 table (texture) の定義域の外まで写像を延ばすとき + shader の出力を f64 の参照実装と画素単位で照合するとき + 実時間 simulation の 1 frame の時間予算を決めるとき + table と metadata を静的 hosting で配るとき (#payload-cache-pairing) + 写真の背景を mip つきで引くとき (#derivatives-in-divergent-flow) + 2 つの lookup engine を切り替えるとき (#engine-handoff)
 category: web
-summary: shader の f32 計算と f64 参照の組み方 — table の端は物理の境界ではない (外は最終行 + 弱い領域の厳密な積分で継ぐ、 近似の差分引き継ぎと分岐点の継ぎ目を避ける) / f32 の条件付け (sin≈1・acos≈1・端点の平方根特異性・冪の溢れ) / f32 emulation を export の関門に / 色でなく計算値を画素に書く probe channel で f64 と照合 / 継ぎ目の画素差は「またがない同じ幅」 と比べる / 時間予算は倍率に比例 / 再生成の最下位桁の揺れで公開資産を churn しない
+summary: shader の f32 計算と f64 参照の組み方 — table の端は物理の境界ではない (外は最終行 + 弱い領域の厳密な積分で継ぐ、 近似の差分引き継ぎと分岐点の継ぎ目を避ける) / f32 の条件付け (sin≈1・acos≈1・端点の平方根特異性・冪の溢れ) / f32 emulation を export の関門に / 色でなく計算値を画素に書く probe channel で f64 と照合 / 継ぎ目の画素差は「またがない同じ幅」 と比べる / 時間予算は倍率に比例 / 再生成の最下位桁の揺れで公開資産を churn しない / 照合は色の目印でなく probe で / metadata は毎回再検証し table は内容 hash で取る / 画面微分は分岐した return の前に取り、 mip は方向ベクトルの微分から / engine の切替は frame と f64 との精度で決め理由を残す / 隠れた pane の GPU 時間は readPixels 同期で測る
 -->
 # WebGL の f32 数値計算と f64 参照の組み方
 
@@ -39,7 +39,8 @@ shader の実出力を f64 と照合するには、 検証用の uniform で**�
 - 読み戻しは `preserveDrawingBuffer: true` + `readPixels(RGBA, UNSIGNED_BYTE)`。 dithering を切る (`gl.disable(gl.DITHER)`)。
 - 画素の方向は返さず、 **camera 基底・画角・canvas 寸法を返して、 f64 側で画素中心の方向を shader と同じ式で組み直す** (戻り値を小さく保つ)。 f64 側で観測者の boost 等も独立に再計算し、 参照実装の写像と比べる。
 - 検証用の描画は**時間を進めない** (1 回描く hook は dynamics の積分を呼ばない) = 照合中に状態がずれない。 描画 loop が止まっていても (pane が隠れている等) 同期的に描いて読める。
-- 大きな戻り値を file に落とすときは書き写さない → [`preview.md#tool-result-to-file`](preview.md#tool-result-to-file) (transcript から取り出す)。
+- 大きな戻り値を file に落とすときは書き写さない → [`preview.md#tool-result-to-file`](preview.md#tool-result-to-file) (大きいと分かっている値は localhost の受け口へ POST、 返してしまった値は transcript から取り出す)。
+- **色や画面上の目印で照合しない**: 目印の色を画面で探す照合は、 無関係な描画の変更 (天球の座標の付け替えなど) で目印が別の場所に移ると、 失敗せずに別のものを測りはじめる (実測: 目印の重力レンズ像を測るはずの照合が、 座標の付け替え後は影の縁の 1 画素を返し続けていた)。 照合は計算値を書いた probe で行う (例: 中央行の計算値が π を横切る位置を画素の間で補間すれば、 目印なしでリングの位置が取れる)。
 
 ## <a id="seam-pixel-diff"></a>継ぎ目の連続性を実画面で測る
 
@@ -52,3 +53,31 @@ shader の実出力を f64 と照合するには、 検証用の uniform で**�
 ## <a id="generated-asset-noise"></a>再生成した binary 資産の公開
 
 f64 の table を再生成すると、 数値計算の非決定性で f32 の最下位桁だけ揺れることがある。 **公開用の copy の前に、 公開済みの版と数値で比べる**: 差が最下位桁だけなら公開済みの版を据え置き、 公開 repo に中身の同じ MB 単位の差分を積まない。 比べずに copy → commit しない。
+
+## <a id="payload-cache-pairing"></a>table の大きさを書いた metadata と table 本体を別々に cache させない
+
+table (texture の binary) と、 その大きさ・格子を書いた metadata (JSON) を別の file で配ると、 browser や CDN が片方だけ新しくした組を作る (静的 hosting は数分の cache を許す)。 古い table を新しい大きさで texture に送ると転送が黙って失敗し (WebGL は警告を console に出すだけ)、 その table を引く領域が全部欠損の値になる (実測: 内部視界が全部影になった)。
+
+- metadata は毎回再検証して取る (`fetch(..., {cache: "no-cache"})`)。
+- export の道具が table 本体の内容 hash を metadata に書き、 page は table を `<name>.bin?v=<hash>` で取る (中身が変わらない限り cache が効き、 変われば必ず取り直す)。
+- 受け取った大きさを metadata の格子と照合し、 合わなければ「再読み込みしてください」 と出して止まる (黙って描かない)。
+
+## <a id="derivatives-in-divergent-flow"></a>画面微分 (dFdx / mip) は分岐した return の後で取らない
+
+写真の背景 (正距円筒図法の全天画像など) を光線の行き先で引くとき、 縮小で砂嵐にならないよう mip level を選ぶ。 ここで:
+
+- **画面微分は一様な制御の中で取る**: GLSL ES 3.00 では、 分岐した `return` (影・円盤に当たった画素の早期 return) の後の `dFdx` / 暗黙微分の texture 参照は未定義。 全画素で背景の方向を計算してから、 最後に影・物体・背景を選ぶ形に組む (物体の色は変数に入れて `break`)。 欠損の画素では方向に既定値を入れる (隣の画素の footprint が大きくなるだけ)。
+- **mip level は方向ベクトルの微分から明示する**: 経度の uv は 180° の継ぎ目で跳ぶので、 その微分を使うと継ぎ目に線が出る。 単位方向ベクトル `s` の画面微分は連続なので、 `foot = max(|dFdx(s)|, |dFdy(s)|)`、 `lod = log2(foot · W / 2π)` (W = 画像の横の画素数) を `textureLod` に渡す。 光子リングのように 1 画素が空の広い範囲を掃く所では lod が上がり、 平均の色に寄る (= 正しい平均化)。 極付近の横方向の過小な平均化は残る。
+- 組み替えの前後で、 背景以外の画面が変わっていないことを画素で比べる (浮動小数の丸めで縁の画素が数個入れ替わる程度のはず)。
+
+## <a id="engine-handoff"></a>2 つの lookup engine の切替は frame と精度で決める
+
+同じ写像を 2 つの table (例: 外側の静止 frame の table と、 地平面をまたぐ落下 frame の table) で持つとき:
+
+- **各 engine が前提にする観測者の frame を切替の条件に入れる**: 片方が特定の frame (自由落下) しか持たないなら、 別の frame (静止) の観測者をそちらに回さない。 半径だけで切り替えると、 その frame を持たない engine が別の観測者の視界を描く (実測: 静止カメラが切替半径の内側で落下の視界になり、 半径をまたぐと画面全体が影と空で入れ替わった)。
+- **切替の位置は、 両 engine を参照実装と比べた精度で決める**: 定義域が重なる範囲で両方を f64 と比べ、 精度の高い方を使える所まで使う (実測: 外側の table は下端の近くまで 2 桁以上正確だった)。 その値を選んだ理由を記録する (理由の無い閾値は、 後から動かせるかを誰も判断できない)。
+- 切替の前後で probe を取り、 視野の向きごとに (正面・横・後ろ) f64 との差を並べる。 一方の向きだけでは段差を見落とす。
+
+## <a id="gpu-time-from-readpixels"></a>描画 loop が止まっている pane で 1 frame の GPU 時間を測る
+
+pane が隠れていると rAF が間引かれ、 HUD の fps は GPU の重さを表さない ([`preview.md#browser-pane-visibility`](preview.md#browser-pane-visibility))。 同期描画の hook を N 回呼び、 毎回 1 画素の `readPixels` で完了を待たせた時間を N で割る。 機能の有無 (背景画像あり / なし等) の差はこの値で比べる。
