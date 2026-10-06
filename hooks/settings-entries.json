@@ -156,6 +156,15 @@
       "hooks": [
         {
           "type": "command",
+          "command": "~/.claude/hooks/guard-cli-form-guard.py"
+        }
+      ]
+    },
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
           "command": "~/.claude/hooks/office-inplace-guard.py"
         }
       ]
