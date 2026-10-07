@@ -108,8 +108,9 @@ def underlay(episode: str, bgm: str, start: float, end: float, out: str, bgm_luf
 def selftest() -> int:
     """合成音: 30 s の『本編』(1 kHz、 頭 3 s と尾 3 s は無音 = ジングルの代わり) + 4 s の『BGM』(白色雑音、 ループして敷かれる)。
     確かめること: 出力の長さ = 入力の長さ / BGM だけが鳴る区間の音量 ≈ 目標 / ジングルの代わりの無音は無音のまま。"""
-    if not shutil.which("ffmpeg"):
-        print("ffmpeg が無い"); return 2
+    if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
+        # 無い環境 (CI の runner 等) は検査不能と申告して 0 = run-all-checks の契約 (違反の exit と分ける)
+        print("SKIP: ffmpeg / ffprobe が無い (audio-bgm-underlay selftest)"); return 0
     with tempfile.TemporaryDirectory() as d:
         ep = os.path.join(d, "ep.wav"); bgm = os.path.join(d, "bgm.wav"); out = os.path.join(d, "out.wav")
         # 本編: 3 s 無音 + 24 s トーン (−20 dBFS) + 3 s 無音
