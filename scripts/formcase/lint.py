@@ -471,7 +471,8 @@ def form_context_words(forms) -> set:
         for part in re.split(r"[\s（）()・、]+", str(meta.get("title") or "")):
             if len(part) >= 3:
                 out.add(part)
-        # 配布雛形の file 名の語 = 人が様式を呼ぶ名前
+        # 配布雛形の file 名の語 = 人が様式を呼ぶ名前。 ⚠️ meta.form には file 名だけを書く = 出所・注記
+        # (配布元の部署名・版の説明) を書くとその語も印になり、 一般の文が規則の形の文として拾われる (実測)
         for part in re.split(r"[\s_【】（）()・、,.=0-9]+", str(meta.get("form") or "")):
             part = part.strip("-")
             if len(part) >= 3 and re.search(r"[^\x00-\x7f]", part):
