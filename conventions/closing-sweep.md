@@ -61,8 +61,16 @@ session の終わりに「全ての知見・手順・script をなるべく上�
   shell の glob・`find`・`sed -i` のような OS で振る舞いが違う書き方を、 この手順や skill に足さない。
 - `python3` が動かないとき: Windows は Store の偽物が「Python」 とだけ出して成功で終わる → `py -3` で同じ command ([`windows-msys.md#python3-missing-store-stub`](windows-msys.md#python3-missing-store-stub))。
   Mac で終了値 69 なら Xcode のライセンス未同意 ([`shell-env.md#system-python3-is-xcode-gated`](shell-env.md#system-python3-is-xcode-gated))。
+- skill を link でなく copy で置く環境 (Windows など) では、 repo の skill を直しても今の session は古い copy を読んでいることがある。
+  疑いがあれば repo の SKILL.md とこの doc を直接読む (copy は次の session 開始で作り直される作りにしておく)。
 
 ## <a id="codex"></a>0.95 Codex で回すとき
+
+- Codex は個人層の入口 (`AGENTS.md` の trigger の 1 行) から skill とこの doc に来る。 Codex 用の写しは作らない
+  (入口の形 = [`../codex/PARITY.md#instruction-entrypoint-kernel`](../codex/PARITY.md#instruction-entrypoint-kernel))。
+- Codex では skill の slash 名 (`/wrap` など) が Codex 自身の command として扱われ、 入口の 1 行まで届かないことがある (未確認) = 自然言語の語 (「仕上げ」 など) で呼ぶ。
+- 個人層の入口 (`AGENTS.md`) を直した機械では pull が起きないので、 Codex が読む合成 file が古いまま残る → 同じ turn で
+  `scripts/setup-codex.sh --refresh-personal-layer <個人層の dir>` で作り直す (その機械の Codex の全体設定が個人層を選んでいなければ何もしない)。
 
 手順は同じで、 道具だけを読み替える:
 
@@ -78,6 +86,7 @@ session の終わりに「全ての知見・手順・script をなるべく上�
 ## <a id="placement"></a>1. 何をどの層へ
 
 1 件ずつ、 4 層のゲートで置き場所を決める (正本 = [`../docs/personal-layer.md`](../docs/personal-layer.md))。
+表の「個人層」 の具体的な file (作業の規律・文体・文献台帳・経路台帳・Office の運用) は、 個人層の入口 (CLAUDE.md の読み込み必須の表) から辿る = skill に一覧を写さない (写すと入口の表と食い違う)。
 
 | 見つけたもの | 置き場所 |
 |---|---|
@@ -179,7 +188,8 @@ commit 前に `git diff --cached` を 1 回読み、 `scripts/check-activity-fac
 
 ## <a id="personal-skill"></a>個人層の skill にするとき
 
-- skill (`~/.claude/skills/<名前>/SKILL.md`) の本文は「手順の正本 = この doc を 0 から 5 まで順に読んでそのとおりにする」 の 1 行と、 その人に固有のものだけを持つ:
-  個人層の道具の path (どの掲示板・どの thread で宣言するか、 file 受け渡しの道具、 生成索引の生成器)、 個人層の置き場所 (作業の規律・文体・文献台帳・経路台帳)、 本人の決めごと (言葉のまま、 日付つき)。
-- 手順そのものを skill に写さない (2 か所が食い違う)。 手順を直すときはこの doc を直す。 個人の決めごとが誰にでも効く一般形を持つなら、 一般形をこの doc に、 本人の言葉は skill に置く。
-- Codex など別の agent も同じ skill file を読むなら、 個人層固有の読み替え (掲示板の `--agent` など) を skill 側に置き、 共通の読み替えは 0.95 を指す。
+- skill (`~/.claude/skills/<名前>/SKILL.md`) の本文は「手順の正本 = この doc を 0 から 5 まで順に読んでそのとおりにする」 の 1 行と、 その人に固有の値だけを持つ:
+  個人層の道具の path と引数 (どの掲示板・どの thread で宣言するか、 file 受け渡しの道具、 生成索引の生成器、 正本の登録簿)、 本人の決めごとのうち一般形を持たないもの (言葉のまま、 日付つき)。
+  個人層の置き場所の一覧は持たない (= 1 の冒頭どおり入口から辿る)。
+- 手順そのものを skill に写さない (2 か所が食い違う)。 手順を直すときはこの doc を直す。 個人の決めごとが誰にでも効く一般形を持つなら、 一般形をこの doc に置いて skill からは消す
+  (本人が skill に置くよう言った言葉は残す)。 OS ごとの罠・Codex の入口と読み替え・合成 file の作り直しも 0.9 / 0.95 が持つ = skill に書かない。
