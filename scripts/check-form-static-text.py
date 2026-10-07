@@ -473,21 +473,29 @@ def box_pixels(pix) -> dict:
         return sum(1 for y in range(y0, y1 + 1) if g(x, y) < 100) / (y1 - y0 + 1)
 
     bw, bh = x1 - x0 + 1, y1 - y0 + 1
-    t = b = l = r = 0
-    while t < bh and row(y0 + t) >= 0.7:
-        t += 1
-    while b < bh - t and row(y1 - b) >= 0.7:
-        b += 1
-    while l < bw and col(x0 + l) >= 0.7:
-        l += 1
-    while r < bw - l and col(x1 - r) >= 0.7:
-        r += 1
+    # 帯の外側の縁 (FRINGE_PX 本まで) を飛ばして帯を探す: 箱を 1 px/pt より細かく raster にする Excel は、 見える範囲の端の 1 列に
+    # 薄い灰色の縁 (anti-alias) を描く (実測、 ≈ 5.6 px/pt)。 縁で帯が始まらないと読むと辺を失い、 外枠の線を印に数える
+    def band(test, start, step, room):
+        for off in range(min(FRINGE_PX, room) + 1):
+            k = off
+            while k < room and test(start + step * k) >= 0.7:
+                k += 1
+            if k > off:
+                return k
+        return 0
+
+    t = band(row, y0, 1, bh)
+    b = band(row, y1, -1, bh - t)
+    l = band(col, x0, 1, bw)
+    r = band(col, x1, -1, bw - l)
     marks = sum(1 for y in range(y0 + t + 1, y1 - b) for x in range(x0 + l + 1, x1 - r) if g(x, y) < 170)
     edges = "".join(k for k, v in (("t", t), ("b", b), ("l", l), ("r", r)) if v)
     return {"size": (w, h), "box": (x0, y0, x1, y1), "edges": edges, "clipped": len(edges) < 4,
             "checked": marks >= 3, "mark_px": marks}
 
 
+FRINGE_PX = 1         # box_pixels が帯の外に許す縁の幅 (px)。 細かい raster の anti-alias の 1 列 (実測)。 1 px/pt の箱 (≈ 13 px) では
+                      # 内側の ✓ の列が 0.7 に届かないので、 欠けた辺を縁越しの帯と取り違えない (selftest の右辺なし)
 INK_READABLE = 0.10   # 箱の内側 (外枠から 15% 内側) の黒 (< 90) の面積比。 control 自身の ✓ ≈ 0.00〜0.06、 重ねた ✓ ≈ 0.5〜0.6 (実測)
 
 
@@ -1359,6 +1367,32 @@ def selftest() -> int:
           and a_none["box"] == (5, 4, 17, 16) and not a_none["checked"])
     fails += not ok
     print(f"{'PASS' if ok else 'FAIL'} box_pixels (alpha): 外枠の範囲 {a_mark['box']} / 4 辺 / 印 {a_mark['checked']} {a_none['checked']}")
+    # 細かい raster の箱 (≈ 5.6 px/pt、 実測): 見える範囲の端の 1 列が薄い灰色の縁 (anti-alias)、 その内側に 4 px の帯、
+    # 帯の内側にも薄い 1 列。 縁で帯を見失うと外枠の線を印に数えて、 空の箱まで checked になる (= 全部の箱が「印あり」)
+    def _hbox(mark=False, right=True):
+        pm = fitz.Pixmap(fitz.csGRAY, fitz.IRect(0, 0, 44, 44), 1)
+        for y in range(44):
+            for x in range(44):
+                if not (4 <= y <= 39 and 4 <= x <= 39):
+                    pm.set_pixel(x, y, (0, 0))
+                    continue
+                edge = y in (4, 39) or x == 4 or (right and x == 39)
+                ring = 5 <= y <= 8 or 35 <= y <= 38 or 5 <= x <= 8 or (right and 35 <= x <= 38)
+                inner = y in (9, 34) or x == 9 or (right and x == 34)
+                v = 200 if edge else (0 if ring else (140 if inner else 255))
+                pm.set_pixel(x, y, (v, 255))
+        if mark:
+            for k in range(8):
+                for t in range(3):
+                    pm.set_pixel(16 + k, 22 + k + t, (20, 255))
+                    pm.set_pixel(24 + k, 29 - k + t, (20, 255))
+        return pm
+    h_none, h_mark, h_clip = box_pixels(_hbox()), box_pixels(_hbox(mark=True)), box_pixels(_hbox(right=False))
+    ok = (h_none["edges"] == "tblr" and not h_none["checked"] and h_mark["edges"] == "tblr" and h_mark["checked"]
+          and "r" not in h_clip["edges"] and h_clip["clipped"] and not h_clip["checked"])
+    fails += not ok
+    print(f"{'PASS' if ok else 'FAIL'} box_pixels (細かい raster、 縁つき): 空 {h_none['edges']} 印 {h_none['checked']}"
+          f" ({h_none['mark_px']} px) / 印あり {h_mark['checked']} / 右辺なし {h_clip['edges']} {h_clip['checked']}")
     apdf = os.path.join(d, "abox.pdf")
     adoc = fitz.open()
     apg = adoc.new_page()
