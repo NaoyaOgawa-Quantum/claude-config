@@ -79,7 +79,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 
 **使ってはいけない信号**: transcript 先頭の `bridge-session.ownerAccountUuid` は session の account ではない (registry の account と 42/95 で食い違った)。
 
-**Codex の限界**: fixture test のみ。 UserPromptSubmit の additionalContext が Codex で model に届くかは、 hook の trust 承認後に新しい task で確かめる ([codex/PARITY.md#conversation-start-stamp](../codex/PARITY.md#conversation-start-stamp))。
+**Codex の限界**: CLI (`codex exec`、 0.159.2) では、 hook の trust を承認した後の新しい task で SessionStart と UserPromptSubmit の context が model に届き、 返事の冒頭に stamp が出て、 Stop の hook も走った (2026-10-07 実測、 1 台)。 desktop で届くかは未実測 ([codex/PARITY.md#conversation-start-stamp](../codex/PARITY.md#conversation-start-stamp))。
 
 ## <a id="peer-discovery-across-config-dirs"></a>I10: 同じマシンの別の設定フォルダの session を見つけて知らせ、 会話記録も全部読む
 
@@ -110,6 +110,23 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 **捨てた案**: 固定の設定フォルダの `sessions/` を既定の `sessions/` への symlink にして、 ListAgents に全部を出させる — harness の内部状態 (同じ dir に pid ごとの通信の鍵 `<pid>.<hash>.key` も在る) をアカウント間で共有することになり、 副作用を確かめる手段が無い。 宛先を読む道具の側で跨ぐ。
 
 **注意**: 届いたことは読まれたことではない (permission mode の違う session は人の承認待ちに置くことがある = SendMessage の説明)。 記録は掲示板が先 ([multi-session-coordination.md #board-receipt-carrier](multi-session-coordination.md#board-receipt-carrier))。 socket は process ごとで、 session を開き直すと変わる = 送る直前に引く。
+
+## <a id="codex-peers"></a>I10 の Codex 版: 同じ機械の Codex の thread を見つけて知らせる
+
+**事実 (実測、 Codex CLI 0.159.2・1 台)**:
+
+- Codex の thread には SendMessage が無い。 Codex CLI の `codex queue --thread <thread id> --message <文>` が、 既存の thread に user の message を積む。 動いている client に読み込まれている thread では、 今の turn が終わった直後に、 その message が新しい turn として始まった。 `codex exec` の thread は 1 turn で終わる作りなので、 始まった turn はすぐ中断された。 どの client にも開かれていない thread では message が積まれたまま残った (次に開いた時に届くのは製品の作りからの推論)
+- 生きている thread = Codex の home の `thread-writer-locks/<thread id>.lock` を process が開いている (`lsof` で読む)。 thread の cwd・題・model・effort は Codex の手元の state DB (`state_*.sqlite` の threads) に在る。 どちらも公開の契約でない手元の配置なので、 読む道具は読めなければ「不明」 を返す (「生きていない」 にしない)
+- Codex の sandbox (workspace-write) の中には network が無い = `--sync` と掲示板への投稿は承認を経る。 Codex の home も書けない = Codex から打った `codex queue` は state DB の書き込みで失敗した。 読むだけの道具 (`list-live-sessions.py` / `lib/codex_threads.py` / 会話記録の検索) は Codex の sandbox の中でも動いた
+- Codex の session から Claude の session への直接の道は無い (`uds:` の宛先は SendMessage の宛先で、 Codex は SendMessage を持たない)。 Codex は掲示板に書き、 Claude 側は request・claim・submit の後に回している watch で起こされる
+
+**道具** (読むだけ・何も書かない):
+
+- [`scripts/lib/codex_threads.py`](../scripts/lib/codex_threads.py): 生きている thread・cwd・model、 thread id の解決 (8 文字の先頭から)、 `codex queue` の 1 行。 CLI は app 同梱の版を先に使う (PATH の `codex` は古いことがあり、 `queue` を持たないかもしれない)
+- [`scripts/list-live-sessions.py`](../scripts/list-live-sessions.py): Claude の兄弟と並べて Codex の生きている thread を出す (SessionStart の兄弟の表示では同じ cwd の thread だけ)
+- 掲示板の投稿 (ai-collaboration `board/board.py`): 次に動くのがこの機械の Codex の thread なら、 投稿の後に `codex queue` の 1 行を出す (役割 id は claim の名前の先頭 8 文字から thread を引く)。 `request` は宛先の Codex の thread の model も出す。 Codex が投稿したときは SendMessage を頼まず、 相手の Claude の watch で届くことを出す
+
+**別の機械の Codex**: 直接の道は無い = 掲示板。 Codex の desktop では task に heartbeat を付けて `inbox --sync` を回すのが製品の道 (未実測、 [`codex/PARITY.md#native-automation-routing`](../codex/PARITY.md#native-automation-routing))。
 
 ## <a id="failure-modes"></a>典型的な破れかたと検出
 
