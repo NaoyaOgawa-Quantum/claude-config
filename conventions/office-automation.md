@@ -680,6 +680,7 @@ origin: 実測 (様式の課題番号欄)。 fill 自体は成功していたの
 **対処 (= 結合セルで唯一効く = font size を下げる)**:
 - osascript (= 標題 drawing を保護したい様式。 [`excel-osascript-cell-write`](#excel-osascript-cell-write) 経由): `set font size of font object of range "G13" of ws to 9` — property 名は **`font size`** (`size` だと `-1728` object-not-found で沈黙失敗)。
 - openpyxl (= drawing 無しの form): `from copy import copy; f = copy(c.font); f.size = 9; c.font = f` を**結合範囲の左上 cell** ([`merged-cell-write-topleft`](#merged-cell-write-topleft)) に。 ⚠️ ただし openpyxl save は drawing を消す ([`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings)) ので標題付き様式では osascript 必須。
+- <a id="date-format-hash-in-narrow-cell"></a>**日付の欄が `###` になる** (字の切れでなく書式の長さ): 雛形の日付の書式が長い (曜日・月名つきの system long date) と、 同じ書式の欄でも幅の狭い方では `###` になる。 別の欄の日付を引いて刷るなら、 `=TEXT(<元の欄>,"yyyy年m月d日")` の数式で短い形にする = 値の元は 1 か所のまま、 欄の書式に依らない (実測)。 font を下げるより先にこちらを考える。
 - size の目安: 収まる近傍値から比例で当てる (例: 11 字 @14pt が収まるなら 16 字相当は 14×11/16 ≈ 9pt) → 検出器 + 視覚で詰める。
 
 **検証 (= 機械 + 視覚、 両方)**: [`scripts/check-form-clipping.py`](../scripts/check-form-clipping.py) `<雛形.xlsx> <記入済.xlsx> <生成.pdf>` が、 雛形 diff で**記入セルだけ**に絞り、 各記入値が PDF 抽出テキストに完全な部分文字列として現れるか機械照合する (= 欠落 ≥3 字を clip 疑いとして flag、 `--selftest` 内蔵)。 同じ script が、 数式で複製された欄の 1 つだけの欠け (同じ値の欄の数 > PDF に完全に出た数)・字が罫線や他の字に掛かるはみ出し (折り返した行が欄の上下へ出ても text 層には全文残る)・`###`・`--min-scale` で page の縮み過ぎも見る。 刷らない sheet / 範囲の値は呼び元が雛形の値に戻して渡す (別 page に偶然出た部分一致の誤検出と、 欄の数え過ぎを防ぐ)。 ⚠️ レンダラによっては clip でも text 層に全文が残るので **[`pdf-visual-confirm`](#pdf-visual-confirm) の視覚確認も必ず併用** (= 検証 3 層は相互代替不可)。
