@@ -1,0 +1,99 @@
+{
+  "_comment": "claude-app-account-mirror.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 6 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。",
+  "target": "claude-app-account-mirror.py",
+  "run": "python3 {} --selftest",
+  "fail_marker": "FAIL ",
+  "pass_marker": "PASS ",
+  "mutants": [
+    {
+      "name": "消す前に表示中の account かを見ない",
+      "pairs": [
+        [
+          "            if not self.gate.writable(dst):\n                res = \"blocked\"",
+          "            if False:\n                res = \"blocked\""
+        ]
+      ],
+      "expect_fail": [
+        "表示中の account の写しは消さない (待ち)"
+      ],
+      "expect_pass": [
+        "dry-run: 何も書かない"
+      ]
+    },
+    {
+      "name": "会話記録の sessionId を外さない",
+      "pairs": [
+        [
+          "    obj.pop(\"sessionId\", None)\n",
+          "    pass\n"
+        ]
+      ],
+      "expect_fail": [
+        "変換: sessionId と toolUseResult.agentId を外し、 順序は保つ"
+      ],
+      "expect_pass": [
+        "変換: cwd の無い行は写さない"
+      ]
+    },
+    {
+      "name": "本人が消した写しを作り直す",
+      "pairs": [
+        [
+          "acts.append({\"op\": \"mark\", \"m\": m, \"state\": \"user_deleted\"})",
+          "pass"
+        ]
+      ],
+      "expect_fail": [
+        "本人が消した → user_deleted、 作り直さない"
+      ],
+      "expect_pass": [
+        "範囲外: 開いた写しは残す"
+      ]
+    },
+    {
+      "name": "TCC で守られた場所の cwd も stat する",
+      "pairs": [
+        [
+          "    if _protected(p, home):\n        return \"assumed\"\n    if p.startswith",
+          "    if False:\n        return \"assumed\"\n    if p.startswith"
+        ]
+      ],
+      "expect_fail": [
+        "cwd: TCC で守られた場所は stat しない"
+      ],
+      "expect_pass": [
+        "cwd: 無い = missing"
+      ]
+    },
+    {
+      "name": "元の account が別の org dir に移っても写しを消す",
+      "pairs": [
+        [
+          "                    or self.accts[src][\"org\"] != m.get(\"src_org\")):",
+          "                    ):"
+        ]
+      ],
+      "expect_fail": [
+        "元の account が別の org dir に移った → 写しを消さない"
+      ],
+      "expect_pass": [
+        "元の account の dir が無い → 写しを消さない"
+      ]
+    },
+    {
+      "name": "staged の大きさを見ずに続きだけ足す",
+      "pairs": [
+        [
+          "                      and os.path.getsize(m[\"staged_path\"]) == m.get(\"staged_bytes\"))",
+          "                      )"
+        ]
+      ],
+      "expect_fail": [
+        "差し替え: staged の大きさが台帳と違えば全部写し直す"
+      ],
+      "expect_pass": [
+        "差し替え: 続きだけ足す (前に写した部分は読み直さない)"
+      ]
+    }
+  ]
+}

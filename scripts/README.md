@@ -105,6 +105,8 @@
 - **[ci-local-repro.test.sh](ci-local-repro.test.sh)** — ci-local-repro.sh の fixture test (commit 行列の rc・空 HOME・元 repo 無変更・hook 非複製・使い方の誤り・GNU shim)
 - **[ci-red-streak.py](ci-red-streak.py)** — GitHub Actions の red streak を起点まで遡る (現状・最後の green・最初の red run・失敗行・原因 commit)。
 - **[class_meetings.mutants.json](class_meetings.mutants.json)** — lib/class_meetings.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
+- **[claude-app-account-mirror.mutants.json](claude-app-account-mirror.mutants.json)** — claude-app-account-mirror.py の selftest の foil に歯があることを、 要所を 1 か所ずつ外した mutant 6 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。
+- **[claude-app-account-mirror.py](claude-app-account-mirror.py)** — Claude desktop app の session 一覧を account をまたいで見えるようにする: 別の account の session を、 app 公式のインポートと同じ形の「写し」 にして今の account の一覧にも置く (既定 dry-run、 --apply で書く、 常駐 = install-claude-app-account-mirror.sh)。
 - **[claude-app-bundle.py](claude-app-bundle.py)** — Claude desktop app の挙動を、 docs や推測でなく app 本体 (画面の JS bundle・翻訳・main process の app.asar・埋込 engine) から確かめる検索道具
 - **[claude-app-notify-diagnose.py](claude-app-notify-diagnose.py)** — Claude for Mac の通知が鳴らない・来ない原因を層ごとに read-only 診断する (conventions/macos-claude-app-notifications.md)。
 - **[claude-app-thinking-diagnose.py](claude-app-thinking-diagnose.py)** — Claude for Mac (Code タブ) で思考 (thinking) の要約が画面に出ない原因を read-only で診断する (conventions/macos-claude-app-thinking-display.md)。
@@ -173,6 +175,8 @@
 - **[html-print-pdf.py](html-print-pdf.py)** — 「印刷用 HTML ページ」 (window.print() 前提) を保存 HTML から A4 PDF にし、 刷れる raster 版まで作る。
 - **[injection-reach-audit.py](injection-reach-audit.py)** — hook の注入 (SessionStart 等) に指定の語が何 session 出たか、 その session の assistant と user がそれに触れたかを transcript から数える（配達と伝達を別々に数える RCA 用。 docs/convention-design-principles.md#surface-reader-is-not-the-owner、 --selftest）
 - **[inspire-bib-audit.py](inspire-bib-audit.py)** — refs.bib を INSPIRE-HEP と texkey → arXiv ID → DOI の順で同定し、title / 第一著者 / 誌名 / 巻 / 初頁 / DOI / eprint を突合する gate（TeX 記法 ↔ Unicode・誌名の略記ゆれ・巻の系列文字・再録は正規化、INSPIRE 未収録は SKIP、network 失敗は exit 2、--selftest）
+- **[install-claude-app-account-mirror.sh](install-claude-app-account-mirror.sh)** — desktop の session 一覧の写し (claude-app-account-mirror.py) を launchd に常駐させる / 状態を見る / 外す (macOS、 本人が terminal で実行する)
+- **[install-claude-app-account-mirror.test.sh](install-claude-app-account-mirror.test.sh)** — install-claude-app-account-mirror.sh の入れる / 入れ直し / 状態 / 外す と、 account が 1 つの時・macOS 以外で何もしないことの test
 - **[install-collaborator-check.py](install-collaborator-check.py)** — 共有リポに「各 clone の session 開始時に、 その人の手元に要る設定 (個人の token・道具) と初回に読む節を確かめて出す」 仕組みを配る。
 - **[install-docx-decl-patch.sh](install-docx-decl-patch.sh)** — 上記 patch を user site-packages に `.pth`+symlink で install（setup.sh Step 9、 全 python3 起動で auto-load、 idempotent）
 - **[install-hook-stubs.test.sh](install-hook-stubs.test.sh)** — hook stub installer 3 本 + heal-hook-stubs.sh の test (lib/hook-stub.sh の規約)
