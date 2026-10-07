@@ -342,7 +342,7 @@ Intel の Mac から移行アシスタントで移すと、 Intel 版の Mathema
 - **入手は Wolfram アカウント (`account.wolfram.com`) の製品の頁** → Downloads。 古い User Portal (`user.wolfram.com`) は移行済みのライセンスを「製品なし」 と出す。 Downloads の **Platform は Intel が既定のことがある** = macOS (ARM) に切り替える。
 - **「Direct File Download」 を選ぶ**。 「Standard Download」 は本体でなくダウンロードマネージャ (数 MB) で、 古い版のものは Intel 版のまま、 新しい macOS では起動直後に内部エラー (`ABORT - Pointer is NULL`) で落ちた。
 - **`wolframscript` は app に同梱の物を使う** (`Mathematica.app/Contents/MacOS/wolframscript`、 kernel と同じ arch)。 PATH の `wolframscript` をそこへの symlink にすれば、 別配布の WolframScript の pkg (管理者パスワードが要る) は要らない。 前の Intel 版の `wolframscript` は symlink を張る前に退避する。
-- **新しい機械では最初に 1 回アクティベーションが要る**。 移行で来たライセンス file (`~/Library/Mathematica/Licensing/mathpass`) は前の機械のもので通らない (`wolframscript` が「not activated」 で止まる)。 GUI を起動して Wolfram ID でサインインするか、 アカウントの頁で空いている activation key を入れる。 済んだら `wolframscript -code '{$Version, $SystemID}'` で `MacOSX-ARM64` が返るのを確かめる。
+- **新しい機械では最初に 1 回アクティベーションが要る**。 移行で来たライセンス file (`~/Library/Mathematica/Licensing/mathpass`) は機械名ごとの行で、 前の機械の行では通らない (`wolframscript` が「Please activate the product」 で止まる)。 12.3.1 の画面の選択肢は activation key の入力・所属機関の SSO・別の方法 (MathID による手動) で、 個人の Wolfram ID でサインインする欄は無い (実測) = 個人で買ったライセンスはキーを入れる。 キーの全文はアカウントの頁 (My Products → 製品) にあるが、 **どのキーが使用中かは頁に出ない**。 使用中のはずのキーでも新しい機械で通ることがある (実測) = 頁の「System transfer」 (申請のフォームで即時ではない) の前に、 まずキーを入れてみる。 どの機械にどのキーを入れたかは手元の記録に残す (頁から後で分からない)。 済んだら `wolframscript -code '{$Version, $SystemID}'` で `MacOSX-ARM64` が返るのを確かめる。
 
 ---
 
