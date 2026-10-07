@@ -299,6 +299,7 @@ Bash の承認 dialog で「Yes, and don't ask again」 (desktop では「常に
 - secret は command に書かず、 file か環境変数から読ませる (例 `curl -H "Authorization: Bearer $(cat ~/.secrets/x)"` = 保存される文字列に値が現れない)。 受け渡しの一般則 = [`secret-handoff.md`](secret-handoff.md)。
 - 見つけたら allow の該当行を消す (protected path なので dialog 1 回)。 値は漏れた前提で扱い、 必要なら rotate する ([`secret-handoff.md#rotation-labor-split`](secret-handoff.md#rotation-labor-split))。
 - 棚卸しは `settings.local.json` の長い allow 行を見るのが早い (secret は長い英数字列として出る)。
+- <a id="always-allow-broad-rule"></a>**何でも通す広い allow も同じ経路で溜まる** (実測): 「常に許可」 は押した時の command の形で保存されるので、 wildcard を含む command を許可すると `Bash(rm -rf *)` のような allow がプロジェクト単位の `settings.local.json` に残る。 ユーザー単位の `~/.claude/settings.json` を点検しても見えない。 見つけたら手で消すだけで終えず、 「この形は置かない」 を git の宣言に書いて、 session 開始の auto-apply 層が全マシンのプロジェクト単位の file から取り除くようにする ([`multi-machine-state.md#gate-rules-reassert-every-session`](multi-machine-state.md#gate-rules-reassert-every-session)。 実装例 = 個人層 `odakin-prefs` の `permission-rules.project-local.json` + session 開始の bootstrap の段)。 点検は定期に回す (dialog の数が減ったときほど広い allow が混じっている)。
 
 ### <a id="always-allow-never-matches-again"></a>「常に許可」 が**構造的に**効かない class = 呼び出しごとに一意な path を含む command (2026-09-12)
 
