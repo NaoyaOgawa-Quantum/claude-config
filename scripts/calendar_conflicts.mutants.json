@@ -1,0 +1,109 @@
+{
+  "_comment": "calendar_conflicts.py (予定の重なりの engine) の判定・台帳・通知・表示の要所を 1 か所ずつ外した mutant で、 selftest の該当 check が落ち、 隣の check は通り続けることを確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。",
+  "target": "calendar_conflicts.py",
+  "run": "python3 {} --selftest",
+  "mutants": [
+    {
+      "name": "終日の印を見ない (時刻つきの終日を占有に数える)",
+      "pairs": [["        if str(e.get(\"date\", \"\"))[:10] != iso or e.get(\"all_day\"):", "        if str(e.get(\"date\", \"\"))[:10] != iso:"]],
+      "expect_fail": ["T5 終日"],
+      "expect_pass": ["T6 同じ日時"]
+    },
+    {
+      "name": "複数のカレンダーにある同じ予定を 1 つにまとめない",
+      "pairs": [["        if key in seen:\n            continue  # 同じ予定が複数のカレンダーにある\n", ""]],
+      "expect_fail": ["T6 同じ日時"],
+      "expect_pass": ["T5 終日"]
+    },
+    {
+      "name": "開始 = 終了の目印を占有に数える",
+      "pairs": [["        if s is None or en is None or s == en:", "        if s is None or en is None:"]],
+      "expect_fail": ["T8 開始 = 終了"],
+      "expect_pass": ["T7 台帳の ignore_titles"]
+    },
+    {
+      "name": "台帳の ignore_titles を当てない",
+      "pairs": [["        if any(r.search(title) for r in (ignore or [])):\n            continue\n", ""]],
+      "expect_fail": ["T7 台帳の ignore_titles"],
+      "expect_pass": ["T8 開始 = 終了"]
+    },
+    {
+      "name": "枠の自己一致を見ない",
+      "pairs": [["            if core and core in e[\"title\"]:", "            if False:"]],
+      "expect_fail": ["T9 枠と、"],
+      "expect_pass": ["T9 自己一致は自分の枠とだけ"]
+    },
+    {
+      "name": "枠どうしの重なりも出す",
+      "pairs": [["                if a[\"kind\"] == \"slot\" and b[\"kind\"] == \"slot\":\n                    continue\n", ""]],
+      "expect_fail": ["T10 枠どうしは見ない"],
+      "expect_pass": ["T1 枠 × 毎週の予定"]
+    },
+    {
+      "name": "終わり = 次の始まりを重なりにする",
+      "pairs": [["if not (a[\"start\"] < b[\"end\"] and b[\"start\"] < a[\"end\"]):", "if not (a[\"start\"] <= b[\"end\"] and b[\"start\"] <= a[\"end\"]):"]],
+      "expect_fail": ["T4 終わり 10:30"],
+      "expect_pass": ["T3 予定 × 予定"]
+    },
+    {
+      "name": "provider の未チェックの理由を日ごとに重ねる",
+      "pairs": [["            if n not in seen_notes:", "            if True:"]],
+      "expect_fail": ["T11 provider の未チェックの理由を 1 回だけ"],
+      "expect_pass": ["T11 未チェックの理由は段にも digest にも出る"]
+    },
+    {
+      "name": "間に移動の予定があっても間に合うかに出す",
+      "pairs": [["                if gap < tight_min and not moved:", "                if gap < tight_min:"]],
+      "expect_fail": ["T12 間に移動の予定があれば出さない"],
+      "expect_pass": ["T12 学外の予定と直前の枠の間 15 分"]
+    },
+    {
+      "name": "adapter の oncampus_re を使わない",
+      "pairs": [["    oncampus_re = oncampus_re or ONCAMPUS_RE", "    oncampus_re = ONCAMPUS_RE"]],
+      "expect_fail": ["T13 adapter が渡す oncampus_re"],
+      "expect_pass": ["T12 先頭が「N 号館」"]
+    },
+    {
+      "name": "承知済みを当日も段から外す",
+      "pairs": [["    return not item.get(\"ack\") or item[\"date\"] == today.isoformat()", "    return not item.get(\"ack\")"]],
+      "expect_fail": ["T14 承知済みでも当日の段には出す"],
+      "expect_pass": ["T14 承知済みは当日以外の段から外す"]
+    },
+    {
+      "name": "同じ (段, 組) を何度も通知する",
+      "pairs": [["        if k in state:\n            continue\n", ""]],
+      "expect_fail": ["T16 同じ (段, 組) は 2 回通知しない"],
+      "expect_pass": ["T15 段の鍵"]
+    },
+    {
+      "name": "日をまたぐ夜の時間帯を読まない",
+      "pairs": [["    return (start <= h < end) if start < end else (h >= start or h < end)", "    return start <= h < end"]],
+      "expect_fail": ["T17 既定の夜"],
+      "expect_pass": ["T17 日をまたがない"]
+    },
+    {
+      "name": "今日の終わった組も出す",
+      "pairs": [["                if now_min is not None and d == now_d and max(a[\"end\"], b[\"end\"]) <= now_min:\n                    continue\n", ""]],
+      "expect_fail": ["T18 now"],
+      "expect_pass": ["T1 枠 × 毎週の予定"]
+    },
+    {
+      "name": "digest の 🚨 を残り 1 日までに狭める",
+      "pairs": [["<= 2 else \"⚠️\"", "<= 1 else \"⚠️\""]],
+      "expect_fail": ["T20 digest: 残り 2 日の組も 🚨"],
+      "expect_pass": ["T20 digest: 未承知で 2 日以内の組は 🚨"]
+    },
+    {
+      "name": "日付つきの理由の無い ack も効かせる",
+      "pairs": [["        if not (a and b and REASON_RE.match(reason)):", "        if not (a and b):"]],
+      "expect_fail": ["T21 「YYYY-MM-DD 理由」"],
+      "expect_pass": ["T21 until で期間の ack"]
+    },
+    {
+      "name": "出した (段, 組) を記録しない",
+      "pairs": [["    for k, c in fresh:\n        state[k] = c[\"date\"]\n", ""]],
+      "expect_fail": ["T22 出した (段, 組) を記録する"],
+      "expect_pass": ["T22 notifier に題名・本文・音を渡す"]
+    }
+  ]
+}

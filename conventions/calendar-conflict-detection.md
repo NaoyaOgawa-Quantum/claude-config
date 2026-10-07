@@ -6,7 +6,7 @@ summary: カレンダーだけを見る検出器は、 カレンダーに入っ�
 # 予定の重なりを先に警告する
 
 「授業と別の予定が重なっていたのに、 直前まで誰も気づかなかった」 型の事故を機械で先に拾う仕組みの一般則。
-実装例 (個人層) = `odakin-prefs/scripts/calendar_conflicts.py` (docstring に、 そこでの時間割・暦の読み方と台帳の形)。
+engine = [`scripts/calendar_conflicts.py`](../scripts/calendar_conflicts.py) (判定・「間に合うか」・台帳の読み方・通知の段と記録・表示・合成の selftest)。 枠表と学期の暦の読み方・予定の読み込み・台帳の置き場所は engine に入れず、 adapter が「日付 → 占有の list」 を返す provider と引数で渡す ([`script-layer-placement.md#engine-instance-seam`](script-layer-placement.md#engine-instance-seam))。 adapter の例 (個人層) = `odakin-prefs/scripts/calendar_conflicts.py` (時間割と学年暦の provider)。
 
 ## <a id="occupancy-outside-calendar"></a>1. カレンダーに入っていない占有を作る
 
