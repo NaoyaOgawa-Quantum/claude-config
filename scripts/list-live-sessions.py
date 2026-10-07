@@ -16,6 +16,10 @@
   この宛先なら設定フォルダとアカウントを跨いで届く (実測。 規約 = multi-account-machine-surface.md#peer-discovery-across-config-dirs)。
   desktop app の `send_message` (ccd) の `local_<uuid>` は扱わない。
 
+  同じ機械の Codex の thread も出す (lib/codex_threads.py: thread の書き込み lock を process が開いている = 生きている)。
+  Codex には SendMessage が無いので、 宛先の代わりに `codex queue --thread <id> --message …` の 1 行を出す
+  (生きている thread には今の turn の後の新しい turn として届く = 実測。 規約 = multi-account-machine-surface.md#codex-peers)。
+
 設計上の安全: 全 path で fail-open (= dashboard 連鎖 / hook を止めない)。 読むだけ・何も書かない。
 
 使い方:
@@ -82,6 +86,30 @@ def _model_of(session_id: str, cwd: str) -> str:
         return _sm.model_of(session_id, cwd or None)
     except Exception:
         return ""
+
+
+try:
+    import codex_threads as _ct
+except Exception:  # pragma: no cover - 古い配置
+    _ct = None
+
+
+def collect_codex(cwd_filter: str | None = None) -> list[dict]:
+    """同じ機械で生きている Codex の thread (sub-agent を除く)。 読めなければ [] (fail-open)。"""
+    if _ct is None:
+        return []
+    try:
+        return _ct.live_threads(cwd=cwd_filter) or []
+    except Exception:
+        return []
+
+
+def _codex_lines(rows: list[dict], indent: str = "   ") -> list[str]:
+    out = []
+    for r in rows:
+        out.append(f"{indent}• codex {_ct.describe(r)}")
+        out.append(f"{indent}  知らせる (SendMessage は無い) = {_ct.queue_hint(r['id'])}")
+    return out
 
 
 def _pid_alive(pid: int) -> bool:
@@ -207,8 +235,9 @@ def _fmt_age(m):
     return f"{m // 60}時間{m % 60}分"
 
 
-def render(rows: list[dict], self_uuid: str | None) -> str:
-    if not rows:
+def render(rows: list[dict], self_uuid: str | None, codex_rows: list[dict] | None = None) -> str:
+    codex_rows = codex_rows or []
+    if not rows and not codex_rows:
         return "(生きてる兄弟 session は見つからず)"
     lines = []
     by_cwd: dict[str, list[dict]] = {}
@@ -224,6 +253,9 @@ def render(rows: list[dict], self_uuid: str | None) -> str:
             cfg = f" / 設定フォルダ {r['config']}" if r.get("config") not in (None, "", "default") else ""
             to = f"\n       SendMessage の to = {r['address']}" if r.get("address") and not r["is_self"] else ""
             lines.append(f"   • pid {r['pid']} / {sid} / {_fmt_age(r['age_min'])}前起動{model}{cfg}{tag}{intent}{to}")
+    if codex_rows:
+        lines.append(f"🤖 Codex の生きている thread — {len(codex_rows)} 個")
+        lines += _codex_lines(codex_rows)
     return "\n".join(lines)
 
 
@@ -248,12 +280,18 @@ def surface(self_uuid: str | None, cwd_filter: str | None) -> str:
         _ccd.label(os.environ["CLAUDE_CONFIG_DIR"]) if _ccd is not None and os.environ.get("CLAUDE_CONFIG_DIR") else
         ("default" if _ccd is not None else None))
     # cwd_filter 無指定なら「自分の cwd」 を self 行から推定して同 cwd のみに絞る
+    mycwd = cwd_filter
     if not cwd_filter and self_uuid:
         if self_rows:
             mycwd = self_rows[0]["cwd"]
             siblings = [r for r in siblings if r["cwd"] == mycwd]
-    if not siblings:
+    # 同じ cwd の Codex の thread (cwd が分からなければ出さない = 機械じゅうの Codex を毎回並べない)
+    codex_rows = collect_codex(mycwd) if mycwd else []
+    if not siblings and not codex_rows:
         return ""
+    if not siblings:
+        return (f"🔀 同じ作業ディレクトリで Codex の thread が {len(codex_rows)} 個生きています"
+                " (並列上書き race 注意 → 編集前に git fetch + 突き合わせ):\n" + "\n".join(_codex_lines(codex_rows)))
     head = f"🔀 同じ作業ディレクトリで {len(siblings)} 個の別 session が生きています (並列上書き race 注意 → 編集前に git fetch + 突き合わせ):"
     body = []
     for r in siblings:
@@ -262,6 +300,9 @@ def surface(self_uuid: str | None, cwd_filter: str | None) -> str:
         body.append(f"   • {r['sessionId'][:8]} ({_fmt_age(r['age_min'])}前起動{model}){intent}{_other_dir_note(r, self_config)}")
     if any(_other_dir_note(r, self_config) for r in siblings):
         body.append(OTHER_DIR_FOOTER)
+    if codex_rows:
+        body.append(f"   🤖 同じ作業ディレクトリの Codex の thread — {len(codex_rows)} 個")
+        body += _codex_lines(codex_rows, indent="     ")
     return head + "\n" + "\n".join(body)
 
 
@@ -323,6 +364,41 @@ def _selftest() -> int:
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+    # Codex の thread: 同じ cwd で lock が開かれていれば surface に queue の 1 行つきで出る / 別 cwd は出ない
+    if _ct is not None and _ct.held_lock_ids() is not None:
+        import sqlite3
+        import tempfile
+        saved = {k: os.environ.get(k) for k in ("CODEX_HOME", "CODEX_CLI_PATH", "CLAUDE_SESSIONS_DIR")}
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                tid = "01a00000-0000-7000-8000-0000000000cc"
+                os.environ["CODEX_HOME"] = td
+                os.environ["CODEX_CLI_PATH"] = os.path.join(td, "codex")
+                with open(os.environ["CODEX_CLI_PATH"], "w") as fh:
+                    fh.write("#!/bin/sh\n")
+                os.chmod(os.environ["CODEX_CLI_PATH"], 0o755)
+                os.environ["CLAUDE_SESSIONS_DIR"] = os.path.join(td, "none")
+                os.makedirs(os.path.join(td, "thread-writer-locks"))
+                db = sqlite3.connect(os.path.join(td, "state_5.sqlite"))
+                db.execute("CREATE TABLE threads (id TEXT, cwd TEXT, title TEXT, model TEXT, source TEXT, updated_at INTEGER, archived INTEGER)")
+                db.execute("INSERT INTO threads VALUES (?,?,?,?,?,?,?)", (tid, "/w/codex", "codex fixture", "m-x", "vscode", 1, 0))
+                db.commit(); db.close()
+                lock = os.path.join(td, "thread-writer-locks", tid + ".lock")
+                open(lock, "w").close()
+                if surface(None, "/w/codex") != "":
+                    print("FAIL codex: an unheld lock must not count as live"); ok = False
+                with open(lock):
+                    s = surface(None, "/w/codex")
+                    if "codex 01a00000" not in s or f"queue --thread {tid}" not in s:
+                        print(f"FAIL codex: live thread in the same cwd must be surfaced with its queue line: {s!r}"); ok = False
+                    if surface(None, "/w/other") != "":
+                        print("FAIL codex: a thread in another cwd must stay out of the surface"); ok = False
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
 
@@ -348,7 +424,7 @@ def main() -> int:
                 print(out)
             return 0
         rows = collect(self_uuid=args.self_uuid, cwd_filter=args.cwd_filter)
-        print(render(rows, args.self_uuid))
+        print(render(rows, args.self_uuid, collect_codex(args.cwd_filter)))
         return 0
     except Exception as e:
         # fail-open: 何があっても dashboard/hook を止めない
