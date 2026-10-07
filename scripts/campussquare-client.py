@@ -238,12 +238,13 @@ def _fold(s):
     return unicodedata.normalize("NFKC", s).casefold()
 
 
-# 「パスワード「X」」「パスワードは「X」です」 (実測の 2 形) と「パスワード: X」
-_PW = re.compile(r"(パスワード[^「」\n]{0,8}「)([^」\n]+)(」)|(パスワード\s*(?:は)?\s*[:：]\s*)([\x21-\x7e]+)")
+# 「パスワード「X」」「パスワードは「X」です」 (実測の 2 形) と「パスワード: X」 (PW / Password も同じ扱い)
+_PW = re.compile(r"((?:パスワード|PW|[Pp]assword)[^「」\n]{0,8}「)([^」\n]+)(」)"
+                 r"|((?:パスワード|PW|[Pp]assword)\s*(?:は)?\s*[:：]\s*)([\x21-\x7e]+)")
 
 
 def _bare_secret(s):
-    """サマリ欄が 1 語の ASCII だけ (説明なしで値だけを書いた欄、 実測 1 件) = パスワードとみなす。
+    """サマリ欄の 1 行が 1 語の ASCII だけ (説明なしで値だけを書いた欄、 実測 1 件) = パスワードとみなす。
     文字・数字・記号のうち 2 種以上を含み URL でないものに限る (英単語 1 語の説明を伏せないため)。"""
     return (bool(re.fullmatch(r"[\x21-\x7e]{4,64}", s)) and not re.match(r"https?://", s)
             and sum(bool(re.search(c, s)) for c in (r"[A-Za-z]", r"\d", r"[^A-Za-z\d]")) >= 2)
@@ -252,15 +253,15 @@ def _bare_secret(s):
 def summary_passwords(summary):
     """サマリ欄に書かれたパスワードの候補 (書かれた順、 重複なし)。 無ければ []。"""
     found = [m.group(2) or m.group(5) for m in _PW.finditer(summary or "")]
-    if not found and _bare_secret((summary or "").strip()):
-        found = [summary.strip()]
+    if not found:
+        found = [x.strip() for x in (summary or "").split("\n") if _bare_secret(x.strip())]
     return list(dict.fromkeys(found))
 
 
 def mask_summary(summary):
     """表示用: サマリ欄のパスワードを *** に伏せる (候補として拾うものと同じ範囲)。"""
     s = _PW.sub(lambda m: m.group(1) + "***" + m.group(3) if m.group(1) else m.group(4) + "***", summary or "")
-    return "***" if _bare_secret(s.strip()) else s
+    return "\n".join("***" if _bare_secret(x.strip()) else x for x in s.split("\n"))
 
 
 def safe_name(name, fallback):
@@ -341,10 +342,10 @@ def zip_read_all(body, passwords, label="zip"):
             for b in dict.fromkeys(variants):
                 try:
                     return [(rel, zf.read(i, pwd=b)) for i, rel in infos], k
+                except NotImplementedError as e:  # RuntimeError の子 = 先に捕まえる (AES 等)
+                    raise SystemExit(f"{label}: zip の暗号・圧縮の方式に未対応 ({e})")
                 except (RuntimeError, zipfile.BadZipFile, zlib.error):
                     continue  # パスワード違い (header の検査で落ちるか、 偶然通って CRC で落ちる)
-                except NotImplementedError as e:
-                    raise SystemExit(f"{label}: zip の暗号・圧縮の方式に未対応 ({e})")
         raise SystemExit(f"{label}: サマリ欄のパスワード ({len(passwords)} 件) のどれでも開けない")
 
 
@@ -541,6 +542,14 @@ def _dl_selftest_cases():
         zf.writestr("../evil.txt", "y")
     plain = buf.getvalue()
     got_enc = zip_read_all(enc, ["wrong-1", "Zz9_yy"])
+    aes = bytearray(enc)  # 圧縮方式の欄 (local header の 8 byte 目・central directory の 10 byte 目) を 99 = AES の印に
+    cd = aes.find(b"PK\x01\x02")
+    aes[8:10] = aes[cd + 10:cd + 12] = (99).to_bytes(2, "little")
+    unsupported = None
+    try:
+        zip_read_all(bytes(aes), ["Zz9_yy"])
+    except SystemExit as e:
+        unsupported = str(e)
     got_plain = zip_read_all(plain, [])
     no_pw = wrong_pw = None
     try:
@@ -570,12 +579,14 @@ def _dl_selftest_cases():
         ("jp_date: 画面の書式に揃える", jp_date("2026-9-1") == "2026年09月01日" and jp_date("20261107") == "2026年11月07日"),
         ("summary_passwords: 「パスワード「X」」「パスワードは「X」です」 と値だけの欄",
          summary_passwords(by["101"]["summary"]) == ["Ab1-cd"] and summary_passwords(by["102"]["summary"]) == ["Zz9_yy"]
-         and summary_passwords(by["103"]["summary"]) == ["q7&Wx2#k"] and summary_passwords("パスワード: Qq1234") == ["Qq1234"]),
+         and summary_passwords(by["103"]["summary"]) == ["q7&Wx2#k"] and summary_passwords("パスワード: Qq1234") == ["Qq1234"]
+         and summary_passwords("資料の説明\nKk7#mm2") == ["Kk7#mm2"] and summary_passwords("PW「Pp1-qq」") == ["Pp1-qq"]),
         ("summary_passwords: 説明だけ・空・英単語 1 語は候補にしない", summary_passwords("") == []
          and summary_passwords(by["201"]["summary"]) == [] and summary_passwords("https://example.com/x1") == []),
         ("mask_summary: 値を出さず、 説明は残す", mask_summary(by["101"]["summary"]) == "パスワード「***」"
          and "Zz9_yy" not in mask_summary(by["102"]["summary"]) and "説明の行" in mask_summary(by["102"]["summary"])
-         and mask_summary(by["103"]["summary"]) == "***" and mask_summary("Handbook") == "Handbook"),
+         and mask_summary(by["103"]["summary"]) == "***" and mask_summary("Handbook") == "Handbook"
+         and mask_summary("資料の説明\nKk7#mm2") == "資料の説明\n***"),
         ("disposition_filename: URLEncoder の形 (+ = 空白、 %2B = +、 ASCII だけの名前も) / 生の値はそのまま",
          disposition_filename(f'attachment; filename="{utf8}+%281%29%2B.zip"') == "資料 (1)+.zip"
          and disposition_filename('attachment; filename="Guide+for+Staff.pdf"') == "Guide for Staff.pdf"
@@ -591,6 +602,8 @@ def _dl_selftest_cases():
          and sorted(str(p) for p, _ in got_plain[0]) == ["a/b.txt", "evil.txt"]),
         ("zip_read_all: 候補なし・外れだけ = 止まり、 値を出さない", bool(no_pw) and bool(wrong_pw)
          and "Zz9_yy" not in (no_pw + wrong_pw) and "wrong-1" not in wrong_pw),
+        ("zip_read_all: AES 等の未対応の方式はパスワード違いと読まず「未対応」 で止まる",
+         bool(unsupported) and "未対応" in unsupported),
         ("save_no_clobber: 同じ中身は same、 違えば別名 (元を上書きしない)", clobber_ok),
     ]
 

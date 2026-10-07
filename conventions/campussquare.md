@@ -55,7 +55,7 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 - **取得** = `GET /campusweb/campussquare.do?_flowId=SDW-filerefer-flow&fileId=<id>` → 302 → 200 の attachment。 flow key は要らない (fileId だけ)。 `Content-Type` は file の種類 (`application/x-zip-compressed` / `application/pdf` など)
   - <a id="download-filename-urlencoder"></a>⚠️ **file 名 = `Content-Disposition: attachment; filename="<名前>"`、 名前は Java の URLEncoder の形**: UTF-8 を percent-encode し、 空白は `+`、 `+` そのものは `%2B`。 ASCII だけの名前でも空白は `+` で来る (実測) = 「percent-encode されている時だけ + を空白に」 とすると ASCII の名前に `+` が残る。 値が URLEncoder の出力の文字 (英数字 `. - * _ +` と `%XX`) だけなら + を空白に戻してから decode する
 - <a id="download-zip-password"></a>**zip のパスワードは、 一覧のその file の行のサマリ欄に書いてある** (実測の形 = 「パスワード「…」」「パスワードは「…」です」、 説明なしで値だけを書いた欄もある)。 配る課が決まった書式 (日付を埋め込んだ固定形など) を使っていた時期があっても、 今はファイルごとに違う = 書式から推測せず、 サマリ欄から読む
-  - 暗号は従来の ZipCrypto (Python の `zipfile` で読める。 AES ではない)
+  - 実測した zip の暗号は従来の ZipCrypto (Python の `zipfile` で読める)。 AES の zip が来たら `zipfile` では開けない (client は「方式に未対応」 で止まる)
   - ⚠️ **zip の中の file 名は UTF-8 flag (0x800) なしの CP932** = `zipfile` が cp437 として読んで化ける。 `info.filename.encode("cp437").decode("cp932")` で直す (flag の立った名前はそのまま)
   - ⚠️ サマリ欄をそのまま一覧に出すとパスワードが出力に残る = `dl-list` は値を `***` に伏せ、 `dl-get --extract` が内部で使う (どの候補で開けたかも値は出さない)
 - 保存は名簿 CSV と同じ流儀 = 同名で中身が違えば上書きせず別名。 `--extract` は `<dir>/<zip の stem>/` に展開し、 `__MACOSX` と `..` を落とす。 取った資料は学内限定の配布物 = private 層にしか置かない
