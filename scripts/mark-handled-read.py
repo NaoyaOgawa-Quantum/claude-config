@@ -18,6 +18,11 @@
   --ledger-glob G        記録の台帳 (YAML) の glob。 repeat 可。 ~ を展開する
   --ack FILE             ack の台帳 (無ければ (b) は空)
   --ack-snippet          未対応の thread を ack に足す形で出す (件名を見て判断してから reason を書く = 見ずに貼らない)
+  --exact-message        message の id が記録に在るものだけを既読にする (thread の id・ack では既読にしない)。
+                         受信箱 (--label <account>:INBOX) に使う = 記録済みの thread に後から届いた未記録の返事を既読にしない
+                         (未記録の続報を拾う網は未読を手がかりにしているので、 thread 単位の既読化はその網を黙らせる)
+  --newer-than-days N    この日数より新しい message だけを見る (受信箱の古い未読を毎回数えない)
+  --no-list              未対応の message を 1 通ずつ出さない (件数だけ。 受信箱では 1 通ごとの metadata 取得を省く)
 
 設計 (実測から):
   - 未読を鍵にした見張りの段は、 記録を付けても UNREAD が残るので対応済みの mail で膨らみ、 本物が埋もれる。
@@ -61,7 +66,11 @@ def acked_ids(text: str | None) -> set[str]:
     return out
 
 
-def handled(msg: dict, known: set[str]) -> bool:
+def handled(msg: dict, known: set[str], exact: bool = False) -> bool:
+    """exact = message id だけで判定する (thread の id では判定しない)。 受信箱のように thread の続報が来る場所では、
+    記録済みの thread に後から届いた未記録の message まで既読にしてしまうので exact を使う。"""
+    if exact:
+        return msg.get("id") in known
     return msg.get("id") in known or msg.get("threadId") in known
 
 
@@ -74,6 +83,22 @@ def recorded_ids(ledger_globs: list[str]) -> set[str]:
     ids = set(ri.harvest_yaml_files(paths))
     text = "".join(Path(p).read_text(encoding="utf-8", errors="ignore") for p in paths)
     return ids | ri.harvest_thread_ids(text)
+
+
+def recorded_message_ids(ledger_globs: list[str]) -> set[str]:
+    """記録の台帳に message の id として載っているものだけ (thread の id は含めない)。"""
+    sys.path.insert(0, str(HERE / "lib"))
+    import recorded_ids as ri
+    out: set[str] = set()
+    for g in ledger_globs:
+        for p in glob.glob(os.path.expanduser(g)):
+            try:
+                data = _yaml_safe_load(Path(p).read_text(encoding="utf-8"))
+            except Exception:
+                continue   # 読めない台帳は飛ばす = 未記録側に倒れる (既読にしない側)
+            for e in (data if isinstance(data, list) else [data]):
+                out |= ri.harvest_message_ids(e)
+    return out
 
 
 def parse_labels(items: list[str]) -> dict[str, list[str]]:
@@ -91,6 +116,16 @@ def selftest() -> int:
     assert handled({"id": "aaa", "threadId": "x"}, known)
     assert handled({"id": "b", "threadId": "ttt"}, known)
     assert not handled({"id": "b", "threadId": "y"}, known)
+    # exact: 記録済みの thread に届いた未記録の message は既読にしない
+    assert handled({"id": "aaa", "threadId": "x"}, known, exact=True)
+    assert not handled({"id": "b", "threadId": "ttt"}, known, exact=True)
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        Path(td, "inbox.yaml").write_text(
+            '- id: "e1"\n  threadId: "t9"\n  messages:\n    - "mid:abc123 2030-01-01 10:00 ← A"\n', encoding="utf-8")
+        Path(td, "todo.yaml").write_text('id: "x"\nemail_ref: "messageId:def456"\n', encoding="utf-8")
+        got = recorded_message_ids([str(Path(td, "*.yaml"))])
+        assert got == {"abc123", "def456"}, got   # thread の id (t9) は入らない
     txt = "ack:\n  - id: \"t1\"\n    reason: \"2030-01-01 見た\"\n  - id: \"t2\"\n    reason: \"理由なし\"\n  - id: \"t3\"\n  - \"bare\"\n"
     assert acked_ids(txt) == {"t1"}, acked_ids(txt)
     assert acked_ids("") == set()
@@ -113,6 +148,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--ack-snippet", action="store_true")
     ap.add_argument("--selftest", action="store_true")
+    ap.add_argument("--exact-message", action="store_true",
+                    help="message の id が記録に在るものだけ (thread の id と ack では既読にしない)。 受信箱 (INBOX) に使う")
+    ap.add_argument("--newer-than-days", type=int, default=0, help="この日数より新しい message だけを見る (0 = 制限なし)")
+    ap.add_argument("--no-list", action="store_true", help="未対応の message を 1 通ずつ出さない (件数だけ)")
     a = ap.parse_args(argv)
     if a.selftest:
         return selftest()
@@ -123,7 +162,11 @@ def main(argv: list[str] | None = None) -> int:
     import gmail_read as gr
 
     ack_text = Path(os.path.expanduser(a.ack)).read_text(encoding="utf-8") if a.ack and Path(os.path.expanduser(a.ack)).is_file() else None
-    known = recorded_ids(a.ledger_glob) | acked_ids(ack_text)
+    if a.exact_message:
+        known = recorded_message_ids(a.ledger_glob)
+    else:
+        known = recorded_ids(a.ledger_glob) | acked_ids(ack_text)
+    query = f"newer_than:{a.newer_than_days}d" if a.newer_than_days > 0 else None
     total = 0
     snippet: list[str] = []
     for acct, names in labels.items():
@@ -139,16 +182,17 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             msgs, tok = [], None
             while True:
-                r = svc.users().messages().list(userId="me", labelIds=[lid, "UNREAD"], maxResults=100, pageToken=tok).execute()
+                kw = {"q": query} if query else {}
+                r = svc.users().messages().list(userId="me", labelIds=[lid, "UNREAD"], maxResults=100, pageToken=tok, **kw).execute()
                 msgs += r.get("messages", []) or []
                 tok = r.get("nextPageToken")
                 if not tok:
                     break
-            done = [m for m in msgs if handled(m, known)]
-            rest = [m for m in msgs if not handled(m, known)]
+            done = [m for m in msgs if handled(m, known, a.exact_message)]
+            rest = [m for m in msgs if not handled(m, known, a.exact_message)]
             print(f"== {acct} / {name}: 未読 {len(msgs)} = 対応済み {len(done)} + 未対応 {len(rest)}")
             seen: set[str] = set()
-            for m in rest:
+            for m in ([] if a.no_list else rest):
                 md = svc.users().messages().get(userId="me", id=m["id"], format="metadata",
                                                 metadataHeaders=["From", "Subject", "Date"]).execute()
                 h = {x["name"]: x["value"] for x in md["payload"]["headers"]}
