@@ -124,6 +124,18 @@ for hook in "$HOOKS_DIR"/*.sh "$HOOKS_DIR"/*.py; do
             break
         fi
     done
+    # 登録済みの hook (shim) の中身が名前を出していれば、 その shim 経由で呼ばれる engine とみなす
+    # (例: 個人層の shim が層1 の engine を exec する形。 engine は symlink だけ配られて登録はされない)
+    if [ $found -eq 0 ]; then
+        for reg in "${registered_files[@]}"; do
+            [ -z "$reg" ] && continue
+            [ -f "$reg" ] || continue
+            if grep -qF "$name" "$reg" 2>/dev/null; then
+                found=1
+                break
+            fi
+        done
+    fi
     if [ $found -eq 0 ]; then
         # launchd 経由の例外
         if [ "$name" != "fix-snapshot-path-patch.sh" ]; then
