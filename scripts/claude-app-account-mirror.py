@@ -35,7 +35,7 @@ session」 として写す。 写しの中身は app の公式インポート (r
   claude-app-account-mirror.py                    計画だけ出す (dry-run、 何も書かない)
   claude-app-account-mirror.py --apply            写す (launchd からはこれ + --quiet)
   claude-app-account-mirror.py --undo [--apply]   未開封の写しを全部取り消し、 止めるスイッチを置く
-  claude-app-account-mirror.py --status           常駐・直近の実行・app の点検・台帳・次の実行の見込み
+  claude-app-account-mirror.py --status           常駐・直近の実行・app の点検・台帳 (--oneline = 1 行)
   claude-app-account-mirror.py --notice           session 開始用: 未導入・停止・失敗のときだけ 1 行 (他は無音)
   claude-app-account-mirror.py --app-check        app 本体の点検をやり直して結果を出す
   claude-app-account-mirror.py --watch-paths      launchd の WatchPaths にする dir を 1 行ずつ
@@ -1075,6 +1075,24 @@ def write_status(paths, data: dict):
     write_atomic(paths.status, dump_compact(data))
 
 
+def status_oneline(paths) -> str:
+    """状態を 1 行で: ⏸ 止めている / — account 1 つ / ❌ 未導入 / ⚠️ 止まっている・失敗 / ✅ 動いている。"""
+    if os.path.exists(paths.off):
+        return f"⏸ 止めている ({short_path(paths.off, paths.home)} を消せば再開)"
+    if len(discover_accounts(paths, known_accounts(paths.home))) < 2:
+        return "— desktop app の account が 1 つ (写す先なし)"
+    msg = notice(paths)
+    if msg:
+        body = msg.split(": ", 1)[-1]
+        return ("❌ " if not os.path.exists(paths.plist) else "⚠️ ") + body
+    try:
+        st = read_json(paths.status)
+        n = sum(1 for m in load_ledger(paths.ledger)["mirrors"].values() if m.get("state") == "unopened")
+        return f"✅ 動いている (最後の実行 {human_ms(st.get('at'))}、 未開封の写し {n})"
+    except (OSError, ValueError, RuntimeError, AttributeError):
+        return "✅ 入っている (まだ実行の記録なし)"
+
+
 def notice(paths) -> str:
     """session 開始用。 未導入・停止・失敗・止まっている時だけ 1 行 (他は空)。"""
     if os.path.exists(paths.off) or not os.path.isdir(paths.sessions_root):
@@ -1197,6 +1215,7 @@ def parse_args(argv):
     g.add_argument("--selftest", action="store_true")
     ap.add_argument("--apply", action="store_true", help="書く (既定は dry-run)")
     ap.add_argument("--quiet", action="store_true", help="変化が無ければ何も出さない (launchd 用)")
+    ap.add_argument("--oneline", action="store_true", help="--status を 1 行で (セル状態の表示用)")
     ap.add_argument("--days", type=int, default=DEFAULT_DAYS, help="アーカイブ済みでも写す直近の日数")
     ap.add_argument("--app-running", choices=("auto", "yes", "no"), default="auto")
     ap.add_argument("--home")
@@ -1226,7 +1245,10 @@ def main(argv=None) -> int:
             print(msg)
         return 0
     if a.status:
-        print(status_text(paths, a), end="")
+        if a.oneline:
+            print(status_oneline(paths))
+        else:
+            print(status_text(paths, a), end="")
         return 0
     if a.print_plist:
         sys.stdout.buffer.write(plistlib.dumps(plist_dict(paths, a)))
@@ -1769,6 +1791,8 @@ def selftest() -> int:
         # ---- notice の各場合
         rc, out = run("--notice")
         check("notice: 正常なら無音", out == "")
+        rc, out = run("--status", "--oneline")
+        check("status 1 行: 動いている", out.startswith("\u2705 動いている") and out.count("\n") == 1)
         st = read_json(os.path.join(state, "status.json"))
         st["at"] = now_ms() - 3 * DAY
         write_atomic(os.path.join(state, "status.json"), dump_compact(st))
@@ -1785,6 +1809,8 @@ def selftest() -> int:
         os.unlink(os.path.join(home, "LA", LABEL + ".plist"))
         rc, out = run("--notice")
         check("notice: 未導入 → 入れるコマンド", "未導入" in out and "install-claude-app-account-mirror.sh" in out)
+        rc, out = run("--status", "--oneline")
+        check("status 1 行: 未導入", out.startswith("\u274c") and "未導入" in out)
         rc, out = run("--watch-paths")
         check("watch-paths: 各 account の session dir", sorted(out.splitlines()) == sorted([dirA, dirB]))
         buf = io.BytesIO()
@@ -1826,6 +1852,8 @@ def selftest() -> int:
         check("止めるスイッチ: 何もしない", snapshot() == snap and "止めるスイッチ" in out)
         rc, out = run("--notice")
         check("止めるスイッチ: notice も無音", out == "")
+        rc, out = run("--status", "--oneline")
+        check("status 1 行: 止めている", out.startswith("\u23f8"))
 
         # ---- 台帳が壊れていたら何も書かない
         os.unlink(os.path.join(home, ".claude", "account-mirror.off"))
