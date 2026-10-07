@@ -158,9 +158,24 @@ def rel_to(base: Path, p: Path) -> str:
         return str(p.resolve())
 
 
+# Links whose landing file is still git-crypt ciphertext (a machine without the key, e.g. a CI runner):
+# the anchors cannot be read, so the link is neither "resolves" nor "broken". scan() counts them here
+# (landing file -> refs) and main() declares them, instead of reporting every anchor in them as missing.
+LOCKED_REFS: dict[str, int] = {}
+
+
+def is_locked(p: Path) -> bool:
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(10).startswith(b"\x00GITCRYPT")
+    except OSError:
+        return False
+
+
 def scan(base: Path, repos: list[str]) -> tuple[dict[str, list[str]], int]:
     broken: dict[str, list[str]] = {}
     checked = 0
+    LOCKED_REFS.clear()
     for src in iter_markdown_sources(base, repos):
         try:
             text = src.read_text(encoding="utf-8", errors="replace")
@@ -178,6 +193,10 @@ def scan(base: Path, repos: list[str]) -> tuple[dict[str, list[str]], int]:
             checked += 1
             if not ok or dest.suffix != ".md":
                 continue          # missing paths are fix-md-links.py's business
+            if is_locked(dest):
+                key = rel_to(base, dest)
+                LOCKED_REFS[key] = LOCKED_REFS.get(key, 0) + 1
+                continue
             if frag not in anchors_of(dest):
                 broken.setdefault(f"{rel_to(base, dest)}#{frag}", []).append(rel_to(base, src))
     return broken, checked
@@ -328,6 +347,20 @@ def selftest() -> int:
               not any("foreign-missing" in k for k in local))
         check("prose with two dollars does not hide a real link  [foil for over-masking]",
               any("prose-dollar-missing" in k for k in keys))
+    # a landing file that is still git-crypt ciphertext (no key on this machine) is unverifiable, not broken
+    with tempfile.TemporaryDirectory() as td:
+        base = Path(td)
+        (base / "r").mkdir()
+        (base / "r" / "secret.md").write_bytes(b"\x00GITCRYPT\x00" + bytes(range(256)))
+        (base / "r" / "plain.md").write_text("## Real\n", encoding="utf-8")
+        (base / "r" / "src.md").write_text(
+            "[a](secret.md#any-anchor) [b](secret.md#other) [c](plain.md#gone)\n", encoding="utf-8")
+        broken, _ = scan(base, [])
+        check("anchors in a git-crypt-locked file are not reported as missing  [foil: ciphertext read as text]",
+              not any("secret.md" in k for k in broken))
+        check("... they are counted as unchecked instead", LOCKED_REFS == {"r/secret.md": 2})
+        check("a plaintext file next to it is still checked", any(k.endswith("plain.md#gone") for k in broken))
+
     check("split_target keeps the editor line suffix apart",
           split_target("dir/x.md:12#frag") == ("dir/x.md", ":12", "frag"))
 
@@ -358,6 +391,10 @@ def main() -> int:
         return selftest()
 
     broken, checked = scan(a.base, a.repo)
+    if LOCKED_REFS:       # declared even under --quiet: an unchecked link is not a green one
+        print(f"[check-md-anchors] SKIP: {sum(LOCKED_REFS.values())} ref(s) land in "
+              f"{len(LOCKED_REFS)} git-crypt-locked file(s) — anchors not checked "
+              f"({', '.join(sorted(LOCKED_REFS))})")
     if not broken:
         if not a.quiet:
             print(f"[check-md-anchors] {checked} anchored link(s): all resolve")
