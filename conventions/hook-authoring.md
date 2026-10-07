@@ -107,7 +107,7 @@ commit gate (pre-commit) が staged file を舐めて検査する形は定石だ
 規律:
 
 - **encoding を明示する** (`open(path, encoding="utf-8")`)。 locale 依存にすると環境で挙動が変わる
-- **「読めない」 は検査結果ではなく検査不能** — 例外を捕まえて専用の状態 (`READ_SKIP` 等) で返し、 **1 行報告して続行**する (= 黙って通さない / 落ちもしない。 [`convention-design-principles.md#silent-probe-false-healthy`](../docs/convention-design-principles.md#silent-probe-false-healthy) の pattern 3 と同じ形)
+- **「読めない」 は検査結果ではなく検査不能** — 例外を捕まえて専用の状態 (`READ_SKIP` 等) で返し、 **1 行報告して続行**する (= 黙って通さない / 落ちもしない。 [`convention-design-principles.md#silent-probe-false-healthy`](../docs/convention-design-principles.md#silent-probe-false-healthy) の pattern 3 と同じ形)。 鍵の無い機械で暗号のまま (git-crypt) の file は error を出さずに暗号文が読めてしまう = 先頭の `\0GITCRYPT` を見て同じ検査不能に数える (実測: link の anchor の検査が暗号文を本文として読み、 その file の anchor を全部「無い」 と報告した)
 - **それを corruption に数えない** — 他 session の書き込み途中で自分の commit を止めるのは gate の役目ではない
 - 呼び出し側で [`multi-session-coordination.md#staging-window-race`](multi-session-coordination.md#staging-window-race) の `git commit -- <path>` を使うと **hook が見る範囲が自分の path だけになり**、 この巻き込み自体が起きない (= 上流での design-out)
 - <a id="staged-diff-binary"></a>**`git diff --cached` を `text=True` で読まない** — git の binary 判定は「先頭 8KB に NUL があるか」 だけなので、 NUL を含まない binary (PDF など) と textconv (git-crypt 等) で平文に戻した binary は text として diff に出て、 `UnicodeDecodeError` になる。 warn-only の hook は commit を通すので、 **同じ commit の text file の検査が黙って走らない** (`--numstat` の `-\t-` でも見分けられない)。 実測: 暗号化 repo に PDF を 1 本 commit しただけで warn hook 2 本と、 fail-open 扱いの BLOCK gate 1 本が落ちた
@@ -159,8 +159,9 @@ python の shim が兄弟 repo (層1 engine 等) を `Path(__file__).resolve().p
 **規律**:
 
 - test は一時 dir に `<repo 名> -> <この checkout の実 path>` の symlink を 1 本置き、 それを ROOT に渡す (helper 1 本にまとめる。 例 = odakin-prefs `hooks/lib-test-root.sh` の `make_test_root`)。 兄弟 repo が要る test は fixture をその root の下に作る
-- 兄弟 repo は正規 layout (`Path.home() / "<base>"`) か明示の `--root` で引く。 CI は正規 layout を再現してから検査を回す (base dir に自 repo を symlink + 依存 repo を clone)
-- 依存が無くて検査できないなら selftest は `SKIP: <理由>` を出して exit 0 (= §0 補足 5 と同じく黙って通らない)。 通常実行 (dashboard 等の消費側) の fail-open は沈黙のままでよい
+- 兄弟 repo は正規 layout (`Path.home() / "<base>"`) か明示の `--root` で引く。 CI は正規 layout を再現してから検査を回す = **base dir を checkout の親 dir への symlink にし、 依存 repo をその中 (= checkout の隣) に clone する**。 base dir に自 repo だけを symlink する形では、 `resolve()` で自分の実体から兄弟を引く code (`<repo>/../<依存 repo>`) に依存 repo が見えず、 依存 repo の lib / engine を読む検査がまとめて落ちる (実測)。 どちらの引き方の code も同じ実体に着く形にする
+- 依存が**無い**ので検査できないなら selftest は `SKIP: <理由>` を出して exit 0 (= §0 補足 5 と同じく黙って通らない)。 依存が**在るのに壊れている**なら FAIL のまま = SKIP の条件は不在そのものに絞る (例: 依存 repo が未 clone = SKIP / repo は在るのに読む dir が無い = FAIL、 暗号化の鍵が無い機械で暗号のまま = SKIP / 鍵が在るのに暗号のまま = FAIL、 履歴を要る検査が浅い clone の上 = SKIP)。 条件を広く取ると、 実機の配線切れまで「検査不能」 に化ける。 通常実行 (dashboard 等の消費側) の fail-open は沈黙のままでよい
+- **test root を渡しても、 hook が呼ぶ module が別の root 変数か `Path.home()` から兄弟 repo の data を引くと live を読む** — その module の root も fixture に向ける (実測: 予定の重なりを出す module が自分の env で base を引き、 兄弟 repo の無い CI では「data が無い = 未チェック」 の 1 行を足して、 沈黙を期待する test を落とした。 手元では本物の data で通るので気づけない)
 - **editable install した venv も live を向く**: `pip install -e` の finder は通常の path 探索の後ろに入るので、 cwd (= `sys.path` の先頭) が package の親 dir でない限り、 worktree で回した test も live の tree の package を import する (2026-09-12 実測: 同じ venv の python で、 cwd = package の親なら worktree の copy、 repo root なら live の copy)。 worktree では package の親 dir から回すか、 `PYTHONPATH=<worktree 側の package の親>` を付ける
 - **test が変更中の copy を見ているかは mutation で確かめる**: worktree 側だけ payload を退避する / lib に偽の関数を足す → 落ちれば変更中の copy を検査している。 「worktree で PASS」 だけでは証明にならない (live を読んで通っている可能性が残る)
 
