@@ -206,10 +206,14 @@ def short_path(p: str, home: str) -> str:
 
 # ---- 会話記録の変換 (app の import と同じ) ------------------------------------------------------
 
+def _reject_constant(name):
+    raise ValueError(f"{name} は JSON でない (JSON.parse が拒む = app も写さない)")
+
+
 def transform_line(raw: bytes):
     """1 行を app の import と同じに変換する。 写さない行 (JSON でない / cwd が無い) は None。"""
     try:
-        obj = json.loads(raw.decode("utf-8", "replace"))
+        obj = json.loads(raw.decode("utf-8", "replace"), parse_constant=_reject_constant)
     except ValueError:
         return None
     if not isinstance(obj, dict):
@@ -339,6 +343,7 @@ def run_app_check(app: str) -> dict:
                 confirm_ok = True
     except (OSError, ValueError, struct.error, KeyError) as e:
         res["missing"] = [f"app.asar を読めない ({type(e).__name__})"]
+        res["io_error"] = True  # 更新の最中などの一時的な失敗 = 版の結果として cache しない
         return res
     missing = [label for label, _ in APP_CHECKS if label not in found]
     if not confirm_ok:
@@ -357,7 +362,7 @@ def app_check(paths, save: bool, force: bool = False) -> dict:
             and cache.get("checker") == CHECKER_VERSION and ver is not None):
         return cache
     res = run_app_check(paths.app)
-    if save:
+    if save and not res.get("io_error") and res.get("version") is not None:
         os.makedirs(paths.state_dir, exist_ok=True)
         write_atomic(paths.app_cache, dump_compact(res))
     return res
@@ -1497,7 +1502,8 @@ def selftest() -> int:
         check("変換: sessionId と toolUseResult.agentId を外し、 順序は保つ",
               t == b'{"type":"user","cwd":"/w","toolUseResult":{"k":1},"z":2}\n')
         check("変換: cwd の無い行は写さない", transform_line(line(type="custom-title", sessionId="s")) is None)
-        check("変換: JSON でない行は写さない", transform_line(b"{oops\n") is None)
+        check("変換: JSON でない行は写さない", transform_line(b"{oops\n") is None
+              and transform_line(b'{"cwd":"/w","x":NaN}\n') is None)
         check("変換: 孤立 surrogate は \\u で逃がす",
               transform_line(b'{"cwd":"/w","t":"\\ud800"}\n') == b'{"cwd":"/w","t":"\\ud800"}\n')
         check("cwd: TCC で守られた場所は stat しない",
@@ -1783,6 +1789,12 @@ def selftest() -> int:
             plistlib.dump({"Label": LABEL, "WatchPaths": [dirA, dirB]}, f)
         rc, out = run("--notice")
         check("notice: 止まっていると出る", "止まっています" in out and "9.2.0" in out)
+        set_app("9.2.5", GOOD_JS)
+        with open(os.path.join(app, "Contents", "Resources", "app.asar"), "wb") as f:
+            f.write(b"\x04\x00")  # 更新の最中に読んだ壊れた asar
+        rc, out = run("--apply", running="no")
+        check("app 点検: 読めない (一時的) ときは写さず、 その版の結果として cache しない",
+              read_json(os.path.join(state, "app-check.json"))["version"] == "9.2.0" and "読めない" in out)
         set_app("9.3.0", GOOD_JS)
         rc, out = run("--apply", running="no")
         check("app 点検: 版ごとに点検し直す (直れば写す)",
