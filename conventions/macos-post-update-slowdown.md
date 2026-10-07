@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: macOS update 直後に体感が重いとき + 定期メンテ棚卸し
 category: macos
-summary: macOS メジャー/マイナー update 後の体感重さ playbook (= mdutil -a -i off は corespotlightd を止めない / Apple Intelligence が suggestd を XPC で respawn = 根治は GUI で AI OFF / 4K 動画壁紙で WallpaperImageExtension が常時 30-50% + com.apple.wallpaper.agent cache が 100 GB+ に育つ既知バグ / softwareupdated 背景 DL / 3rd-party AV アンインストール後の launch plist 残置 / AppTranslocation zombie plist / macOS 15+ の containermanagerd が sudo でも ~/Library/Containers/* を守る / 診断 30 秒定形 + disk cleanup target list + 再起動が commit point)
+summary: macOS メジャー/マイナー update 後の体感重さ playbook (= mdutil -a -i off は corespotlightd を止めない / Apple Intelligence が suggestd を XPC で respawn = 根治は GUI で AI OFF / 4K 動画壁紙で WallpaperImageExtension が常時 30-50% + com.apple.wallpaper.agent cache が 100 GB+ に育つ既知バグ / softwareupdated 背景 DL / 3rd-party AV アンインストール後の launch plist 残置 / AppTranslocation zombie plist / macOS 15+ の containermanagerd が sudo でも ~/Library/Containers/* を守る (= script からは消せず、 本人が Finder で ⌘⌫ なら消える) + agent が app を消す段取り (ゴミ箱へ・brew の zap を checklist に・空にするのは本人) / 診断 30 秒定形 + disk cleanup target list + 再起動が commit point)
 -->
 # macOS post-update slowdown: 診断 + 撃退 playbook
 
@@ -247,13 +247,21 @@ sudo find ~/Library/Containers/com.<vendor>.* -type f \
 
 これで **container 内の実データ (= 数百 MB あることも) は回収できる**、 metadata shell (~数十 KB / 個) だけ残る。 shell は auto-launch 元にならないので無害。
 
-### 完全削除
+### 完全削除 = 本人が Finder で選んで ⌘⌫
 
-recovery mode で SIP を切って `~/Library/Containers/` を消す以外に user-land ルートは無い (= 事実上、 諦めるのが実用解)。
+script からの経路は全部拒否される (macOS 26 で実測): `sudo rm` (EPERM) / `/usr/bin/trash` (`-5000 afpAccessDenied`) / Finder への AppleScript `delete` (`-5000`)。 一方、 **本人が Finder でその folder を選んで ⌘⌫ するとゴミ箱へ移る** (実測) = recovery mode で SIP を切る経路は要らない。 agent は `open -R <path>` で 1 つずつ選択状態にして渡す (渡し方と、 名前で探させてはいけない理由 = [`macos-gui-app-automation.md#hand-off-selected-item`](macos-gui-app-automation.md#hand-off-selected-item))。
 
 ### App Store 経由 install の `.app` は `/Applications` からも消えない
 
-WeChat 等の App Store install app は `/Applications/` からの `sudo rm` が拒否される場合がある。 **Finder で右クリック → 「ゴミ箱に入れる」** が最短ルート (= LaunchServices 経由の App Store 認識 uninstall が走る)。
+WeChat 等の App Store install app は root 所有で、 `/Applications/` からの `sudo rm` が拒否される場合がある。 **Finder で右クリック → 「ゴミ箱に入れる」** が最短ルート (= LaunchServices 経由の App Store 認識 uninstall が走る)。 script からは `/usr/bin/trash` が `-5000` で拒否され、 Finder への AppleScript `delete` は管理者パスワードの確認を出してゴミ箱へ移す (実測。 root 所有の `/Library/Extensions/*.kext` も同じ)。
+
+### <a id="agent-uninstall-sequence"></a>agent が app を消すときの段取り
+
+1. **消す = ゴミ箱へ移す**: `/usr/bin/trash <path>` (macOS 標準、 Finder の「戻す」 が効く)。 `rm` / `brew uninstall --zap` は戻せないので使わない。 ゴミ箱を空にするのは本人。
+2. **残骸の置き場所**: bundle id と vendor 名で `~/Library/{Application Support,Caches,Preferences,Containers,Group Containers,Application Scripts,Saved Application State,HTTPStorages,WebKit,LaunchAgents}` と `/Library/{LaunchAgents,LaunchDaemons,PrivilegedHelperTools,Extensions,Audio/Plug-Ins/HAL,CoreMediaIO/Plug-Ins/DAL}` を見る。 Homebrew cask なら `brew info --json=v2 --cask <token>` の `zap` が置き場所の checklist。 移行アシスタントで移した Mac は、 退避した旧版の `.app` の置き場所も見る。
+3. **brew の記録**: ゴミ箱へ移した後に `brew uninstall --cask <token>` で Caskroom の記録だけ外す (外さないと `brew upgrade` が入れ直す)。
+4. **script で動かせなかったもの**: root 所有 → Finder への AppleScript `delete` (パスワード確認は本人)。 container → 本人の ⌘⌫ (上の「完全削除」)。
+5. **最後に同じ名前で置き場所を scan し直し**、 残りが 0 になってから本人に「ゴミ箱を空に」 と渡す。
 
 ---
 
