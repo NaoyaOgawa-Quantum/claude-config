@@ -54,6 +54,16 @@ SoT の不変条件 (= 重複なし / uniqueness / schema 準拠) を、 それ�
 - **field-scoped prune**: prune するのは新 home に移った field だけ。 移っていない field (= photo / 連絡先 / pipeline status 等) は旧 file に残し resolver も触らない。
 - cross-repo read (= consumer が別 repo の新 home を読む) は層依存が合法な範囲で OK (= 依存先が同等以上に public な層、 owner script → 共有 repo 等)。
 
+### <a id="new-state-value-allowlist-consumers"></a>Pattern: 状態の値を足したら、 許可の一覧で絞っている consumer を全部洗う
+
+台帳の状態の field (`status` 等) に**新しい値を足す・遷移を変える**ときは、 その field を**許可の一覧** (`if status in (A, B)`) で絞っている consumer を grep で全部洗う。
+一覧に無い新しい値は error にも警告にもならず、 その consumer の対象から**黙って外れる** (= 一覧で絞る側は、 知らない値を「扱わない」 と読むのが既定)。
+
+- **症状の型** (実測): 開催後に「実施済」 のような終わりの状態へ移す運用を足したら、 開催後に届く添付を公開する処理が「確定」 の回だけを見ていて、 移した回の添付が公開されないまま気づかれなかった。 移す前に記録された回は古い状態のまま残っていたので、 既存の回では一度も壊れて見えなかった。
+- **洗う範囲**: その field を読む全 script (検出器・自動公開・dashboard・selftest の fixture)。 field 名と既存の値の両方で grep する (`status` だけで探すと、 値を定数に括り出した `STATUS_CONFIRMED` 側を見落とす)。
+- **直し方**: 足した値を受けるかを consumer ごとに決める (受ける・明示的に除く)。 黙って外れる形を残さない。 1 つの判定関数に寄せられるなら寄せる (状態の意味を 1 か所で持つ)。
+- 兄弟 = 上の「SoT の home が lifecycle で移動するなら」 (home が動く時の consumer 洗い出し)。 こちらは home は動かず値が増える時。
+
 ### Pattern: 生成物に焼き込んだ marker は snapshot であって live state でない
 
 生成時にファイル名・本文へ焼き込んだ状態 marker (= 「要押印」 「draft」 「提出用」 等) は **作った瞬間の snapshot** で、 その後の進行を反映しない。 これを live state と誤読すると **済んだものが未済として残り続ける** (= drift)。
@@ -370,6 +380,7 @@ CLI script A の loader / helper を script B が `importlib.util.spec_from_file
 - [ ] 過去 user 承認済出力で reproduce 検証した? (= validity 確認)
 - [ ] yaml の自動 edit を避けて print reminder にした?
 - [ ] **SoT の home が lifecycle で移動するなら**: 全 consumer を grep で洗い出し共有 resolver 経由に redirect した? prune は新 home に移った field だけ (field-scoped)? (§1 Pattern)
+- [ ] **状態の field に値を足す・遷移を変えるなら**: 許可の一覧 (`status in (…)`) で絞る consumer を field 名と定数名の両方で grep し、 新しい値を受けるか除くかを consumer ごとに決めた? ([#new-state-value-allowlist-consumers](#new-state-value-allowlist-consumers))
 - [ ] **無人実行なら**: 自動 publish は推測ゼロの変換だけ? 導出不能 field は事前入力 (armed) or surface? (§7)
 - [ ] **高 stakes な無人 publish なら**: push 手前に fresh-eyes adversarial な AI 検証ゲート (= 別呼び出しで「間違いを探せ」、 clean だけ push・疑義は hold+surface) を足した? (§7 Pattern)
 - [ ] **無人 commit なら**: clean∧ff-only-or-abort → build 検証 → 失敗 revert → commit → push retry を mechanize した? SoT source repo の dirty gate は read/write path に targeted + commit は path 限定? (§7 #targeted-dirty-gate)
