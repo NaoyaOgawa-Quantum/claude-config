@@ -12,7 +12,8 @@ subcommand:
   syllabus <時間割番号> [--year Y] [--html]                                           シラバス 1 件の本文 (text)
   roster-csv --out-dir DIR [--year Y] [--exam 1]                                      全担当科目の履修者名簿 CSV を DIR に保存 (成績登録画面の CSV 一括ダウンロード)
   dl-list [--folder 語] [--from D] [--to D]                                           ダウンロードセンターの配布資料の一覧 (フォルダ | fileId | ファイル名 | 登録日 | サマリ)
-  dl-get <fileId>... --out-dir DIR [--extract] [--from D] [--to D]                    配布資料を DIR に保存 (--extract = zip を DIR/<zip の stem>/ に展開、 パスワードはサマリ欄から)
+  dl-get <fileId>... --out-dir DIR [--extract] [--from D] [--to D]                    配布資料を DIR に保存 (--extract = zip を DIR/<zip の stem>/ に展開、 パスワード付きの PDF は暗号化を外した写しを同じ所に。 パスワードはサマリ欄から)
+  dl-missing --have DIR [--have DIR] [--folder 語] [--match 正規表現] [--from D] [--to D]  手元に無い配布資料 (名前の鍵 = NFKC・拡張子なし・空白なし で突き合わせ。 無ければ無出力)
   get <path>                                                                         任意 path を GET (debug 用)
   status                                                                             いま読めるか (GET 1 本、 切れていれば復帰を試す)
   doctor                                                                             配線だけ (cookie を復号できて値が壊れていないか。 network なし、 健全なら無言)
@@ -349,6 +350,44 @@ def zip_read_all(body, passwords, label="zip"):
         raise SystemExit(f"{label}: サマリ欄のパスワード ({len(passwords)} 件) のどれでも開けない")
 
 
+def pdf_needs_pass(body):
+    """パスワードが無いと開けない PDF か。 PyMuPDF が要る (無ければ止まる)。"""
+    try:
+        import fitz
+    except ImportError:
+        raise SystemExit("PDF の復号には PyMuPDF (fitz) が要る")
+    with fitz.open(stream=body, filetype="pdf") as doc:
+        return bool(doc.needs_pass)
+
+
+def pdf_decrypt(body, passwords, label="pdf"):
+    """パスワード付きの PDF を、 passwords を順に試して開き、 暗号化を外した bytes にする (配布資料の議事録などがこの形)。
+    返り値 = (bytes, 開けた候補の index)。 暗号化なしなら (None, None)。 パスワードの値は出力しない。 PyMuPDF が要る。"""
+    if not pdf_needs_pass(body):
+        return None, None
+    if not passwords:
+        raise SystemExit(f"{label}: パスワード付きの PDF だが、 サマリ欄にパスワードの記載が見つからない")
+    import fitz
+    with fitz.open(stream=body, filetype="pdf") as doc:
+        for k, pw in enumerate(passwords):
+            if doc.authenticate(pw):
+                return doc.tobytes(encryption=fitz.PDF_ENCRYPT_NONE), k
+    raise SystemExit(f"{label}: サマリ欄のパスワード ({len(passwords)} 件) のどれでも開けない")
+
+
+def name_key(name):
+    """配布資料の名前と手元の file・dir の名前を突き合わせる鍵: NFKC (全角括弧 → 半角) + 拡張子 .zip/.pdf を外す + 空白を消す。"""
+    n = unicodedata.normalize("NFKC", name or "")
+    n = re.sub(r"\.(zip|pdf)$", "", n.strip(), flags=re.I)
+    return re.sub(r"\s+", "", n)
+
+
+def missing_rows(rows, have_names, match=""):
+    """一覧のファイル行のうち、 手元の名前 (have_names) に鍵が一致するものが無い行。 match = ファイル名への正規表現 (空なら全部)。"""
+    have = {name_key(x) for x in have_names}
+    return [r for r in rows if (not match or re.search(match, r["name"])) and name_key(r["name"]) not in have]
+
+
 def save_no_clobber(out, body):
     """out に保存。 同名で中身が違えば上書きせず <stem>-HHMMSS<suffix> にする。 返り値 = (書いた path, "new"|"same"|"renamed")。"""
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -566,7 +605,36 @@ def _dl_selftest_cases():
         clobber_ok = (s1 == (t, "new") and s2 == (t, "same") and s3[1] == "renamed" and s3[0] != t
                       and t.read_bytes() == b"1" and s3[0].read_bytes() == b"2")
     utf8 = "%E8%B3%87%E6%96%99"  # 資料
-    return [
+    # PDF: 合成のパスワード付き PDF を候補の 2 本目で開く / 暗号化なし / 外れだけ (PyMuPDF が無ければ skip = PASS 扱いにしない)
+    try:
+        import fitz
+        d0 = fitz.open(); d0.new_page().insert_text((72, 72), "minutes synthetic"); plain_pdf = d0.tobytes(); d0.close()
+        d1 = fitz.open(stream=plain_pdf, filetype="pdf")
+        enc_pdf = d1.tobytes(encryption=fitz.PDF_ENCRYPT_AES_256, owner_pw="Oo9-owner", user_pw="Uu1-pw"); d1.close()
+        dec, k = pdf_decrypt(enc_pdf, ["bad-1", "Uu1-pw"])
+        with fitz.open(stream=dec, filetype="pdf") as d2:
+            pdf_ok = k == 1 and not d2.needs_pass and "minutes synthetic" in d2[0].get_text()
+        pdf_plain_ok = pdf_decrypt(plain_pdf, ["x"]) == (None, None)
+        try:
+            pdf_decrypt(enc_pdf, ["bad-1"]); pdf_wrong = None
+        except SystemExit as e:
+            pdf_wrong = str(e)
+        pdf_cases = [
+            ("pdf_decrypt: パスワード付きの PDF = 候補を順に試し、 暗号化を外した写しは開ける", pdf_ok),
+            ("pdf_decrypt: 暗号化なし = (None, None) / 外れだけ = 止まり、 値を出さない", pdf_plain_ok and bool(pdf_wrong)
+             and "Uu1-pw" not in pdf_wrong and "bad-1" not in pdf_wrong),
+        ]
+    except ImportError:
+        print("SKIP pdf_decrypt (PyMuPDF なし)")
+        pdf_cases = []
+    have = ["第1回資料（一般）", "第2回 資料.zip", "記録/"]
+    miss_rows = [{"name": n, "file_id": str(i)} for i, n in enumerate(
+        ["第1回資料(一般).zip", "第2回資料.zip", "第3回資料(一般).zip", "2025年度 第9回資料.zip", "記録.pdf"])]
+    got_miss = [r["name"] for r in missing_rows(miss_rows, have)]
+    return pdf_cases + [
+        ("name_key / missing_rows: 全角括弧・空白・拡張子の違いは同じ物、 手元に無いものだけ残す",
+         got_miss == ["第3回資料(一般).zip", "2025年度 第9回資料.zip", "記録.pdf"]
+         and [r["name"] for r in missing_rows(miss_rows, have, "第3回")] == ["第3回資料(一般).zip"]),
         ("dl_parse: script の中の行の雛形は拾わず、 フォルダ 3 / ファイル 5", len(folders) == 3 and len(files) == 5),
         ("dl_parse: 下位フォルダの path (親 / 子、 全角空白を残す)", paths.get("11") == "会議資料 / 分科会　A"),
         ("dl_parse: 親のファイルの表が下位フォルダの後ろにあっても親に帰属", all(by[i]["folder_id"] == "10" for i in
@@ -678,7 +746,12 @@ def main():
     p.add_argument("file_ids", nargs="+", metavar="fileId", type=lambda x: str(int(x)))
     p.add_argument("--out-dir", required=True, help="保存先 dir (file 名は Content-Disposition)")
     p.add_argument("--extract", action="store_true",
-                   help="zip を <out-dir>/<zip の stem>/ に展開。 パスワードは一覧のその行のサマリ欄から (無ければ無しで試す)")
+                   help="zip を <out-dir>/<zip の stem>/ に展開、 パスワード付きの PDF は暗号化を外した写しを同じ所に。 パスワードは一覧のその行のサマリ欄から (無ければ無しで試す)")
+    p = sub.add_parser("dl-missing", parents=[win], help="手元に無い配布資料 (一覧の名前と手元の file・dir の名前を突き合わせる)")
+    p.add_argument("--folder", default="", help="フォルダ名 (親 / 子 の path) の部分一致で絞る")
+    p.add_argument("--have", action="append", required=True, metavar="DIR",
+                   help="手元の置き場 (直下の file・dir の名前を見る。 複数可)")
+    p.add_argument("--match", default="", help="ファイル名への正規表現 (例: 2026年度)")
     p = sub.add_parser("get"); p.add_argument("path")
     sub.add_parser("status")
     sub.add_parser("doctor")
@@ -728,6 +801,19 @@ def run(a, cs):
         out, _ = save_no_clobber(Path(a.out_dir).expanduser() / Path(name).name, body)  # 同じ日の取り直しは上書きしない
         rows = max(body.count(b"\n") - 1, 0)
         print(f"{out} ({len(body)} bytes, {rows} 行)")  # 中身 (個人情報) は出さない
+    elif a.cmd == "dl-missing":
+        folders, files = dl_parse(cs.dl_list(a.day_from, a.day_to))
+        key = _fold(a.folder) if a.folder else ""
+        ids = {f["id"] for f in folders if key in _fold(f["path"])}
+        rows = [r for r in files if r["folder_id"] in ids]
+        have = [x.name for d in a.have for x in Path(d).expanduser().iterdir()] if all(
+            Path(d).expanduser().is_dir() for d in a.have) else None
+        if have is None:
+            raise SystemExit("--have の dir が無い: " + ", ".join(d for d in a.have if not Path(d).expanduser().is_dir()))
+        miss = missing_rows(rows, have, a.match)
+        for r in miss:  # 無ければ無出力 (hook / dashboard 用)。 件数は stderr
+            print(" | ".join([r["folder"], r["file_id"], r["name"], r["date"]]))
+        _say(f"手元に無い {len(miss)} 件 / 照合 {sum(1 for r in rows if not a.match or re.search(a.match, r['name']))} 件")
     elif a.cmd == "dl-list":
         page = cs.dl_list(a.day_from, a.day_to)
         folders, files = dl_parse(page)
@@ -754,16 +840,28 @@ def run(a, cs):
                   + {"new": "", "same": "、 同じ中身が既にあった", "renamed": "、 同名で中身が違うので別名"}[how] + ")")
             if not a.extract:
                 continue
-            if not zipfile.is_zipfile(io.BytesIO(body)):
-                _say(f"fileId {fid} は zip でない → 展開しない")
-                continue
-            pws = []
-            if zip_encrypted(body):
+
+            def passwords_for(fid):
+                nonlocal summaries
                 if summaries is None:  # パスワードは一覧のその行のサマリ欄にある (dl-get 1 回に一覧 1 回)
                     summaries = {r["file_id"]: r["summary"] for r in dl_parse(cs.dl_list(a.day_from, a.day_to))[1]}
                 if fid not in summaries:
                     _say(f"fileId {fid} が一覧 (公開期間の窓) に無い → サマリ欄のパスワードを拾えない (--from/--to で窓を広げる)")
-                pws = summary_passwords(summaries.get(fid, ""))
+                return summary_passwords(summaries.get(fid, ""))
+
+            if body[:5] == b"%PDF-":  # パスワード付きの PDF = 暗号化を外した写しを <out-dir>/<stem>/<名前> に
+                if not pdf_needs_pass(body):
+                    _say(f"fileId {fid} はパスワードの無い PDF → 展開不要")
+                    continue
+                data, _ = pdf_decrypt(body, passwords_for(fid), f"fileId {fid}")
+                path, how = save_no_clobber(out_dir / out.stem / out.name, data)
+                print(f"復号: {path} (パスワード = サマリ欄の記載で開けた"
+                      + {"new": "", "same": "、 同じ中身が既にあった", "renamed": "、 中身が違うので別名"}[how] + ")")
+                continue
+            if not zipfile.is_zipfile(io.BytesIO(body)):
+                _say(f"fileId {fid} は zip でも PDF でもない → 展開しない")
+                continue
+            pws = passwords_for(fid) if zip_encrypted(body) else []
             members, used = zip_read_all(body, pws, f"fileId {fid}")
             dest = out_dir / out.stem
             done = [save_no_clobber(dest / rel, data) for rel, data in members]
