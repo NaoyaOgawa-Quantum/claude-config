@@ -58,6 +58,7 @@ claude-config/
 │   ├── claude-app-cwd-pin.md               # Claude.app の folder picker 起点固定 (launchd) を設定・解除するとき
 │   ├── claude-code-permissions.md          # Claude Code の permission prompt 削減・deny/ask/allow 設計を触るとき + tool call が拒否されて原因 (rule / hook / classifier) を切り分けるとき (#hook-masks-deny) + classifier に止められた操作を user に chat で承認してもらうとき・承認したのにまた止まったとき (#chat-approval-reaches-classifier) + 本人の口座番号などを、 本人が印刷して出す様式に印字するとき (#own-numbers-in-local-forms)
 │   ├── clipboard-cleaner.md                # PDF コピー由来の段落内改行・RTF 書式をクリップボードで整形したいとき
+│   ├── closing-sweep.md                    # session の終わりに、 その session (と委ねた agent・子 session・別 session) で得た知見・手順・使い捨ての script を正本へ上げ、 正本と参照・SESSION・TODO を整えて commit するとき (= 締めの sweep・仕上げ) + 締めの sweep を個人層の skill や定型の指示にするとき
 │   ├── codex-desktop-triage.md             # ChatGPT app (Codex desktop) の task が 401 / auth error で止まったとき + 「Incorrect API key provided: sk-svcacct…」 が出たとき + Codex の hook が走らない・監査が untrusted と言うとき + app の更新で Codex の binary の path が変わったとき + 承認 CLI が「本人の発言が無い」 と言うとき + task の結果の要約が見当たらず最後の message が完了 gate への返事のとき
 │   ├── cold-eyes-isolation.md              # cold-eyes / 盲検 review を別 session に投げる前 / referee 版の原稿を用意する時 / review 結果の独立性を判定する時
 │   ├── collaborators.md                    # 共同研究者 DB (collaborators.yaml) を作成・更新するとき
