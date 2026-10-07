@@ -274,16 +274,18 @@ WallpaperImageExtension は set された画像を **非圧縮 bmp (3456×2234�
 CACHE="$HOME/Library/Containers/com.apple.wallpaper.agent/Data/Library/Caches/com.apple.wallpaper.caches/extension-com.apple.wallpaper.extension.image"
 KEEP=1  # content-addressable ゆえ hit rate ほぼ 0、 現行 1 枚だけあれば足りる
 if [[ -d "$CACHE" ]]; then
-  bmps=($CACHE/*.bmp(N))  # zsh (N) = nullglob
+  bmps=($CACHE/*.bmp(Nom))  # zsh: N = nullglob、 om = mtime の新しい順
   if (( ${#bmps} > KEEP )); then
-    /bin/ls -1t "${bmps[@]}" | /usr/bin/tail -n +$((KEEP+1)) | while IFS= read -r f; do
-      /bin/rm -f "$f"
+    for f in "${(@)bmps[KEEP+1,-1]}"; do
+      /bin/rm -f -- "$f"
     done
   fi
 fi
 ```
 
 **ceiling**: `KEEP × ~13 MB` (KEEP=1 なら ~13 MB)。 interval 非依存。
+
+⚠️ **名前の一覧を外部コマンドの引数に渡さない** (例: `ls -1t "${bmps[@]}"`)。 prune が一度も走らないまま cache が溜まった機械 (rotation を入れる前に OS 側が cache を作っていた・移行で引き継いだ) では、 一覧が ARG_MAX (macOS = 1 MB) を超えて `ls` が起動できず、 prune が毎周期 1 枚も消さずに終わる (実測 = 7 千枚超・110 GB で失敗、 その間も 1 周期ごとに数十 MB ずつ増える)。 並べ替えは glob 修飾子 `om` で、 削除は 1 枚ずつ回す (`for` は shell の組み込みなので引数の上限に掛からない)。 初回だけ溜まった分を消すので handler が長くなる。
 
 ⚠️ `KEEP=0` (全消し) も動くが、 osascript 完了と async cache write の race で「今書かれた bmp」 を巻き添えする余地あるので safety margin として 1 を残す。
 
