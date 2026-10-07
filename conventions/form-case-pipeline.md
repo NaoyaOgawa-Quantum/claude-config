@@ -486,4 +486,5 @@ build の案内 (押す場所の列挙・出力の一覧) は前の規則を言�
   build は作る前に 📌 で出す (build が途中で止まっても見える)
 - 書くこと: 何がまだ作れないか / 代わりの手順の所在 / 手順どおりにできない時は作る前に持ち主に伝えること
 - 部品が入ったら設定から消す (= 残っている行は「まだ追い付いていない」 の一覧として読める)
+- 案内の行も規則の写し = 持ち主の決めごとが変わったら、 その様式の案内の行を同じ turn で読み直す (前の規則のまま残った案内に従って、 もう作らないと決めた物を作った = 実測、 一般形 = [`docs/convention-design-principles.md#ruling-reaches-every-copy`](../docs/convention-design-principles.md#ruling-reaches-every-copy))
 - 一般形 = 規則は行為の場所に出す ([`docs/convention-design-principles.md#rule-visible-where-the-act-happens`](../docs/convention-design-principles.md#rule-visible-where-the-act-happens))
