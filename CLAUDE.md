@@ -150,7 +150,7 @@ claude-config/
 │   ├── prompt-injection.md                 # 外部由来 tool result に adversarial 指示文を疑ったとき
 │   ├── pronunciation-verification.md       # 未知の言語・転写された人名や語の発音を調べるとき / user が「実際に音で聞きたい」と言ったとき
 │   ├── prototype-feedback.md               # 外部からウェブアプリ・制作物・企画等の試用とコメントを頼まれ、スクリーンショット・QR・一時URLから実物を確認して返却文面を作るとき
-│   ├── public-page-watch.md                # 「いつ変わるか分からないが、 変わったらすぐ動く」 公開ページの告知 (受付の再開・募集の開始・日程の変更・議事の結果) を待つとき + 待っている告知の正本を記録に書くとき + 無人の定期実行から人に知らせる経路 (OS 通知・ダイアログ・スマホ push) を組むとき + headless `claude -p` を通知の送信だけに使うとき + 見張っていたページが変わったが判断に要る中身がそこに無いとき (#watch-where-the-content-lands)
+│   ├── public-page-watch.md                # 「いつ変わるか分からないが、 変わったらすぐ動く」 公開ページの告知 (受付の再開・募集の開始・日程の変更・議事の結果) を待つとき + 待っている告知の正本を記録に書くとき + 無人の定期実行から人に知らせる経路 (OS 通知・ダイアログ・スマホ push) を組むとき + headless `claude -p` から通知を送ろうとしたとき (スマホには届かない、 #sealed-headless-push) + 見張っていたページが変わったが判断に要る中身がそこに無いとき (#watch-where-the-content-lands)
 │   ├── rebuttal-letter.md                  # referee report への point-by-point 返信を書くとき
 │   ├── remote-control-server.md            # Remote Control サーバーモードを常駐・troubleshoot するとき
 │   ├── repo-history-growth.md              # build した PDF・図・様式の出力を commit しようとするとき + git-crypt で暗号化した file を頻繁に書き足す台帳にするとき + 自動生成の data を定期 job で commit するとき + repo (.git) が大きい・clone や fetch が重いと気づいたとき + check-history-growth.py の 🟠 / commit 時の ⚠️ を見たとき
