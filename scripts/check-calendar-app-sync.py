@@ -186,6 +186,11 @@ def render(rows: list[dict], unknown: str | None, surface: bool) -> str:
                      "(つながった後も続くなら flag なしで表を見る)")
     if unknown:
         lines.append(f"  ⚪ 未チェック: {unknown} (= 健全とは限らない。 呼び元 process の権限を確かめる)")
+        if "authorization denied" in unknown:
+            # sqlite の SQLITE_AUTH = macOS の TCC が file を拒んだ。 付与先は起動した process (app 本体とは限らない)
+            lines.append("     → この process にフルディスクアクセスが無い。 付与先 = 親 process を辿った先 "
+                         "(Claude desktop の Bash なら claude-code/<版>/claude.app の helper、 版が上がると外れうる)。 "
+                         "辿り方 = claude-config conventions/macos-notification-db.md#tcc-responsible-process")
     if surface and bad:
         lines.append("     ⚠️ API / MCP の書き込みは成功と返るので、 ここ以外にエラーは出ない "
                      "(切り分けの正本 = claude-config conventions/macos-calendar-write.md #google-to-calendar-app-sync-check)")
@@ -296,6 +301,11 @@ def _selftest() -> int:
         os.environ.pop("CALSYNC_CALENDAR_DB", None)
     if rows or not unknown:
         fails.append(f"6 rows={rows} unknown={unknown}")
+    # 7. TCC の拒否 (authorization denied) は付与先の辿り方まで出す / 単なる不在では出さない
+    denied = render([], "Calendar.app の DB を読めない (DatabaseError: authorization denied)", True)
+    missing = render([], "Calendar.app の DB を読めない (OperationalError: unable to open database file)", True)
+    if "フルディスクアクセス" not in denied or "tcc-responsible-process" not in denied or "フルディスクアクセス" in missing:
+        fails.append("7 " + denied + " | " + missing)
     # 8. 試行中 (end < start) は負の秒でなく「同期中」
     rows, _, _ = run([(6, "Gmail", "C-GMAIL", 0, 0, t0, t0 - 20.0)], ok_accts)
     if rows[0]["duration_s"] != "同期中":
