@@ -73,9 +73,11 @@ Geroch's plan is a *division* of what you want to say, made in this order:
    surface; the 'state of the gravitational field at that time' becomes a pair of tensor fields
    on this surface, subject to certain constraint equations; the 'evolution of the system' is
    then described by equations which give the change in these fields under changes in the
-   spacelike surface." A slogan or a punch line is not this summary. The summary is reused
-   twice: it is the few descriptive sentences you give per message when announcing the
-   structure (§3b), and the few-sentence summary you say aloud when closing the message (§4).
+   spacelike surface." (This digest's reading, not Geroch's words: a slogan or a punch line is
+   not this summary, and the same summary can serve twice — as the few descriptive sentences per
+   message when announcing the structure (§3b), and as the few-sentence summary said aloud when
+   closing the message (§4). Geroch asks for sentences at both points but does not say they are
+   the plan's summary.)
 4. **Expect to recast.** The division is almost always essentially different from the way you
    think about the subject: you omit details you would have liked to say, omit connections
    between points, and add material to fill out a message.
@@ -83,8 +85,9 @@ Geroch's plan is a *division* of what you want to say, made in this order:
    treated, and remembered, as a unit, yet general enough that taken together the messages
    tell your story.
 6. **Make several, hopefully very different, organizations, then select the best for
-   refinement.** "Different" means different divisions of the material into messages (by
-   object, by question, by history, ...), not the same three messages in another order.
+   refinement.** (This digest reads "different" as different divisions of the material into
+   messages — by object, by question, by history, ... — not the same three messages in another
+   order.)
 
 ## 3. The introduction (about one-fifth of the talk)
 
@@ -100,7 +103,7 @@ interesting? What has it taught us about nature? Where do things stand, and wher
 heading? An optimistic framing of the future builds enthusiasm.
 
 **(b) Announce the structure.** Tell them the three or four messages up front — each title plus
-a few descriptive sentences (the non-technical summaries written in the plan, §2 step 3). Put
+a few descriptive sentences (the plan's non-technical summaries can serve here, §2 step 3). Put
 the titles where everyone can see them, and check them off as you deliver them. Explain how the messages relate and how together they sum up the subject,
 and state the general conclusions in advance if you can. In effect: give a short talk about
 the structure of your talk.
@@ -109,8 +112,8 @@ the structure of your talk.
 
 - **Mark every message boundary explicitly.** Open each message by restating its title, saying
   you are starting it, and previewing its content ("We now begin our discussion of..."). Close
-  it by saying it is finished and giving your few-sentence non-technical summary — the one
-  written in the plan (§2 step 3) — ("To summarize,..."). These closing summaries matter
+  it by saying it is finished and giving your few-sentence summary of it (the plan's summary can
+  serve, §2 step 3) ("To summarize,..."). These closing summaries matter
   especially: they let the audience consolidate
   what you said, and let anyone who got lost rejoin the thread. Make transitions between
   messages unmistakable.
