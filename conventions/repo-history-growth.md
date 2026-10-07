@@ -57,6 +57,11 @@ git-crypt で暗号化した 1 つの list file に書き足し続けると、 1
 月ごとの file (受信の記録など) でも、 月末には数百 KB になり、 1 日に何度も書くなら同じ増え方をする。
 分けるかは書く頻度 × 月末の大きさで決める ([#detection](#detection) の数字で判断する)。
 
+書き足すだけで直さない記録 (通知・log の写し) は、 束ねるたびに**新しい file** にして、 書いた file を二度と書き換えない
+(= 履歴の大きさ = 中身の大きさ)。 細かい間隔の写しは git 管理外の spool に溜め、 一定時間ごとに束ねて commit する。
+file 名を時刻にするなら、 同じ名前が既にあれば連番を足す (秒で名付けた束を同じ秒に 2 回作ると、 後の束が前の束を
+上書きした = 実測)。 例 = [`macos-notification-db.md#always-on-archive`](macos-notification-db.md#always-on-archive)。
+
 ## <a id="detection"></a>見つけ方 — 定期の一覧と commit 時の警告
 
 道具 = [`scripts/check-history-growth.py`](../scripts/check-history-growth.py) (閾値は script の定数だけが持つ)。

@@ -76,12 +76,13 @@ engine = [`scripts/macos-notification-db.py`](../scripts/macos-notification-db.p
 
 - **置き場**: 本文は持ち主と第三者のやりとり = 既定で全部暗号化した private repo (git-crypt の default-encrypt)。
   無人の commit を対話で使う repo に混ぜない (別 session の未 commit の変更で `pull --rebase` が止まる) = 専用の repo。
-- **書き換えない束**: 暗号文は差分が効かない = 同じ file を書き換えて commit し続けると、 履歴が毎回 file 全体ぶん太る。
-  毎分の写しは手元の spool (git 管理外) に溜め、 一定時間ごとに**新しい file** として束ねて commit する
-  (書いたら書き換えない = 履歴の大きさ = 中身の大きさ)。 重複は uuid の索引で除く (索引が消えても束から作り直せる形に)。
+- **書き換えない束** (暗号文は差分が効かない = 理由と名付け方は [`repo-history-growth.md#encrypted-ledgers`](repo-history-growth.md#encrypted-ledgers)):
+  毎分の写しは手元の spool (git 管理外) に溜め、 一定時間ごとに新しい file として束ねて commit する。
+  重複は uuid の索引で除く (索引が消えても束から作り直せる形に)。
 - **平文 push の防止**: commit した blob の先頭が暗号文の印 (`\0GITCRYPT`) かを確かめ、 違えば commit を戻して止める。
   unlock されていない clone では commit しない。 launchd の PATH には package manager の dir が無く、 filter の
-  command が見つからないことがある = wrapper で PATH を足す。
+  command が見つからないことがある = wrapper で PATH を足す。 試験 = 一時の bare remote に push する clone で、
+  filter の clean を `cat` に差し替えて commit させ、 検出して commit を戻し push しないことを見る。
 - **TCC**: 写す係は専用の applet にだけフルディスクアクセスを付ける ([`launchd-cloudstorage-tcc.md`](launchd-cloudstorage-tcc.md) の A')。
   applet を作り直すと ad-hoc 署名が変わって付与が外れる → やることは applet が毎回読む script に置き、 applet の source の
   hash を bundle に記録して、 変わった時だけ作り直す。
