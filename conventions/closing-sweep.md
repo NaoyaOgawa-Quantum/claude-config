@@ -51,7 +51,7 @@ session の終わりに「全ての知見・手順・script をなるべく上�
 - **報告は検証前の主張** — 正本 (特に層1) に書く前に、 報告が指す commit・file・出力を 1 回見て裏を取る。 裏が取れないものは「未確認」 と書いて queue。
 - **子がすでに上げたものは二重に上げない** — 子の repo の `git log` を先に見る。 子の hoist が公開層の境界 (1 の ⚠️) を破っていたら直す。
 - **まだ動いている子の file には触らない** (並列作業 = 事故の条件)。 相手に届く経路 (`SendMessage` など) があれば「終わったら締めを」 と 1 行頼み、 無ければ queue。
-- **機密の区分を引き継ぐ** — 掲示板に出さない区分の依頼・機密フォルダの成果は中身を上げない (公開層へは方法だけ。 区分 = [`multi-session-coordination.md`](multi-session-coordination.md) と掲示板の契約)。
+- **機密の区分を引き継ぐ** — 掲示板に出さない区分の依頼・機密フォルダの成果は中身を上げない (公開層へは方法だけ。 区分の正本 = 掲示板の契約 `ai-collaboration/board/CONTRACT.md` の Source-classification gate)。
 - 子 session の transcript は `search-agent-transcripts.py <request id か role id> --role any` で引ける (報告に書かれなかった壊れ方・user の訂正を拾うとき)。 この session の agent の記録も `--session <id8> --role any '<語>'` で引ける (agent の発言は `assistant(agent)`、 親が渡した指示は `parent` = `--role user` には入らない)。
 - ⚠️ **agent の「考え中」 は記録に中身が残らない** (実測: すべて空) = agent が考えたこと (捨てた案・途中で気づいた壊れ方・確かめていないこと) は、 報告か成果物に書かれた分しか後から引けない。 **書かせるのは委ねる瞬間** (締めの時点では agent はもう考え終わっている): Agent tool への委任は hook [`delegation-record-clause.py`](../hooks/delegation-record-clause.py) が指示の末尾に約束の段を自動で足し、 掲示板の依頼と別 session への依頼は spec に書く。 headless の起動は hook [`headless-record-clause-nudge.py`](../hooks/headless-record-clause-nudge.py) の自動注入経路と sandbox の HANDOFF 要件を確かめる ([`multi-session-coordination.md#worker-record-clause`](multi-session-coordination.md#worker-record-clause))。 締めでは報告と成果物のその段 (捨てた案・途中の発見・未検証) を読み、 1 の表で置き場所を決める。
 
