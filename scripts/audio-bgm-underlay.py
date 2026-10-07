@@ -9,8 +9,8 @@
     4. 出力の loudness / true peak を測って表示する (配信の基準の中かは呼び出し側が判断)
 
 いつ使うか = 「BGM を敷いたらどう聞こえるか」 を共演者・本人に聞かせる試作。 **本採用の仕上げには使わない**
-(仕上がった MP3 をもう 1 回符号化する = 2 世代目。 採用が決まったら仕上げ script 〔audio-finish-episode.py〕 に BGM の段を足し、
-本編の生の素材から 1 回の符号化で作る)。 考え方の正本 = conventions/podcast-audio-finishing.md#bgm-under-speech。
+(仕上がった MP3 をもう 1 回符号化する = 2 世代目。 採用が決まったら仕上げ script 〔audio-finish-episode.py --bgm〕 で
+本編の生の素材から 1 回の符号化で作る。 区間とフェードの決め方は同じ)。 考え方の正本 = conventions/podcast-audio-finishing.md#bgm-under-speech。
 
 --start / --end の決め方 (仕上げ script の .json から):
     start = 冒頭ジングルの長さ (intro_jingle_s)              … ジングルの上には乗せない

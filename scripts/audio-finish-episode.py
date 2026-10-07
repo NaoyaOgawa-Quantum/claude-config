@@ -13,6 +13,9 @@
        --intro で冒頭だけ別の音 (かけ声を重ねたジングル等) にできる。音量は冒頭・締めを別々に測って揃える
        --outro-overlap で締めのジングルを本編の終わりの指定秒前から重ねる (盛り上がりを最後の言葉の下に敷き、
        アタックを語尾の直後に置く。本編の尾の無言は --trim-tail で削って揃える)
+       --bgm で本編の下に BGM を敷く (BGM の integrated loudness を --bgm-lufs に合わせ、冒頭ジングルの終わりから
+       フェードイン、締めのジングルが重なり始める所で消え終わるようフェードアウト。足りなければ頭から繰り返す。
+       ジングルの上には乗せない。リミッターと符号化は本編と同じ 1 回だけ)
     4. MP3 128 kbps CBR / stereo / 48 kHz で 1 回だけ符号化。入力のメタデータは持ち越さず、タグを付け直す
     5. 書き出したものを測り直して検査する。リミッターで本編が下がった分・MP3 化で山が上限を越えた分を
        直して作り直す (最大 5 回)
@@ -27,6 +30,7 @@
     python3 audio-finish-episode.py <part> --jingle <j> --trim-head 1.98 --intro-jingle 10.4
     python3 audio-finish-episode.py <part> --jingle <j> --intro <冒頭用の音> --intro-jingle 9.86
     python3 audio-finish-episode.py <part> --jingle <j> --trim-tail 0.3 --outro-overlap 2.5
+    python3 audio-finish-episode.py <part> --jingle <j> --outro-overlap 2.5 --bgm <loop.flac> --bgm-lufs -40
     python3 audio-finish-episode.py --measure <file>...      # 測るだけ
     python3 audio-finish-episode.py --selftest               # 合成音で検査が効くか確かめる
 
@@ -62,6 +66,11 @@ FADE_OUT_S = 0.05   # 本編の尾。話の途中で切れている Part でも�
 # 空きすぎる (実測) ので、音が -60 dB を切った少し後で切る値を呼び出し側が渡す。締めのジングルは切らない
 INTRO_JINGLE_S = 0.0
 INTRO_FADE_S = 0.2
+# 本編の下に敷く BGM (--bgm)。声 -16 LUFS の 24 dB 下が既定 (16 dB 下は「うるさい」 の実測、
+# conventions/podcast-audio-finishing.md#bgm-under-speech)。番組で決めた値は呼び出し側が渡す
+BGM_LUFS = -40.0
+BGM_FADE_IN_S = 4.0    # 冒頭ジングルが終わってから
+BGM_FADE_OUT_S = 6.0   # 締めのジングルが重なり始める所で消え終わる
 
 
 def run(cmd: list[str]) -> str:
@@ -111,8 +120,10 @@ def sha256(path: Path) -> str:
 def render(part: Path, jingle: Path, out: Path, g_speech: float, g_jingle: float,
            ceiling: float, tags: dict[str, str], head: float = 0.0, speech_len: float | None = None,
            intro_len: float | None = None, intro: Path | None = None, g_intro: float | None = None,
-           outro_at: float | None = None) -> None:
-    """outro_at を渡すと、締めのジングルを連結せずに出力のその秒から重ねる (本編はその下で最後まで鳴る)。"""
+           outro_at: float | None = None, bgm: Path | None = None, g_bgm: float = 0.0, bgm_len: float = 0.0,
+           bgm_fade_in: float = BGM_FADE_IN_S, bgm_fade_out: float = BGM_FADE_OUT_S) -> None:
+    """outro_at を渡すと、締めのジングルを連結せずに出力のその秒から重ねる (本編はその下で最後まで鳴る)。
+    bgm を渡すと、本編の頭から bgm_len 秒だけ BGM を本編に足してから連結する (= ジングルの上には乗らない)。"""
     fmt = f"aformat=sample_fmts=fltp:sample_rates={SAMPLE_RATE}:channel_layouts=stereo"
     limit = 10 ** (ceiling / 20)
     graph = (
@@ -121,8 +132,13 @@ def render(part: Path, jingle: Path, out: Path, g_speech: float, g_jingle: float
         + f"volume={g_jingle if g_intro is None else g_intro:.3f}dB[j1];"
         f"[1:a]{fmt},atrim=start={head:.3f}:duration={speech_len:.3f},asetpts=PTS-STARTPTS,"
         f"afade=t=in:st=0:d={FADE_IN_S},afade=t=out:st={speech_len - FADE_OUT_S:.3f}:d={FADE_OUT_S},"
-        f"volume={g_speech:.3f}dB[s];"
-        f"[2:a]{fmt},volume={g_jingle:.3f}dB"
+        f"volume={g_speech:.3f}dB" + ("[s0];" if bgm else "[s];")
+        # BGM は -stream_loop -1 で無限に繰り返して入るので、使う長さで切ってからフェードする。
+        # duration=first = 本編の長さで終わる (BGM が先に消えても本編は最後まで鳴る)
+        + (f"[3:a]{fmt},atrim=duration={bgm_len:.3f},asetpts=PTS-STARTPTS,"
+           f"afade=t=in:st=0:d={bgm_fade_in},afade=t=out:st={bgm_len - bgm_fade_out:.3f}:d={bgm_fade_out},"
+           f"volume={g_bgm:.3f}dB[b];[s0][b]amix=inputs=2:duration=first:normalize=0[s];" if bgm else "")
+        + f"[2:a]{fmt},volume={g_jingle:.3f}dB"
         # 重ねるときは足し算だけ (normalize=0: amix は既定で入力数で割って音量を下げる)。遅延はサンプル数で渡す
         + (f",adelay=delays={round(outro_at * SAMPLE_RATE)}S:all=1[j2];"
            f"[j1][s]concat=n=2:v=0:a=1[body];[body][j2]amix=inputs=2:duration=longest:normalize=0,"
@@ -135,6 +151,7 @@ def render(part: Path, jingle: Path, out: Path, g_speech: float, g_jingle: float
     )
     cmd = ["ffmpeg", "-hide_banner", "-nostats", "-y",
            "-i", str(intro or jingle), "-i", str(part), "-i", str(jingle),
+           *(["-stream_loop", "-1", "-i", str(bgm)] if bgm else []),
            "-filter_complex", graph, "-map", "[out]",
            "-map_metadata", "-1", "-id3v2_version", "3", "-write_id3v1", "0",
            "-c:a", "libmp3lame", "-b:a", BITRATE, "-ar", str(SAMPLE_RATE), "-ac", "2"]
@@ -153,7 +170,9 @@ def format_tags(path: Path) -> dict[str, str]:
 
 def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
            tags: dict[str, str], quiet: bool = False, trim_head: float = 0.0, trim_tail: float = 0.0,
-           intro_jingle: float = INTRO_JINGLE_S, intro: Path | None = None, outro_overlap: float = 0.0) -> bool:
+           intro_jingle: float = INTRO_JINGLE_S, intro: Path | None = None, outro_overlap: float = 0.0,
+           bgm: Path | None = None, bgm_lufs: float = BGM_LUFS, bgm_fade_in: float = BGM_FADE_IN_S,
+           bgm_fade_out: float = BGM_FADE_OUT_S) -> bool:
     say = (lambda *a: None) if quiet else (lambda *a: print(*a, flush=True))
     src_intro = intro or jingle        # 冒頭に置く音 (既定 = 締めと同じジングル)
     jd, raw, idur = duration(jingle), duration(part), duration(src_intro)
@@ -163,13 +182,22 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
         sys.exit(f"⚠️ 削りすぎ: 本編が残らない ({part})")
     if not 0 <= outro_overlap < min(jd, sd):
         sys.exit(f"⚠️ --outro-overlap {outro_overlap} は 0 以上で、締めのジングル ({jd:.2f} 秒) と本編より短くする")
+    bgm_len = sd - outro_overlap       # BGM を敷く長さ = 本編のうち締めのジングルが重なる前まで
+    if bgm and bgm_len <= bgm_fade_in + bgm_fade_out:
+        sys.exit(f"⚠️ 本編 ({bgm_len:.2f} 秒) が BGM のフェード ({bgm_fade_in} + {bgm_fade_out} 秒) より短い")
     mj, ms = measure(jingle), measure(part, trim_head, trim_head + sd)
+    mb = measure(bgm) if bgm else None
     mi = measure(src_intro) if intro else mj
     say(f"入力  本編 {part.name}: I={ms['I']:.1f} LUFS  TP={ms['TP']:.1f} dBTP  長さ {sd:.2f} 秒"
         + (f" (元 {raw:.2f} 秒から頭 {trim_head} 秒・尾 {trim_tail} 秒を削った)" if trim_head or trim_tail else ""))
     say(f"入力  ジングル {jingle.name}: I={mj['I']:.1f} LUFS  TP={mj['TP']:.1f} dBTP  長さ {jd:.2f} 秒")
     if intro:
         say(f"入力  冒頭 {intro.name}: I={mi['I']:.1f} LUFS  TP={mi['TP']:.1f} dBTP  長さ {idur:.2f} 秒")
+    g_bgm = bgm_lufs - mb["I"] if bgm else 0.0   # BGM 全体の loudness で合わせる (区間ごとには追わない)
+    if bgm:
+        say(f"入力  BGM {bgm.name}: I={mb['I']:.1f} LUFS  TP={mb['TP']:.1f} dBTP  長さ {duration(bgm):.2f} 秒"
+            f" → 利得 {g_bgm:+.2f} dB で {bgm_lufs} LUFS、出力の {ji:.2f}〜{ji + bgm_len:.2f} 秒に敷く"
+            f" (フェード {bgm_fade_in} / {bgm_fade_out} 秒)")
 
     g_speech = target - ms["I"]
     g_jingle = target + offset - mj["I"]
@@ -179,7 +207,8 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
     for attempt in range(1, MAX_RENDERS + 1):
         render(part, jingle, out, g_speech, g_jingle, ceiling, tags, head=trim_head, speech_len=sd,
                intro_len=ji if ji < idur else None, intro=intro, g_intro=g_intro,
-               outro_at=ji + sd - outro_overlap if outro_overlap else None)
+               outro_at=ji + sd - outro_overlap if outro_overlap else None,
+               bgm=bgm, g_bgm=g_bgm, bgm_len=bgm_len, bgm_fade_in=bgm_fade_in, bgm_fade_out=bgm_fade_out)
         whole = measure(out)
         speech = measure(out, ji, ji + sd - outro_overlap)   # 締めを重ねた所は本編区間に入れない
         head = measure(out, 0, ji)
@@ -231,6 +260,10 @@ def finish(part: Path, jingle: Path, out: Path, *, target: float, offset: float,
            "trim_head_s": trim_head, "trim_tail_s": trim_tail, "intro_jingle_s": ji, "outro_overlap_s": outro_overlap, "fade_in_s": FADE_IN_S, "fade_out_s": FADE_OUT_S,
            "target_LUFS": target, "jingle_offset_LU": offset, "bitrate": BITRATE, "tags": tags,
            "in_speech": ms, "in_jingle": mj, "renders": history,
+           "bgm": str(bgm) if bgm else None, "bgm_sha256": sha256(bgm) if bgm else None, "in_bgm": mb,
+           "bgm_lufs": bgm_lufs if bgm else None, "gain_bgm_dB": round(g_bgm, 2) if bgm else None,
+           "bgm_start_s": round(ji, 3) if bgm else None, "bgm_end_s": round(ji + bgm_len, 3) if bgm else None,
+           "bgm_fade_in_s": bgm_fade_in if bgm else None, "bgm_fade_out_s": bgm_fade_out if bgm else None,
            "checks": [{"name": n, "pass": p, "detail": d} for n, p, d in checks], "ok": ok}
     out.with_suffix(".json").write_text(json.dumps(log, ensure_ascii=False, indent=2) + "\n")
     if not ok:
@@ -293,9 +326,29 @@ def selftest() -> None:
         on = band_level(d / "overlap.mp3", end - 0.9, end - 0.1, 440)
         off = band_level(d / "overlap.mp3", end - 2.4, end - 1.6, 440)
         assert on - off > 10, f"selftest: 重ねた所でジングルが鳴っていない ({on:.1f} vs {off:.1f} dB)"
+        # BGM (3 kHz のサイン波 7 秒 = 本編より短いので繰り返される) を敷くと、本編の中では鳴り、ジングルの上では鳴らない。
+        # 締めを重ねた版 (overlap.mp3) と同じ条件で作り、3 kHz の近くを区間ごとに比べる。BGM は声の 6 dB 下
+        # (= 本編役のピンクノイズの 3 kHz 帯より約 13 dB 上。10 dB 下だと差が 9 dB で判定が際どかった、実測)
+        bgm = d / "bgm.wav"
+        run(["ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", "sine=f=3000:d=7:r=48000", "-ac", "2", str(bgm)])
+        ok_bgm = finish(part, jingle, d / "bgm.mp3", target=TARGET_LUFS, offset=0.0,
+                        tags={"title": "selftest-bgm"}, quiet=True, trim_tail=1.0, outro_overlap=1.5,
+                        bgm=bgm, bgm_lufs=TARGET_LUFS - 6)
+        assert ok_bgm, "selftest: BGM を敷くと検査に落ちた"
+        ji = duration(jingle)
+        lv = lambda f, a, b: band_level(d / f, a, b, 3000)
+        # フェードイン (4 秒) の後・BGM の 1 周目 (7 秒) の切れ目を越えた所・フェードアウトの前
+        body_on, body_off = lv("bgm.mp3", ji + 8, ji + 11), lv("overlap.mp3", ji + 8, ji + 11)
+        assert body_on - body_off > 6, f"selftest: 本編の中で BGM が鳴っていない ({body_on:.1f} vs {body_off:.1f} dB)"
+        for name, a, b in (("冒頭ジングル", 0.6, ji - 0.2), ("締めのジングル", end + 0.2, end + 1.8)):
+            on, off = lv("bgm.mp3", a, b), lv("overlap.mp3", a, b)
+            assert on - off < 3, f"selftest: {name}の上で BGM が鳴っている ({on:.1f} vs {off:.1f} dB)"
+        blog = json.loads((d / "bgm.json").read_text())
+        assert abs(blog["bgm_end_s"] - (end - 1.5)) < 0.01, "selftest: BGM の終わりが締めの重なり始めと合わない"
         assert not ok_bad and (d / "bad.mp3.FAILED").exists(), "selftest: 無理な目標でも検査が通ってしまった"
     print("✅ selftest PASS (合成音で検査が通る / 無理な目標では落ちて .FAILED になる / 元のタグが消える / 削り・切りの勘定が合う"
-          " / 冒頭だけ別の音でも合う / 締めを重ねると長さが合い、重ねた所でジングルが鳴る)")
+          " / 冒頭だけ別の音でも合う / 締めを重ねると長さが合い、重ねた所でジングルが鳴る"
+          " / BGM を敷くと本編の中で繰り返し鳴り、ジングルの上では鳴らない)")
 
 
 def main() -> None:
@@ -319,6 +372,14 @@ def main() -> None:
     ap.add_argument("--outro-overlap", type=float, default=0.0,
                     help="締めのジングルを本編の終わりの何秒前から重ねるか (既定 0 = 本編の後に続ける)。"
                          "ジングルのアタックの時刻を渡すと、本編の終わりにアタックが来る")
+    ap.add_argument("--bgm", type=Path,
+                    help="本編の下に敷く BGM (ループ素材は WAV / FLAC = AAC は頭の無音でつなぎ目が切れる)。既定 = 敷かない")
+    ap.add_argument("--bgm-lufs", type=float, default=BGM_LUFS,
+                    help=f"BGM の integrated loudness をいくつに合わせるか (既定 {BGM_LUFS} = 声 -16 の 24 dB 下)")
+    ap.add_argument("--bgm-fade-in", type=float, default=BGM_FADE_IN_S,
+                    help=f"BGM のフェードイン (秒、冒頭ジングルの終わりから。既定 {BGM_FADE_IN_S})")
+    ap.add_argument("--bgm-fade-out", type=float, default=BGM_FADE_OUT_S,
+                    help=f"BGM のフェードアウト (秒、締めのジングルが重なり始める所で消え終わる。既定 {BGM_FADE_OUT_S})")
     ap.add_argument("--out", type=Path, help="出力先 (Part を 1 本だけ渡すとき)")
     ap.add_argument("--force", action="store_true", help="既存の出力を上書きする")
     ap.add_argument("--measure", action="store_true", help="測るだけ")
@@ -358,7 +419,8 @@ def main() -> None:
         print(f"== {part} → {out}", flush=True)
         ok = finish(part, a.jingle, out, target=a.target, offset=a.jingle_offset, tags=tags,
                     trim_head=a.trim_head, trim_tail=a.trim_tail, intro_jingle=a.intro_jingle, intro=a.intro,
-                    outro_overlap=a.outro_overlap)
+                    outro_overlap=a.outro_overlap, bgm=a.bgm, bgm_lufs=a.bgm_lufs,
+                    bgm_fade_in=a.bgm_fade_in, bgm_fade_out=a.bgm_fade_out)
         all_ok &= ok
     sys.exit(0 if all_ok else 1)
 
