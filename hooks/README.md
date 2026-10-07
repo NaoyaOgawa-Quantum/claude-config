@@ -8,6 +8,8 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 
 - **[bash-search-zero-result-nudge.sh](bash-search-zero-result-nudge.sh)** — PostToolUse(Bash): ローカル discovery 検索の null (tree 検索空振り / glob 不成立) + truncate-before-grep pipeline を検出し「部分 scope の null で不在断定するな」 の scope 宣言 template を inject
 - **[bash-search-zero-result-nudge.test.sh](bash-search-zero-result-nudge.test.sh)** — logic + incident-reproduction selftest
+- **[cd-git-write-guard.py](cd-git-write-guard.py)** — PreToolUse(Bash): 別の dir への cd と git commit / push を 1 つの command に入れた形 (と git -C … commit / push) を止め、 cd を単独の 1 回に分けて打ち直させる (conventions/claude-code-permissions.md#cd-with-git-goes-to-classifier)。
+- **[cd-git-write-guard.test.sh](cd-git-write-guard.test.sh)** — 述語の selftest + hook 入出力 (deny の JSON / cd なしは無音 / opt-out / Bash 以外は無音)
 - **[chat-file-ref-enforce.sh](chat-file-ref-enforce.sh)** — Stop: 最終メッセージの file 参照 (link / path に見える inline code) が desktop の右パネルで開けない形なら、 正しい path を添えて 1 回だけ書き直させる
 - **[chat-file-ref-enforce.test.sh](chat-file-ref-enforce.test.sh)** — logic + incident-replay selftest
 - **[chat-path-base-nudge.sh](chat-path-base-nudge.sh)** — PostToolUse(Bash): 作業ディレクトリが session を始めたフォルダから離れたとき、 chat の file 参照 (link の href・inline code の dir/file.ext) を右パネルが開く基準は変わらないことを、 session × 作業ディレクトリごとに 1 回だけ知らせる
