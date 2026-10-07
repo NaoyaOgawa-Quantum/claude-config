@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: Beamer/metropolis または編集可能な PPTX / Keynote で研究スライドを作る・直すとき + 既存デッキの「同じ感じ」を引き継ぐとき
+when: Beamer/metropolis または編集可能な PPTX / Keynote で研究スライドを作る・直すとき + 既存デッキの「同じ感じ」を引き継ぐとき + 「最新のデザインでかっこよく」 と頼まれたとき (#design-from-principles)
 category: paper
 summary: 研究スライドの技術規約 (= Beamer の build・font・section・page label / 既存デッキの構成・意匠・素材を分けて継承 / editable PPTX の共通 artifact-tool helper / Keynote 読戻し + PDF 出荷 / 全頁 visual QA / QR payload と link 検査。giving-talks.md〔中身/作法〕と相補)
 -->
@@ -47,6 +47,13 @@ metropolis のパレットを上書き:
 
 `[standout]` 内で、サイズ変更グループ(例 `{\fontsize{60}{68}\selectfont ...}`)の直後に `\\[..]` を置くと
 `! LaTeX Error: There's no line here to end.` が出る。→ 要素を1つにするか、空行(段落区切り)+ `\vspace` で代替。
+
+## <a id="beamer-name-clashes"></a>4b. beamer の既存の名前と、 frame の中の定義 (実測)
+
+- **色の名前に `fg` / `bg` を使わない**: beamer は内部で `fg` / `bg` を通常の文字色・地の色の名前に使う。 design token を `\definecolor{fg}{…}` と名付けると、 題や太字が structure の色で出るなど文字色が狂う (error は出ない)。 token は別の名前 (`vtext` / `vbg` など) にする
+- **`\note` は beamer の命令** (発表者 note): `\newcommand{\note}` は「already defined」 で止まる。 補足の文の macro は別の名前にする
+- **frame の中で `#` を含む `\newcommand` を書かない**: frame の本体は macro の引数として読まれるので、 `\newcommand{\x}[2]{… #1 …}` を frame の中に置くと `! Illegal parameter number in definition of \iterate` で止まる。 macro は preamble で定義する
+- fontspec の `\newfontfamily` で読んだ字体に en dash を書くときの罠 = [`latex.md#fontspec-textendash`](latex.md#fontspec-textendash)
 
 ## 5. セクション扉を「全セクション一覧 + 現在以外を薄く」にする
 
@@ -117,7 +124,7 @@ for i, p in enumerate(d):
 - **matplotlib でオリジナル模式図**(著作権リスクなし): 波束(Gauss 包絡 × 搬送波で「波束サイズ σ ≠ 波長 λ」を可視化)/「予想 vs 観測」曲線(`fill_between` でズレを塗る)/散乱模式(`patches.Circle` + 放射状の `annotate('', arrowprops=...)`)。`transparent=True, bbox_inches='tight'` で保存すると任意の背景に載る。
 - **背景グラデ**: numpy で色を線形補間 → PIL `Image.fromarray`。
 - **matplotlib の日本語ラベル**: `fm.fontManager.addfont(<CJK .otf>)` + `rcParams['font.family']=fm.FontProperties(fname=<otf>).get_name()`。TeX 同梱の Harano Aji OTF が install 不要で便利。`rcParams['axes.unicode_minus']=False`。
-  - ⚠️ **OS 標準の CJK フォントを `font.family` に名前で指定しない**(macOS の Hiragino Sans で実測、2026-08-22)。PDF 出力が **既定 `pdf.fonttype=3` では `UnicodeEncodeError` で保存失敗**(glyph 名が非 ASCII)、**`pdf.fonttype=42` では落ちないまま文字層が丸ごと壊れる**(日本語だけでなく**目盛り数字も消える**。`pdffonts` が CID Type 0C +「Mismatch between font type and embedded font file」)。fonttype の変更は対策にならない — Harano Aji のように **glyph 名が ASCII の OTF を addfont() で登録する**のが対策。
+  - ⚠️ **OS 標準の CJK フォントを `font.family` に名前で指定しない**(macOS の Hiragino Sans で実測、2026-08-22)。PDF 出力が **既定 `pdf.fonttype=3` では `UnicodeEncodeError` で保存失敗**(glyph 名が非 ASCII)、**`pdf.fonttype=42` では落ちないまま文字層が丸ごと壊れる**(日本語だけでなく**目盛り数字も消える**。`pdffonts` が CID Type 0C +「Mismatch between font type and embedded font file」)。対策 = Harano Aji のように **glyph 名が ASCII の OTF を addfont() で登録し、 `pdf.fonttype` は既定 (3) のままにする** — Harano Aji でも `pdf.fonttype=42` にすると同じ壊れ方をする (CID Type 0C + Mismatch、 LuaLaTeX の `\includegraphics` 経由でも日本語だけ消える = 実測)。 既定の 3 なら `pdffonts` が Type 3 と出て、 描画も文字抽出も正常。
   - ⚠️ **PNG(Agg)は正常に見えるので目視では気付けない**。CJK ラベル入りの図を PDF で出したら `pdffonts <fig>.pdf` を必ず見る(= §9「compile 成功 ≠ visual 成功」の図版。PNG だけ確認して壊れた PDF を出荷した実例あり)。CJK を図に入れず frame/caption 側に置くのも有効な回避。
 - **厳密な可視スペクトル(波長→色)**: CIE 1931 等色関数 → XYZ → sRGB。CMF は **Wyman–Sapra–Wenzel (2013) の多ローブ・ガウス近似**を使えばデータ表不要。手順: `XYZ=(x̄,ȳ,z̄)(λ)` → `RGB_lin = M_{XYZ→sRGB}·XYZ` → 負値(色域外)をクランプ(境界へデサチュレート)→ 正規化 → sRGB ガンマ。区分線形(Bruton 流)より色相が正確。
 
@@ -236,4 +243,19 @@ finalizer、全頁 PNG 出力を [`scripts/lib/artifact-presentation.mjs`](../sc
 Artifact Tool で speaker notes を持つ PPTX が Keynote に import できた実例はある。これは
 python-pptx の notes part を Keynote が拒否する上の既知事例を否定しない。生成器ごとに import と
 発表者表示を確認し、重要な進行メモは deck 近傍の Markdown にも置く。
-</content>
+
+## <a id="design-from-principles"></a>16. 「最新のデザインでかっこよく」 を原則から組む
+
+前のデッキの token を流用せず、 その講演のために組む (§14 の「同じ感じ」 を頼まれたときは別)。 決める順:
+
+1. **型 = 主張と証拠** (Michael Alley の assertion–evidence): 本文の頁の題は動詞のある 1 文の主張 (2 行まで)、 本体は図か大きな数字 = 証拠。 箇条書きは最小にする ([`giving-talks.md`](giving-talks.md) の図 > 言葉 > 式と同じ向き)
+2. **認知の負荷を減らす** (Mayer のマルチメディア学習の原則): 飾り・重複を削る (coherence) / いまどのメッセージかの目印を毎頁に置く (signaling = 題の上の小さな見出し + 右上の現在地の線) / 凡例をやめて図に直接ラベル (spatial contiguity) / メッセージごとに扉 (segmenting、 扉の形 = §5)
+3. **色 = 地 + 2 色** (構造と強調): 色覚の違いに配慮した対 (Okabe–Ito の青と橙など)、 本文と地のコントラスト比を 7:1 以上 (WCAG AAA)。 図の色を deck の token と同じ値にする
+4. **主題を意匠にする**: 講演の主題から 1 つのモチーフを決め、 全頁に控えめに通す (合成例: 主題が「流れ」 なら下端に細い流線、 表紙だけ一面に)
+5. **文字の階層は太さで**: 同梱のフォントで install 不要 = 欧文と数字は Inter (TeX Live 同梱、 `Numbers=Tabular`)、 和文は原ノ味ゴシック (`deluxe` で極太まで)。 見出し Bold、 断言と大きな数字 Heavy / Black、 本文 Regular
+6. **頁の種類を絞る**: 表紙・断言・討論のお題 = 全面の hero / 数字 = 大きな数字だけの頁 / 並列の 3 項目 = カード (bento) / 扉 = 大きな番号 + 全メッセージ
+7. **暗い地は明るい部屋で沈む** → 色を名前で 1 か所にまとめ、 白地の版に切り替えられるようにしておく
+
+- 部品: metropolis を使わず plain beamer にし、 `background` template に tikz で現在地の線・モチーフ・頁番号を描く。 カードは `tcolorbox`
+- 図はすべて自作 (§10)。 写真や観測の画像を使うなら出所の公式頁から取り、 クレジットを頁に入れる
+- 罠 = §4b と §10

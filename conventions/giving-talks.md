@@ -17,7 +17,8 @@ mirror of §2 — what a reader actually took home, as "what is new, interesting
 This is an **own-words distillation** of **Robert Geroch, "Suggestions For Giving Talks,"
 arXiv:gr-qc/9703019** (an essay of roughly 4500 words; written ~1973, posted to arXiv in
 1997). It tries to capture every point he makes, reorganized as a working checklist — but
-it is a summary, not the original text. For his exact wording and full reasoning, read the
+it is a summary, not the original text. The digest holds only what the essay says; readings and
+lessons that are not in the essay go to the field notes at the end, marked as not from Geroch. For his exact wording and full reasoning, read the
 source: https://arxiv.org/abs/gr-qc/9703019. In particular, before building the plan of a talk,
 read his section II (about 400 words) rather than relying on §2 below: the digest is a
 checklist, not a substitute for the essay.
