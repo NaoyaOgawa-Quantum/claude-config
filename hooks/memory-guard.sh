@@ -47,7 +47,15 @@ else
 fi
 
 [[ -z "$FILE_PATH" ]] && exit 0
-[[ "$FILE_PATH" != *"/.claude/projects/"*"/memory/"* ]] && exit 0
+# 対象 = どの設定フォルダの auto-memory でも: ~/.claude/projects/<cwd>/memory/ と、 アカウント固定の設定フォルダ
+# ~/.claude-<名>/projects/<cwd>/memory/ (スマホから始めた session・無人 routine はこちらの path で書く。 既定の memory への
+# symlink のことが多い = 同じ実体なのに path の形だけで guard を素通りしていた)、 と $CLAUDE_CONFIG_DIR の projects/。
+# 正本 = conventions/multi-account-machine-surface.md#peer-discovery-across-config-dirs
+MEM_RE='/\.claude(-[^/]+)?/projects/[^/]+/memory/'
+if ! [[ "$FILE_PATH" =~ $MEM_RE ]]; then
+    CFG="${CLAUDE_CONFIG_DIR:-}"
+    [[ -z "$CFG" || "$FILE_PATH" != "${CFG%/}/projects/"*"/memory/"* ]] && exit 0
+fi
 
 # MEMORY.md（インデックス）は通過
 [[ "$FILE_PATH" == */MEMORY.md ]] && exit 0
