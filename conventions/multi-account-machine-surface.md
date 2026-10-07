@@ -126,7 +126,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 - [`scripts/list-live-sessions.py`](../scripts/list-live-sessions.py): Claude の兄弟と並べて Codex の生きている thread を出す (SessionStart の兄弟の表示では同じ cwd の thread だけ)
 - 掲示板の投稿 (ai-collaboration `board/board.py`): 次に動くのがこの機械の Codex の thread なら、 投稿の後に `codex queue` の 1 行を出す (役割 id は claim の名前の先頭 8 文字から thread を引く)。 `request` は宛先の Codex の thread の model も出す。 Codex が投稿したときは SendMessage を頼まず、 相手の Claude の watch で届くことを出す
 
-**別の機械の Codex**: 直接の道は無い = 掲示板。 Codex の desktop では task に heartbeat を付けて `inbox --sync` を回すのが製品の道 (未実測、 [`codex/PARITY.md#native-automation-routing`](../codex/PARITY.md#native-automation-routing))。
+**別の機械の Codex**: 直接の道は無い = 掲示板。 Codex の desktop では task に heartbeat を付けて掲示板を読み直すのが製品の道 (未実測、 [`codex/PARITY.md#native-automation-routing`](../codex/PARITY.md#native-automation-routing))。 手元の写しを読むなら承認の画面は出ず、 `--sync` は毎回承認を経る。 掲示板の側の約束 = ai-collaboration [`board/CONTRACT.md#codex-reach`](../../ai-collaboration/board/CONTRACT.md#codex-reach)。
 
 ## <a id="failure-modes"></a>典型的な破れかたと検出
 
