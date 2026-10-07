@@ -7,7 +7,10 @@ repo に無くても、 会話そのものから発言者と時刻を確かめ�
 推測で書き足す前に、 一次記録を引く道具 (規律 = conventions/actor-attribution.md#load-bearing-verify)。
 
 読む記録:
-  Claude Code : <claude-dir>/*/*.jsonl  (既定 ~/.claude/projects)
+  Claude Code : <claude-dir>/*/*.jsonl  (既定 = この機械の全部の設定フォルダの projects/ = ~/.claude と、
+                アカウント固定の ~/.claude-<名> 〔スマホから始めた session・無人 routine〕 と $CLAUDE_CONFIG_DIR。
+                列挙と重複の扱い = lib/claude_config_dirs.py の transcript_files。 ~/.claude 以外の session は
+                agent の欄が `claude[<名>]`。 --claude-dir を渡すとその dir だけ)
                 + その session が使った agent (subagent) の記録 <claude-dir>/*/<session>/subagents/agent-*.jsonl
                   (session id = 親の session。 agent の発言は「assistant(agent)」、 親が agent に渡した指示は role「parent」
                   = `--role user` には入らない。 agent が報告を受け渡しの呼び出し 〔SubagentHandback〕 で返した分も本文として読む。
@@ -61,6 +64,12 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
 
 
 # harness が user 役で差し込む文の書き出し (system-reminder・command 表示・AGENTS.md 指示・文脈圧縮の要約)
@@ -122,12 +131,34 @@ def _is_subagent(path: Path) -> bool:
     return path.parent.name == "subagents"
 
 
-def iter_files(agent: str, claude_dir: Path, codex_dirs):
-    if agent in ("claude", "both") and claude_dir.is_dir():
-        for f in sorted(claude_dir.glob("*/*.jsonl")):
-            yield "claude", f
-        for f in sorted(claude_dir.glob("*/*/subagents/agent-*.jsonl")):
-            yield "claude", f
+CLAUDE_PATTERNS = ("*/*.jsonl", "*/*/subagents/agent-*.jsonl")
+
+
+def _claude_files(claude_dir):
+    """(path, 設定フォルダの名) の list。 claude_dir = None なら全部の設定フォルダ (名は ~/.claude 以外だけ)、
+    dir (1 つか list) を渡されたらその dir だけ (名は付けない)。"""
+    if claude_dir is None:
+        if _ccd is not None:
+            return [(Path(f), "" if lab == "default" else lab) for lab, f in _ccd.transcript_files(CLAUDE_PATTERNS)]
+        claude_dir = Path(os.path.expanduser("~/.claude/projects"))
+    roots = [Path(d) for d in claude_dir] if isinstance(claude_dir, (list, tuple)) else [Path(claude_dir)]
+    out = []
+    for root in roots:
+        if root.is_dir():
+            out += [(f, "") for f in sorted(root.glob(CLAUDE_PATTERNS[0]))]
+            out += [(f, "") for f in sorted(root.glob(CLAUDE_PATTERNS[1]))]
+    return out
+
+
+def _agent_shown(ag: str, label: str) -> str:
+    return f"{ag}[{label}]" if label else ag
+
+
+def iter_files(agent: str, claude_dir, codex_dirs):
+    """(agent, path, 設定フォルダの名) を出す。 名は ~/.claude 以外の設定フォルダの Claude の記録だけ。"""
+    if agent in ("claude", "both"):
+        for f, label in _claude_files(claude_dir):
+            yield "claude", f, label
     if agent in ("codex", "both"):
         if isinstance(codex_dirs, (str, Path)):
             codex_dirs = [codex_dirs]
@@ -139,17 +170,17 @@ def iter_files(agent: str, claude_dir: Path, codex_dirs):
             for f in sorted(d.rglob("*.jsonl")):
                 if f.resolve() not in seen:
                     seen.add(f.resolve())
-                    yield "codex", f
+                    yield "codex", f, ""
 
 
 def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | None,
            until: str | None, session: str | None, context: int, include_injected: bool,
-           claude_dir: Path, codex_dir, limit: int) -> list[tuple]:
+           claude_dir, codex_dir, limit: int) -> list[tuple]:
     rx = re.compile(pattern) if regex else None
     raw_probe = None if regex else pattern
     seen: set = set()
     hits: list[tuple] = []
-    for ag, f in iter_files(agent, claude_dir, codex_dir):
+    for ag, f, label in iter_files(agent, claude_dir, codex_dir):
         sid = _session_of(f, ag)
         if session and not sid.startswith(session):
             continue
@@ -196,7 +227,7 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
                     shown = r + "(写し)" if QUOTED_SPEAKER_RE.search(tx[max(0, i - 40): i]) else r
                     if sub_agent and r == "assistant":
                         shown += "(agent)"
-                    hits.append((ts, ag, sid[:8], shown, snip))
+                    hits.append((ts, _agent_shown(ag, label), sid[:8], shown, snip))
     hits.sort()
     return hits[:limit] if limit else hits
 
@@ -235,11 +266,11 @@ def _tool_items(agent: str, rec: dict):
 
 
 def tool_runs(pattern: str, *, regex: bool, agent: str, since: str | None, until: str | None,
-              session: str | None, context: int, claude_dir: Path, codex_dir, limit: int) -> list[tuple]:
+              session: str | None, context: int, claude_dir, codex_dir, limit: int) -> list[tuple]:
     """道具の呼び出しの入力に pattern が当たるものを、 結果の冒頭と対にして返す。"""
     rx = re.compile(pattern) if regex else None
     runs: list[tuple] = []
-    for ag, f in iter_files(agent, claude_dir, codex_dir):
+    for ag, f, label in iter_files(agent, claude_dir, codex_dir):
         sid = _session_of(f, ag)
         if session and not sid.startswith(session):
             continue
@@ -271,9 +302,9 @@ def tool_runs(pattern: str, *, regex: bool, agent: str, since: str | None, until
                     elif cid in pending:
                         t0, snip = pending.pop(cid)
                         head = re.sub(r"\s+", " ", text).strip()[: max(context, 60)]
-                        runs.append((t0, ag, sid[:8], "run(error)" if is_err else "run", f"{snip} → {head}"))
+                        runs.append((t0, _agent_shown(ag, label), sid[:8], "run(error)" if is_err else "run", f"{snip} → {head}"))
         for t0, snip in pending.values():
-            runs.append((t0, ag, sid[:8], "run", f"{snip} → (結果なし)"))
+            runs.append((t0, _agent_shown(ag, label), sid[:8], "run", f"{snip} → (結果なし)"))
     runs.sort()
     return runs[:limit] if limit else runs
 
@@ -424,6 +455,36 @@ def selftest() -> int:
             check("--tool-runs: code-mode も session で絞る",
                   tool_runs("fruit-probe.py", **{**tb,"session":"unrelated"}) == []),
         ]
+        # 既定 (claude_dir=None) = この機械の全部の設定フォルダ。 偽の HOME に既定とアカウント固定の 2 つを置く
+        if _ccd is not None:
+            home = Path(td) / "home"
+            for cfg, sid, text in ((".claude", "dddddddd-0001", "梨は既定の設定フォルダ"),
+                                   (".claude-alt", "eeeeeeee-0002", "梨はスマホから始めた session"),
+                                   (".claude-alt", "dddddddd-0001", "梨は既定の設定フォルダ")):  # 同じ session の写し
+                d = home / cfg / "projects" / "-w"
+                d.mkdir(parents=True, exist_ok=True)
+                (d / f"{sid}.jsonl").write_text(json.dumps(
+                    {"type": "user", "timestamp": "2099-02-01T00:00:00Z", "message": {"content": text}}, ensure_ascii=False) + "\n",
+                    encoding="utf-8")
+            os.utime(home / ".claude-alt" / "projects" / "-w" / "dddddddd-0001.jsonl", (1000, 1000))  # 止まった写し = 古い
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(home)
+                hd = search("梨は", **{**base, "agent": "claude", "claude_dir": None})
+                td_runs = tool_runs("梨", **{**tb, "agent": "claude", "claude_dir": None})
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            results += [
+                check("既定 = 全部の設定フォルダ。 ~/.claude 以外は agent の欄に名", sorted(x[1] for x in hd) == ["claude", "claude[alt]"]),
+                check("既定: 同じ session が 2 つの設定フォルダにあっても 1 回", sorted(x[2] for x in hd) == ["dddddddd", "eeeeeeee"]),
+                check("既定: --tool-runs も同じ列挙を通る (呼び出しが無ければ空)", td_runs == []),
+            ]
     print(f"{ok}/{len(results)} PASS")
     return 0 if all(results) else 1
 
@@ -440,7 +501,8 @@ def main() -> int:
     ap.add_argument("--context", type=int, default=120, help="一致の前後に出す文字数")
     ap.add_argument("--include-injected", action="store_true", help="harness が差し込んだ user 側の文も含める")
     ap.add_argument("--limit", type=int, default=200)
-    ap.add_argument("--claude-dir", default=os.path.expanduser("~/.claude/projects"))
+    ap.add_argument("--claude-dir", action="append",
+                    help="Claude Code の記録の dir (繰り返し可。 既定 = この機械の全部の設定フォルダの projects/)")
     ap.add_argument("--codex-dir", action="append",
                     help="Codex の記録の dir (繰り返し可。 既定 = ~/.codex/sessions と ~/.codex/archived_sessions)")
     ap.add_argument("--tool-runs", action="store_true",
@@ -452,14 +514,15 @@ def main() -> int:
     if not a.pattern:
         ap.error("pattern が要る")
     codex_dirs = [Path(os.path.expanduser(d)) for d in (a.codex_dir or DEFAULT_CODEX_DIRS)]
+    claude_dirs = [Path(os.path.expanduser(d)) for d in a.claude_dir] if a.claude_dir else None
     if a.tool_runs:
         hits = tool_runs(a.pattern, regex=a.regex, agent=a.agent, since=a.since, until=a.until,
-                         session=a.session, context=a.context, claude_dir=Path(a.claude_dir),
+                         session=a.session, context=a.context, claude_dir=claude_dirs,
                          codex_dir=codex_dirs, limit=a.limit)
     else:
         hits = search(a.pattern, regex=a.regex, role=a.role, agent=a.agent, since=a.since, until=a.until,
                       session=a.session, context=a.context, include_injected=a.include_injected,
-                      claude_dir=Path(a.claude_dir), codex_dir=codex_dirs, limit=a.limit)
+                      claude_dir=claude_dirs, codex_dir=codex_dirs, limit=a.limit)
     for ts, ag, sid, r, snip in hits:
         print(f"{ts[:19]}  {ag:6}  {sid}  {r:9}  {snip}")
     if not hits:

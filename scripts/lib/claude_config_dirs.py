@@ -86,6 +86,101 @@ def projects_dirs() -> list[str]:
     return _sub("projects", "CLAUDE_PROJECTS_DIR")
 
 
+def _mtime(path: str) -> float:
+    try:
+        return os.path.getmtime(path)
+    except Exception:
+        return 0.0
+
+
+def _root_label(root: str) -> str:
+    lab = label_of(root)
+    return lab if lab != "?" else label(os.path.dirname(os.path.normpath(root)))
+
+
+def transcript_files(patterns=("*/*.jsonl",), roots=None, copies: str = "newest") -> list[tuple[str, str]]:
+    """Every transcript under every projects dir, once: `[(label, path), ...]`.
+
+    `patterns` are globs relative to a projects dir (`**` allowed). The default is the sessions' own transcripts
+    (`<cwd>/<sessionId>.jsonl`); a sub-agent's transcript is `*/*/subagents/agent-*.jsonl`. `roots` replaces
+    projects_dirs() (a tool's explicit --projects-dir). The label is the config dir's name (label_of).
+
+    Duplicates:
+      - the same file reached twice is listed once, under the first projects dir that reaches it. This covers a
+        symlinked dir: a pinned config dir's `projects/<cwd>/memory` is a symlink to the default dir's memory, and a
+        recursive pattern would otherwise read that memory once per config dir;
+      - the same path relative to the projects dir under two config dirs (a session copied from one config dir to
+        another; a session id is a uuid, so the same name is the same session) is listed once, keeping the most
+        recently modified copy (the copy that went on contains the one that stopped). `copies="all"` keeps every copy:
+        a tool that joins a transcript with state kept beside it in its config dir (`<config>/state/...`) must see
+        each copy, or a stray copy without that state hides the one that has it.
+    Not read: the desktop app's `imported-staging/` copies of another account's sessions (they live in the app's
+    data dir, outside every config dir, and copy a session that is already listed here). A copy that was opened in the
+    app has been moved into `projects/` under a new session id; it is listed as its own session (its first part
+    repeats the original's turns).
+    Order: projects dirs in config_dirs() order, files sorted within each. Never raises.
+    """
+    if isinstance(patterns, str):
+        patterns = (patterns,)
+    try:
+        roots = list(projects_dirs() if roots is None else roots)
+    except Exception:
+        roots = []
+    seen_real: set[str] = set()
+    by_rel: dict[str, int] = {}
+    out: list[tuple[str, str]] = []
+    for root in roots:
+        root = os.path.expanduser(str(root))
+        lab = _root_label(root)
+        found: set[str] = set()
+        for pat in patterns:
+            try:
+                found.update(glob.glob(os.path.join(glob.escape(root), pat), recursive=True))
+            except Exception:
+                continue
+        for f in sorted(found):
+            try:
+                if not os.path.isfile(f):
+                    continue
+                real = os.path.realpath(f)
+                rel = os.path.relpath(f, root)
+            except Exception:
+                continue
+            if real in seen_real:
+                continue
+            seen_real.add(real)
+            if rel in by_rel and copies != "all":
+                i = by_rel[rel]
+                if _mtime(f) > _mtime(out[i][1]):
+                    out[i] = (lab, f)
+                continue
+            by_rel[rel] = len(out)
+            out.append((lab, f))
+    return out
+
+
+def transcript_paths(glob_pattern: str | None = None, patterns=("*/*.jsonl",)) -> list[str]:
+    """Paths only (transcript_files without labels). An explicit `glob_pattern` (a tool's --glob; `~` expanded)
+    replaces the scan of every config dir."""
+    if glob_pattern:
+        try:
+            return sorted(glob.glob(os.path.expanduser(glob_pattern), recursive=True))
+        except Exception:
+            return []
+    return [f for _lab, f in transcript_files(patterns)]
+
+
+def find_transcript(arg: str) -> str | None:
+    """`arg` = a transcript path, or a session id (or its head). The one transcript `<config>/projects/*/<arg>*.jsonl`
+    across every config dir (duplicates resolved as in transcript_files), else None (none, or more than one)."""
+    if arg and os.path.isfile(arg):
+        return arg
+    if not arg:
+        return None
+    hits = transcript_files(f"*/{glob.escape(arg)}*.jsonl")
+    return hits[0][1] if len(hits) == 1 else None
+
+
 def label(config_dir: str) -> str:
     """Short name of a config dir: 'default' for ~/.claude, the suffix for ~/.claude-<x> ('x'), else the basename."""
     base = os.path.basename(os.path.normpath(config_dir or ""))
@@ -156,6 +251,53 @@ def _selftest() -> int:
             check("socket address", socket_address({"messagingSocketPath": "/tmp/cc-socks/1.sock"}) == "uds:/tmp/cc-socks/1.sock"
                   and socket_address({}) == "" and socket_address({"messagingSocketPath": "x"}) == "")
             json.dumps(config_dirs())
+        with tempfile.TemporaryDirectory() as td:
+            for k in saved:
+                os.environ.pop(k, None)
+            os.environ["CLAUDE_CONFIG_DIRS_HOME"] = td
+
+            def put(rel: str, mtime: float | None = None) -> str:
+                p = os.path.join(td, rel)
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "w") as fh:
+                    fh.write("{}\n")
+                if mtime is not None:
+                    os.utime(p, (mtime, mtime))
+                return p
+
+            put(".claude/projects/-w/aaaa.jsonl", 1000)
+            put(".claude/projects/-w/aaaa/subagents/agent-1.jsonl")
+            put(".claude/projects/-w/memory/notes.jsonl")
+            put(".claude-alpha/projects/-w/bbbb.jsonl")
+            newer = put(".claude-alpha/projects/-w/aaaa.jsonl", 2000)  # a copy of the same session that went on
+            os.makedirs(os.path.join(td, ".claude-alpha", "sessions"))
+            os.symlink(os.path.join(td, ".claude", "projects", "-w", "memory"), os.path.join(td, ".claude-alpha", "projects", "-w", "memory"))
+            os.makedirs(os.path.join(td, "staging", "imported-staging"))
+            put("staging/imported-staging/cccc.jsonl")
+            top = transcript_files()
+            check("transcripts: every config dir, labelled", sorted((lab, os.path.basename(p)) for lab, p in top)
+                  == [("alpha", "aaaa.jsonl"), ("alpha", "bbbb.jsonl")])
+            check("transcripts: the same session in two config dirs is listed once, the newer copy", [p for _, p in top if p.endswith("aaaa.jsonl")] == [newer])
+            rec = transcript_files("**/*.jsonl")
+            check("transcripts: copies='all' keeps both copies of one session (state beside each copy)",
+                  sorted(lab for lab, p in transcript_files(copies="all") if p.endswith("aaaa.jsonl")) == ["alpha", "default"])
+            check("transcripts: a symlinked memory dir is read once (under the default dir)",
+                  [lab for lab, p in rec if p.endswith("notes.jsonl")] == ["default"])
+            check("transcripts: a sub-agent pattern", [os.path.basename(p) for _, p in transcript_files("*/*/subagents/agent-*.jsonl")] == ["agent-1.jsonl"])
+            check("transcripts: imported-staging copies are not read", not any("cccc" in p for _, p in rec))
+            only = transcript_files(roots=[os.path.join(td, ".claude-alpha", "projects")])
+            check("transcripts: explicit roots replace the scan", sorted(os.path.basename(p) for _, p in only) == ["aaaa.jsonl", "bbbb.jsonl"]
+                  and {lab for lab, _ in only} == {"alpha"})
+            check("transcripts: a root outside the naming is labelled by its parent", _root_label(os.path.join(td, "cfg", "projects")) == "cfg")
+            check("transcripts: a missing root is empty, not an error", transcript_files(roots=[os.path.join(td, "nowhere")]) == [])
+            check("find_transcript: a session id head found in a non-default config dir", find_transcript("bbbb") == os.path.join(td, ".claude-alpha", "projects", "-w", "bbbb.jsonl"))
+            check("find_transcript: a session in two config dirs is one hit (the newer copy)", find_transcript("aaaa") == newer)
+            check("find_transcript: none, or an existing path as is", find_transcript("zzzz") is None and find_transcript(newer) == newer and find_transcript("") is None)
+            check("transcript_paths: every config dir by default, an explicit glob replaces it",
+                  sorted(os.path.basename(p) for p in transcript_paths()) == ["aaaa.jsonl", "bbbb.jsonl"]
+                  and transcript_paths(os.path.join(td, ".claude", "projects", "*", "*.jsonl")) == [os.path.join(td, ".claude", "projects", "-w", "aaaa.jsonl")])
+            put(".claude/projects/-w/bbbb-2.jsonl")
+            check("find_transcript: an ambiguous head is None", find_transcript("bbbb") is None)
     finally:
         for k, v in saved.items():
             if v is None:

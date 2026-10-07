@@ -35,6 +35,7 @@ usage:
 from __future__ import annotations
 
 import argparse
+import glob
 import importlib.util
 import hashlib
 import json
@@ -43,6 +44,12 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
 
 LAUNCH_RE = re.compile(r"(?:^|[\s;&|(])(claude\b[^\n;&|]*?\s(?:-p|--print)\b|codex\s+exec\b)")
 MARKER = "記録の約束"
@@ -89,8 +96,11 @@ def literal_options(engine, args, kind) -> tuple[str | None, str | None]:
 
 
 def projects_dirs(explicit=None) -> list[Path]:
+    """--projects-dir の指定、 無ければこの機械の全部の設定フォルダの projects/ (lib/claude_config_dirs.py)。"""
     if explicit:
         return [Path(p).expanduser() for p in explicit]
+    if _ccd is not None:
+        return [Path(p) for p in _ccd.projects_dirs()]
     out = []
     env = os.environ.get("CLAUDE_CONFIG_DIR")
     if env:
@@ -102,6 +112,9 @@ def projects_dirs(explicit=None) -> list[Path]:
 
 
 def session_files(dirs: list[Path], session: str) -> list[Path]:
+    if _ccd is not None:  # 同じ file は 1 回。 写しは全部読む (受領の記録は写しごとの設定フォルダの state/ にある)
+        return [Path(f) for _lab, f in _ccd.transcript_files(f"*/{glob.escape(session)}*.jsonl", roots=[str(d) for d in dirs],
+                                                              copies="all")]
     found = []
     for d in dirs:
         found.extend(sorted(d.glob(f"*/{session}*.jsonl")))

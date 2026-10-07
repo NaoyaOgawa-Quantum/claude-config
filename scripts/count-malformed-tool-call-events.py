@@ -24,7 +24,7 @@ Methodology (mirrors the #64774 OP):
       ~/Library/Application Support/Claude/local-agent-mode-sessions/**/*.jsonl  (macOS)
       ~/.config/Claude/local-agent-mode-sessions/**/*.jsonl                      (Linux)
 
-  Counting only the CLI string in ~/.claude/projects reports 0 for that surface
+  Counting only the CLI string in the CLI transcripts reports 0 for that surface
   no matter how often it fires, so both strings are counted and the desktop
   directories are scanned when they exist (--no-desktop to skip).
 
@@ -44,8 +44,11 @@ Usage:
     python3 count-malformed-tool-call-events.py [--projects-dir DIR] [--extra-dir DIR ...] [--no-desktop]
     python3 count-malformed-tool-call-events.py --selftest
 
-Read-only; scans ~/.claude/projects/*/*.jsonl, plus the desktop local agent
-mode directories (recursively) when they exist.
+Read-only; scans <config dir>/projects/*/*.jsonl for every Claude Code config dir on
+this machine (~/.claude, the account-pinned ~/.claude-<name> = sessions started from a
+phone and headless jobs, and $CLAUDE_CONFIG_DIR; enumeration and duplicates =
+lib/claude_config_dirs.py), plus the desktop local agent mode directories
+(recursively) when they exist. --projects-dir scans that one directory instead.
 """
 import argparse
 import glob
@@ -54,6 +57,12 @@ import os
 import re
 import sys
 from collections import Counter
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - older layout
+    _ccd = None
 
 SYNTH = "Your tool call was malformed and could not be parsed. Please retry."
 SYNTH_DESKTOP = "The previous response failed to produce a valid tool call. Please retry the tool call now."
@@ -88,11 +97,20 @@ def _genuine_marker(content):
     return None
 
 
+def _projects_paths(projects_dir):
+    """Top-level transcripts. projects_dir = None: every config dir on this machine (lib/claude_config_dirs.py)."""
+    if projects_dir is None:
+        if _ccd is not None:
+            return [f for _label, f in _ccd.transcript_files("*/*.jsonl")]
+        projects_dir = os.path.expanduser("~/.claude/projects")
+    return sorted(glob.glob(os.path.join(projects_dir, "*", "*.jsonl")))
+
+
 def scan(projects_dir, extra_dirs=()):
     turns = Counter()   # (month, model) -> assistant message count
     events = []         # dicts: date, month, model, version, file, marker
     files_scanned = 0
-    paths = sorted(glob.glob(os.path.join(projects_dir, "*", "*.jsonl")))
+    paths = _projects_paths(projects_dir)
     for d in extra_dirs:
         paths += sorted(glob.glob(os.path.join(d, "**", "*.jsonl"), recursive=True))
     for f in paths:
@@ -225,14 +243,35 @@ def selftest():
         check("turn counts per model",
               turns[("2026-06", "claude-opus-4-8")] == 1
               and turns[("2026-06", "claude-sonnet-4-6")] == 1)
+        if _ccd is not None:
+            # default (projects_dir=None) = every config dir: a fake home with the default and an account-pinned one
+            home = os.path.join(td, "home")
+            for cfg in (".claude", ".claude-alt"):
+                pd = os.path.join(home, cfg, "projects", "-w")
+                os.makedirs(pd)
+                with open(os.path.join(pd, cfg.strip(".") + ".jsonl"), "w") as fh:
+                    fh.write("\n".join(lines) + "\n")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = home
+                files_all, _t, events_all = scan(None)
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check("default: every config dir is scanned (2 files, 1 event each)", files_all == 2 and len(events_all) == 2)
     print("selftest:", "ALL PASS" if ok else "FAILURES")
     return 0 if ok else 1
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--projects-dir",
-                    default=os.path.expanduser("~/.claude/projects"))
+    ap.add_argument("--projects-dir", default=None,
+                    help="one transcript dir to scan (default: <config dir>/projects of every config dir on this machine)")
     ap.add_argument("--extra-dir", action="append", default=[],
                     help="another transcript dir to scan recursively (repeatable)")
     ap.add_argument("--no-desktop", action="store_true",
@@ -244,9 +283,12 @@ def main():
     extra = list(args.extra_dir)
     if not args.no_desktop:
         extra += [os.path.expanduser(d) for d in DESKTOP_DIRS if os.path.isdir(os.path.expanduser(d))]
+    projects = os.path.expanduser(args.projects_dir) if args.projects_dir else None
+    for d in ([projects] if projects else (_ccd.projects_dirs() if _ccd is not None else ["~/.claude/projects"])):
+        print(f"scanning: {d}")
     for d in extra:
         print(f"also scanning: {d}")
-    report(*scan(args.projects_dir, extra))
+    report(*scan(projects, extra))
 
 
 if __name__ == "__main__":

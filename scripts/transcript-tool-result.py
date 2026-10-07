@@ -6,6 +6,9 @@
 transcript に残っているので、 目印の文字列で探して機械的に取り出す。
 手順 = conventions/preview.md#tool-result-to-file
 
+session id の先頭は、 この機械の全部の設定フォルダの projects/ から探す (~/.claude と、 アカウント固定の
+~/.claude-<名> = スマホから始めた session・無人 routine、 と $CLAUDE_CONFIG_DIR。 lib/claude_config_dirs.py)。
+
 使い方:
   transcript-tool-result.py <transcript.jsonl | session id の先頭> --contains 語 --list
   transcript-tool-result.py <…> --contains 語 [--nth N] [--json-string] [--json] --out FILE
@@ -25,7 +28,17 @@ import sys
 import tempfile
 
 
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
 def find_transcript(arg: str) -> str | None:
+    """path か session id の先頭。 全部の設定フォルダで 1 本に決まれば、 その path。"""
+    if _ccd is not None:
+        return _ccd.find_transcript(arg)
     if os.path.isfile(arg):
         return arg
     hits = sorted(glob.glob(os.path.expanduser(f"~/.claude/projects/*/{arg}*.jsonl")))
@@ -157,6 +170,24 @@ def selftest() -> int:
         check("--nth -1 で最後の一致", rc == 0 and open(out).read() == "MARK third")
         rc = main([tr, "--contains", "absent", "--out", out])
         check("一致 0 件でも書かない", rc == 2)
+        if _ccd is not None:  # アカウント固定の設定フォルダ (スマホから始めた session) の id も引ける
+            alt = os.path.join(d, "home", ".claude-alt", "projects", "-w")
+            os.makedirs(alt)
+            with open(tr, encoding="utf-8") as src, open(os.path.join(alt, "abcdef12-0000.jsonl"), "w", encoding="utf-8") as dst:
+                dst.write(src.read())
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = os.path.join(d, "home")
+                rc = main(["abcdef12", "--contains", "MARK", "--nth", "0", "--out", out])
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check("~/.claude 以外の設定フォルダの session も id の先頭で引ける", rc == 0 and open(out).read() == "MARK other")
         try:
             decode_json_string("[1, 2]")
             check("先頭が文字列でなければ拒む", False)

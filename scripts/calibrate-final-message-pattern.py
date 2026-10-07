@@ -3,8 +3,11 @@
 
 使い方:
   calibrate-final-message-pattern.py --pattern 'REGEX' [--sessions 120]
-      [--glob '~/.claude/projects/*/*.jsonl'] [--skip-quoted] [--exclude-sentence-with 自動 ...]
+      [--glob '<dir>/*/*.jsonl'] [--skip-quoted] [--exclude-sentence-with 自動 ...]
       [--samples 20]
+読む transcript の既定 = この機械の全部の設定フォルダの projects/*/*.jsonl (~/.claude と、 アカウント固定の
+  ~/.claude-<名> = スマホから始めた session・無人 routine、 と $CLAUDE_CONFIG_DIR。 lib/claude_config_dirs.py)。
+  Stop hook はどの設定フォルダの session でも走るので、 誤検出の見積もりも全部で取る。 --glob を渡すとその glob だけ。
 出力: sessions / turns / hits と、 hit ごとに session id の先頭 8 桁と前後の文脈。 誤検出かどうかは
   人が読んで数える (= 句の一致は意図を識別しない。 hook-authoring.md#hook-no-go-judgment)。 1 turn の最終発話につき
   hit は 1 回まで数える (= hook が 1 回 block するのと同じ単位)。
@@ -24,7 +27,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from transcript_turns import (inside_quote, load_entries, sentence_around,  # noqa: E402
                               turn_final_texts)
 
-DEFAULT_GLOB = "~/.claude/projects/*/*.jsonl"
+try:
+    import claude_config_dirs as _ccd  # noqa: E402
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+LEGACY_GLOB = "~/.claude/projects/*/*.jsonl"
+
+
+def transcript_paths(pattern: str | None) -> list[str]:
+    """--glob があればその glob、 無ければ全部の設定フォルダ。"""
+    if _ccd is not None:
+        return _ccd.transcript_paths(pattern)
+    return glob.glob(os.path.expanduser(pattern or LEGACY_GLOB))
 
 
 def scan(files, pat, skip_quoted=False, exclude_words=(), samples=20):
@@ -56,7 +71,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Stop hook の句を過去の最終発話で校正する")
     ap.add_argument("--pattern", help="Python の正規表現")
     ap.add_argument("--sessions", type=int, default=120, help="新しい順に何 session 見るか")
-    ap.add_argument("--glob", default=DEFAULT_GLOB)
+    ap.add_argument("--glob", default=None, help="transcript の glob (既定 = この機械の全部の設定フォルダの projects/*/*.jsonl)")
     ap.add_argument("--skip-quoted", action="store_true", help="「」『』の中に丸ごと収まる match を除く")
     ap.add_argument("--exclude-sentence-with", action="append", default=[], metavar="WORD",
                     help="この語を含む文の match を除く (繰り返し可)")
@@ -67,7 +82,7 @@ def main(argv=None) -> int:
         return selftest()
     if not args.pattern:
         ap.error("--pattern が要る")
-    files = sorted(glob.glob(os.path.expanduser(args.glob)), key=os.path.getmtime)[-args.sessions:]
+    files = sorted(transcript_paths(args.glob), key=os.path.getmtime)[-args.sessions:]
     n_turns, n_hits, out = scan(files, re.compile(args.pattern), args.skip_quoted,
                                 args.exclude_sentence_with, args.samples)
     print(f"sessions={len(files)} turns={n_turns} hits={n_hits}")
@@ -130,6 +145,24 @@ def selftest() -> int:
         ck("--exclude-sentence-with で carrier を名指しした文を除く", h == 1 and out[0][0] == "aaaaaaaa")
         ck("inside_quote: 括弧の中で始まり外まで続く match は引用扱いしない",
            not inside_quote("「次に」と言われたら実行", len("「次に」と言われたら")))
+        if _ccd is not None:  # 既定 = 全部の設定フォルダ (偽の HOME に既定とアカウント固定の 2 つ)
+            for cfg in (".claude", ".claude-alt"):
+                pd = Path(td) / "home" / cfg / "projects" / "-w"
+                pd.mkdir(parents=True)
+                (pd / f"{cfg.strip('.')}.jsonl").write_text(Path(p1).read_text(encoding="utf-8"), encoding="utf-8")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(Path(td) / "home")
+                got = sorted(Path(x).name for x in transcript_paths(None))
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            ck("既定 = 全部の設定フォルダの transcript", got == ["claude-alt.jsonl", "claude.jsonl"])
 
     fails = [n for n, ok in checks if not ok]
     for n, ok in checks:

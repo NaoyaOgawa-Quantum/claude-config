@@ -2,12 +2,15 @@
 """calibrate-bash-command-pattern.py — Bash の command を見る PreToolUse guard の述語を、 過去の transcript の Bash tool 呼び出しに当てて検出数と例を出す（導入前の誤検出の見積もり用。 --hook で hook file の find_issues(command) をそのまま使う、 --selftest。 conventions/hook-authoring.md#command-guard-calibration）
 
 使い方:
-  calibrate-bash-command-pattern.py --hook hooks/zsh-word-split-guard.py [--glob '~/.claude/projects/*/*.jsonl']
+  calibrate-bash-command-pattern.py --hook hooks/zsh-word-split-guard.py [--glob '<dir>/*/*.jsonl']
       [--files N] [--samples 30]
   calibrate-bash-command-pattern.py --pattern 'REGEX' [...]
 --hook の file は find_issues(command: str) -> list (空 = 問題なし) を module level に持つこと。
   読み込みは source を読んで exec する (= importlib の .pyc cache を経由しない。 古い述語を掴まないため)。
 --pattern は re.search で 1 件でも当たれば hit。
+読む transcript の既定 = この機械の全部の設定フォルダの projects/*/*.jsonl (~/.claude と、 アカウント固定の
+  ~/.claude-<名> = スマホから始めた session・無人 routine、 と $CLAUDE_CONFIG_DIR。 lib/claude_config_dirs.py)。
+  hook はどの設定フォルダの session でも走るので、 誤検出の見積もりも全部で取る。 --glob を渡すとその glob だけ。
 出力: 読んだ file 数 / Bash command 数 (同じ文字列を除いた数) / hit した command 数と、 hit ごとに
   session id の先頭 8 桁・検出内容・前後の文脈。 同じ command 文字列は 1 回だけ数える (= 再試行の重複を除く)。
   誤検出かどうかは人が読んで数える (= 述語の一致は意図を識別しない)。
@@ -27,7 +30,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from transcript_turns import load_entries  # noqa: E402
 
-DEFAULT_GLOB = "~/.claude/projects/*/*.jsonl"
+try:
+    import claude_config_dirs as _ccd  # noqa: E402
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+LEGACY_GLOB = "~/.claude/projects/*/*.jsonl"
+
+
+def transcript_paths(pattern: str | None) -> list[str]:
+    """--glob があればその glob、 無ければ全部の設定フォルダ。"""
+    if _ccd is not None:
+        return _ccd.transcript_paths(pattern)
+    return glob.glob(os.path.expanduser(pattern or LEGACY_GLOB))
 
 
 def bash_commands(entries):
@@ -130,6 +145,26 @@ def selftest() -> int:
             check(False, "find_issues の無い hook は止める")
         except SystemExit:
             check(True, "find_issues の無い hook は止める")
+        if _ccd is not None:  # 既定 = 全部の設定フォルダ (偽の HOME に既定とアカウント固定の 2 つ)
+            for cfg in (".claude", ".claude-alt"):
+                pd = Path(d) / "home" / cfg / "projects" / "-w"
+                pd.mkdir(parents=True)
+                (pd / f"{cfg.strip('.')}.jsonl").write_text(tp.read_text(encoding="utf-8"), encoding="utf-8")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(Path(d) / "home")
+                got = sorted(Path(p).name for p in transcript_paths(None))
+                one = transcript_paths(str(Path(d) / "home" / ".claude-alt" / "projects" / "*" / "*.jsonl"))
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check(got == ["claude-alt.jsonl", "claude.jsonl"], f"既定 = 全部の設定フォルダの transcript ({got})")
+            check([Path(p).name for p in one] == ["claude-alt.jsonl"], "--glob を渡すとその glob だけ")
     print("selftest:", "PASS" if not fails else f"{fails} FAIL")
     return 1 if fails else 0
 
@@ -139,7 +174,7 @@ def main() -> int:
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--hook", help="find_issues(command) を持つ hook file")
     g.add_argument("--pattern", help="re.search の正規表現")
-    ap.add_argument("--glob", default=DEFAULT_GLOB)
+    ap.add_argument("--glob", default=None, help="transcript の glob (既定 = この機械の全部の設定フォルダの projects/*/*.jsonl)")
     ap.add_argument("--files", type=int, default=0, help="新しい順に N file だけ (0 = 全部)")
     ap.add_argument("--samples", type=int, default=30)
     ap.add_argument("--selftest", action="store_true")
@@ -148,7 +183,7 @@ def main() -> int:
         return selftest()
     if not (a.hook or a.pattern):
         ap.error("--hook か --pattern が要る")
-    files = sorted(glob.glob(os.path.expanduser(a.glob)), key=os.path.getmtime, reverse=True)
+    files = sorted(transcript_paths(a.glob), key=os.path.getmtime, reverse=True)
     if a.files:
         files = files[:a.files]
     n, u, hits = scan(files, load_detector(a.hook, a.pattern))

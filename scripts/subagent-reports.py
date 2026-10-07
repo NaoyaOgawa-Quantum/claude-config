@@ -17,11 +17,12 @@ session の締めの整理 (知見を正本へ移す) で、 委ねた先で分�
   ⚠️ agent の「考え中」 は記録に中身が残らない (実測: 40 か所すべて空) = 捨てた案・途中の発見・未検証は、
   委ねる側が spec で「報告か成果物に書け」 と頼んだ分しか後から引けない。
 
-projects-dir の既定 (先に見つかった方から全部):
-  - --projects-dir の指定
-  - 環境変数 CLAUDE_CONFIG_DIR が指す dir の projects/ (Claude Code の設定 dir を切り替えている場合)
-  - ~/.claude/projects
-  ⚠️ 0 件 = 「その session は agent を使っていない」 か「別の設定 dir の記録」。 どちらかは見た dir を出すので読み分ける。
+projects-dir の既定 = この機械の全部の設定 dir の projects/ (lib/claude_config_dirs.py):
+  - ~/.claude/projects (desktop app の session)
+  - 環境変数 CLAUDE_CONFIG_DIR が指す dir の projects/
+  - ~/.claude-<名>/projects (アカウント固定の設定 dir = スマホから始めた session・無人 routine)
+  --projects-dir を渡すとその dir だけ。 同じ session の写しが 2 つの設定 dir にあれば 1 回 (新しい方)。
+  ⚠️ 0 件 = 「その session は agent を使っていない」 か「別のマシンの記録」。 見た dir を出すので読み分ける。
 
 使い方:
   subagent-reports.py <session id か先頭の数文字>       # 既定は環境変数 CLAUDE_CODE_SESSION_ID
@@ -32,10 +33,17 @@ OS: macOS / Linux / Windows (Git Bash・PowerShell) で同じに動く (標準 l
 出力は UTF-8 に固定 = Windows の cp932 console で絵文字が UnicodeEncodeError にならない)。
 """
 import argparse
+import glob
 import json
 import os
 import sys
 from pathlib import Path
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
 
 
 def _utf8_stdout():
@@ -49,6 +57,8 @@ def _utf8_stdout():
 def candidate_projects_dirs(explicit=None):
     if explicit:
         return [Path(explicit).expanduser()]
+    if _ccd is not None:
+        return [Path(d) for d in _ccd.projects_dirs()]
     dirs = []
     env = os.environ.get("CLAUDE_CONFIG_DIR")
     if env:
@@ -67,6 +77,9 @@ FILE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 
 def find_agent_files(projects_dirs, session):
+    if _ccd is not None:  # 同じ file・同じ session の写しは 1 回
+        pat = "*/" + glob.escape(session) + "*/subagents/agent-*.jsonl"
+        return [Path(f) for _lab, f in _ccd.transcript_files(pat, roots=[str(d) for d in projects_dirs])]
     found = []
     for pdir in projects_dirs:
         if not pdir.is_dir():
@@ -244,6 +257,30 @@ def selftest():
         with redirect_stdout(out):
             main(["abcd", "--projects-dir", str(root), "--max-chars", "3"])
         check("--max-chars で切る", "最終報\n… (以下略" in out.getvalue(), out.getvalue())
+        if _ccd is not None:  # 既定 = 全部の設定 dir (偽の HOME に既定とアカウント固定の 2 つ)
+            home = Path(td) / "home"
+            for cfg, sid in ((".claude", "abcd1234-0000"), (".claude-alt", "abcd5678-0000")):
+                s = home / cfg / "projects" / "-proj" / sid / "subagents"
+                s.mkdir(parents=True)
+                (s / "agent-z.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in recs) + "\n",
+                                                 encoding="utf-8")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(home)
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    main(["abcd", "--json"])
+                rows_all = json.loads(out.getvalue())
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check("既定 = 全部の設定 dir (アカウント固定の dir の session の agent も拾う)",
+                  sorted(Path(r["file"]).parts[-6] for r in rows_all) == [".claude", ".claude-alt"], out.getvalue())
     print("\n{}: {} failure(s)".format("FAIL" if failures else "OK", len(failures)))
     return 1 if failures else 0
 

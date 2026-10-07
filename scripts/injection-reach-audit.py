@@ -11,11 +11,15 @@
 使い方:
     python3 injection-reach-audit.py --pattern '<注入の行に出る語>' [--mention '<返答で探す語>']
         [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--events SessionStart,UserPromptSubmit]
-        [--projects-dir ~/.claude/projects] [--json]
+        [--projects-dir <dir>] [--json]
+    (transcript の既定 = この機械の全部の設定フォルダの projects/ = ~/.claude と、 アカウント固定の ~/.claude-<名>
+     〔スマホから始めた session・無人 routine〕 と $CLAUDE_CONFIG_DIR。 列挙と重複の扱い = lib/claude_config_dirs.py。
+     ~/.claude 以外の session は session 欄に [<名>]。 --projects-dir を渡すとその dir だけ)
     python3 injection-reach-audit.py --selftest
 
 限界:
 - 数えるのは transcript に残った注入で、 model が読んだことの証明ではない。 transcript はこのマシンの分だけ
+  (設定フォルダは全部。 別のマシンの session は見えない)
 - `--mention` の既定は `--pattern` と同じ。 識別子 (id) で注入を探し、 返答は人が読む語 (件名の一部) で探す、 のように分けると伝達を数え落とさない
 - 時刻の範囲は transcript file の更新時刻で粗く絞ったあと、 各行の timestamp で判定する
 """
@@ -33,6 +37,20 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 from transcript_turns import load_entries  # noqa: E402
+
+try:
+    import claude_config_dirs as _ccd  # noqa: E402
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
+def transcripts(projects_dir) -> list[tuple[str, Path]]:
+    """(設定フォルダの名 〔~/.claude と明示の dir は空〕, transcript) の list。 projects_dir = None なら全部の設定フォルダ。"""
+    if projects_dir is None:
+        if _ccd is not None:
+            return [("" if lab == "default" else lab, Path(f)) for lab, f in _ccd.transcript_files("*/*.jsonl")]
+        projects_dir = Path.home() / ".claude" / "projects"
+    return [("", f) for f in sorted(Path(projects_dir).glob("*/*.jsonl"))]
 
 
 def _text_blocks(e: dict) -> list[str]:
@@ -97,13 +115,13 @@ def _in_range(ts: str | None, since: str | None, until: str | None) -> bool:
     return (since is None or day >= since) and (until is None or day <= until)
 
 
-def run(projects_dir: Path, pattern: str, mention: str | None, since: str | None, until: str | None,
+def run(projects_dir, pattern: str, mention: str | None, since: str | None, until: str | None,
         events: set[str]) -> list[dict]:
     pat = re.compile(pattern)
     men = re.compile(mention) if mention else pat
     floor = datetime.fromisoformat(since).replace(tzinfo=timezone.utc).timestamp() if since else 0
     rows = []
-    for f in sorted(projects_dir.glob("*/*.jsonl")):
+    for label, f in transcripts(projects_dir):
         try:
             if os.path.getmtime(f) < floor:
                 continue
@@ -114,6 +132,7 @@ def run(projects_dir: Path, pattern: str, mention: str | None, since: str | None
             continue
         r["session"] = f.stem[:8]
         r["project"] = f.parent.name
+        r["config"] = label
         rows.append(r)
     rows.sort(key=lambda r: r["start"] or "")
     return rows
@@ -124,7 +143,8 @@ def render(rows: list[dict]) -> str:
     for r in rows:
         mark = (r["injected"].split() or ["?"])[0]
         am = r["assistant_first_mention"] or "-"
-        out.append(f"{(r['start'] or '')[:16]}  {r['session']}  段={mark:<4} "
+        sess = r["session"] + (f"[{r['config']}]" if r.get("config") else "")
+        out.append(f"{(r['start'] or '')[:16]}  {sess}  段={mark:<4} "
                    f"assistant={am[:16]:<16} 最初の返答={'yes' if r['mentioned_in_first_reply'] else 'no ':<3} "
                    f"user={(r['user_first_mention'] or '-')[:16]}  | {r['injected'][:90]}")
     marks = collections.Counter((r["injected"].split() or ["?"])[0] for r in rows)
@@ -191,6 +211,29 @@ def _selftest() -> int:
         check({r["session"]: r["assistant_first_mention"] for r in rows3} == {"aaaaaaaa": None, "bbbbbbbb": None},
               "--mention を分けると返答はその語で探す")
         check("配達 (注入に出た session) = 2" in render(rows), "要約行に配達と伝達を分けて出す")
+        # 既定 (projects_dir=None) = 全部の設定フォルダ。 偽の HOME に既定とアカウント固定の 2 つ
+        if _ccd is not None:
+            home = Path(td) / "home"
+            for cfg, sid in ((".claude", "ffffffff-6"), (".claude-alt", "99999999-7")):
+                p = home / cfg / "projects" / "-w" / f"{sid}.jsonl"
+                p.parent.mkdir(parents=True)
+                p.write_text(json.dumps(att("2030-01-02T01:00:00Z", "SessionStart", "🔴 todo-x"), ensure_ascii=False) + "\n",
+                             encoding="utf-8")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(home)
+                rows4 = run(None, r"todo-x", None, None, None, {"SessionStart"})
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check(sorted((r["session"], r["config"]) for r in rows4) == [("99999999", "alt"), ("ffffffff", "")],
+                  "既定 = 全部の設定フォルダ、 ~/.claude 以外は設定フォルダの名を付ける")
+            check("99999999[alt]" in render(rows4), "表示の session 欄に設定フォルダの名")
     print(f"\n==== RESULT: PASS={ok} FAIL={ng} ====")
     return 1 if ng else 0
 
@@ -202,7 +245,7 @@ def main() -> int:
     ap.add_argument("--since")
     ap.add_argument("--until")
     ap.add_argument("--events", default="SessionStart")
-    ap.add_argument("--projects-dir", default=str(Path.home() / ".claude" / "projects"))
+    ap.add_argument("--projects-dir", default=None, help="transcript の親 dir (既定 = この機械の全部の設定フォルダ)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
@@ -210,7 +253,7 @@ def main() -> int:
         return _selftest()
     if not a.pattern:
         ap.error("--pattern が要る")
-    rows = run(Path(a.projects_dir).expanduser(), a.pattern, a.mention, a.since, a.until,
+    rows = run(Path(a.projects_dir).expanduser() if a.projects_dir else None, a.pattern, a.mention, a.since, a.until,
                {x.strip() for x in a.events.split(",") if x.strip()})
     print(json.dumps(rows, ensure_ascii=False, indent=1) if a.json else render(rows))
     return 0

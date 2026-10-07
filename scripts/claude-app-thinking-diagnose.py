@@ -29,8 +29,18 @@ from pathlib import Path
 APP_PLIST = Path("/Applications/Claude.app/Contents/Info.plist")
 ENGINE_ROOT = Path.home() / "Library/Application Support/Claude/claude-code"
 LOG_DIR = Path.home() / "Library/Logs/Claude"
+# 既定で見る transcript は ~/.claude だけ: desktop app の session はアカウントに依らず ~/.claude に書く
+# (multi-account-machine-surface.md#peer-discovery-across-config-dirs)。 アカウント固定の設定フォルダ (~/.claude-<名>) の
+# session = スマホから始めた session・無人 routine は desktop の画面の診断の対象ではない (起動引数も別)。
+# --session で id を名指ししたときだけ、 この機械の全部の設定フォルダから探す (lib/claude_config_dirs.py)。
 PROJECTS = Path.home() / ".claude/projects"
 USER_SETTINGS = Path.home() / ".claude/settings.json"
+
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
 
 FLIP_RE = re.compile(r"^(\S+ \S+) .*\[CCD\] thinking display → (\w+) \((\w+)\)")
 UI_PATH = "セッションのタイトル横の「⌄」 →「トランスクリプト表示」 →「思考」 (常にするなら同じ submenu の「思考をデフォルトにする」)"
@@ -112,6 +122,8 @@ def pick_transcripts(args) -> list[Path]:
     if args.transcript:
         return [Path(args.transcript).expanduser()]
     if args.session:
+        if _ccd is not None:
+            return [Path(f) for _lab, f in _ccd.transcript_files(f"*/{args.session}*.jsonl")]
         return sorted(PROJECTS.glob(f"*/{args.session}*.jsonl"))
     files = sorted(PROJECTS.glob("*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
     return files[:args.recent]
@@ -201,6 +213,26 @@ def selftest() -> int:
     check("count", count_thinking(lines), {"total": 2, "with_text": 1})
     m = FLIP_RE.match("2026-01-02 03:04:05 [info] [CCD] thinking display → summarized (view_open) for local_x")
     check("flip", m.groups() if m else None, ("2026-01-02 03:04:05", "summarized", "view_open"))
+    if _ccd is not None:  # --session はアカウント固定の設定フォルダの session も引く
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / ".claude-alt" / "projects" / "-w" / "abcdef12-0000.jsonl"
+            p.parent.mkdir(parents=True)
+            p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = td
+                got = pick_transcripts(argparse.Namespace(transcript=None, session="abcdef12", recent=5))
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check("--session: 全部の設定フォルダから引く", got, [p])
     print("selftest ok" if ok else "selftest FAILED")
     return 0 if ok else 1
 
