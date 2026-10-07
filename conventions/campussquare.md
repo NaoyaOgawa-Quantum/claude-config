@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx)
+when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center)
 category: web
-summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意)
+summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV・ダウンロードセンターの配布資料) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意) / ダウンロードセンター = 一覧 (flow SDW0001000-flow、 公開期間の窓で絞られる) の各行の fileId を GET (file 名は Content-Disposition の URLEncoder 形 = + が空白)、 zip のパスワードはその行のサマリ欄・中の file 名は UTF-8 flag なしの CP932 (client の dl-list / dl-get --extract)
 -->
 # CampusSquare for WEB (教務システム) の自動化
 
@@ -9,7 +9,7 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 
 ## <a id="script-route"></a>読む経路 = browser の session cookie 再利用
 
-- [`scripts/campussquare-client.py`](../scripts/campussquare-client.py): `syllabus-search` (年度・時間割番号・科目名・担当者・語) / `syllabus <時間割番号>` (本文を text で) / `roster-csv --out-dir <dir>` (全担当科目の名簿 CSV = [#roster-csv-download](#roster-csv-download)) / `status` / `doctor`。 host は `--base` (env `CAMPUSSQUARE_BASE`) で与え、 個人層の入口 script が注入する ([`script-layer-placement.md`](script-layer-placement.md))
+- [`scripts/campussquare-client.py`](../scripts/campussquare-client.py): `syllabus-search` (年度・時間割番号・科目名・担当者・語) / `syllabus <時間割番号>` (本文を text で) / `roster-csv --out-dir <dir>` (全担当科目の名簿 CSV = [#roster-csv-download](#roster-csv-download)) / `dl-list [--folder <語>]` と `dl-get <fileId>... --out-dir <dir> [--extract]` (ダウンロードセンターの配布資料 = [#download-center](#download-center)) / `status` / `doctor`。 host は `--base` (env `CAMPUSSQUARE_BASE`) で与え、 個人層の入口 script が注入する ([`script-layer-placement.md`](script-layer-placement.md))
 - cookie = host の `JSESSIONID` (CampusSquare) と `_shibsession_*` (SP)。 IdP の cookie は読まない。 CampusSquare 本体の session は短い (30 分程度) が、 IdP のログインが browser に生きていれば、 起動中の browser に裏で開かせて入り直す (= [`garoon.md#garoon-session-recovery`](garoon.md#garoon-session-recovery) と同じ仕組み、 部品 = [`scripts/lib/sso_cookie_session.py`](../scripts/lib/sso_cookie_session.py))
 - 同じ組織の別サイト (groupware 等) が同じ IdP で cookie 再利用に乗っているなら、 CampusSquare もほぼそのまま乗る
 - <a id="auth-error-page"></a>⚠️ **本体の session が切れると、 flow の GET は 302 でなく 200 で「認証エラー」 画面を返すことがある** (title が「認証エラー」、 form `authorizationError` を JavaScript で親画面へ POST し直すだけの画面)。 切れ判定を「302 か login 画面か」 だけにすると、 この画面を普通の画面として読み、 次の form が無いという別のエラーに化ける。 client の `expired()` はこの画面も切れとして扱い、 入り直す (実測)
@@ -41,6 +41,24 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 - <a id="roster-csv-download"></a>**名簿の download は script で取れる** (実測): `campussquare-client.py roster-csv --out-dir <dir>`。 成績登録の flow (`SIW0001000-flow`) の form `downloadForm` を `_eventId=outputCsvAll` / `nendo=<年度>` / `shikenKbnCd=1` で POST → 302 → GET で `text/csv` の attachment (`regis<YYYYMMDD>.csv`、 全担当科目 1 file の形) が返る。 画面の「CSV一括ダウンロード」 ボタンと同じ操作 = 読むだけで、 学期は画面が開いた時点の学期。 学期途中の履修登録の追加を拾うときは、 取り直して前の版と学生番号で突き合わせる
 - 成績登録の flow の画面の JavaScript が使う event (form `downloadForm`。 画面の source から読んだだけで、 実行して確かめたのは `outputCsvAll` だけ): 科目ごとの名簿 = `outputCsv` (`nendo` / `jikanwariShozokuCd` / `jikanwariCd` / `shikenKbnCd` / `chukanSeisekiFlg` / `chukanFlg` を埋める)、 同じ引数の PDF = `outputPdf`、 一括 upload の画面へ進む = `csvInputAll`。 同じ tab に成績提出 (`SIW0001020-flow`) と成績確認表出力 (`SIW0401400-flow`) の flow もある = upload (書き込み) を足すときの入口
 - 成績の upload は今も画面。 書き込みを足すときは読み戻し照合までを 1 単位にする ([`web-form-automation.md#step-driver-harness`](web-form-automation.md#step-driver-harness))
+
+## <a id="download-center"></a>ダウンロードセンター (配布資料) を script で取る
+
+事務の各課が教員向けに配る資料 (会議資料・手引き・様式) の置き場。 画面ではフォルダを開いて 1 本ずつ落とすが、 一覧と取得は script でできる (実測)。 client = `campussquare-client.py dl-list [--folder <語>] [--from/--to <日付>]` / `dl-get <fileId>... --out-dir <dir> [--extract]`。
+
+- **一覧** = flow `SDW0001000-flow` を開いた最初の画面。 全フォルダの中身が HTML 1 枚 (数百 KB) に入っていて、 フォルダの開閉は JavaScript で隠しているだけ
+  - フォルダの見出し行 = `<tr id="folder<N>">` の `td.accordion` 4 つ (フォルダ名 / 公開期間 / オーナー = 配った課 / サマリ)。 中身 = 直後の `<tbody id="detail<N>">`
+  - ファイル行 = `<table id="fileTable<N>">` の中の `<tr class="fileRecord">` = (削除の checkbox の欄) / `<a href="…?_flowId=SDW-filerefer-flow&fileId=<id>">ファイル名</a>` / 登録日 / サマリ
+  - ⚠️ **下位フォルダは親の `detail<親>` の中の入れ子の表に並び、 親のファイルの表はその後ろに来る** = 行の並び順で帰属を決めると、 親のファイルが最後の下位フォルダに付く。 ファイルの表の id (`fileTable<フォルダ id>`) で決める
+  - ⚠️ ページの JavaScript に、 upload 後に行を足すための `<tr class="fileRecord">` の雛形の文字列がある = 正規表現で数えると 1 件多い。 HTML parser で script の外だけを読む
+  - ⚠️ **一覧は公開期間で絞られている**: 画面の既定の窓は今日の前後 1 か月 (form `conditionForm` の `dayFrom` / `dayTo`)。 窓を変える = 同じ form を `_eventId=listup` と `dayFrom` / `dayTo` (書式 `2026年09月01日`) で POST (画面の「表示」 と同じ。 client の `--from` / `--to`)。 窓を前年度に動かすとフォルダの数が変わる (実測)。 どの条件で出るか (窓と公開期間が重なるフォルダか) は推定
+- **取得** = `GET /campusweb/campussquare.do?_flowId=SDW-filerefer-flow&fileId=<id>` → 302 → 200 の attachment。 flow key は要らない (fileId だけ)。 `Content-Type` は file の種類 (`application/x-zip-compressed` / `application/pdf` など)
+  - <a id="download-filename-urlencoder"></a>⚠️ **file 名 = `Content-Disposition: attachment; filename="<名前>"`、 名前は Java の URLEncoder の形**: UTF-8 を percent-encode し、 空白は `+`、 `+` そのものは `%2B`。 ASCII だけの名前でも空白は `+` で来る (実測) = 「percent-encode されている時だけ + を空白に」 とすると ASCII の名前に `+` が残る。 値が URLEncoder の出力の文字 (英数字 `. - * _ +` と `%XX`) だけなら + を空白に戻してから decode する
+- <a id="download-zip-password"></a>**zip のパスワードは、 一覧のその file の行のサマリ欄に書いてある** (実測の形 = 「パスワード「…」」「パスワードは「…」です」、 説明なしで値だけを書いた欄もある)。 配る課が決まった書式 (日付を埋め込んだ固定形など) を使っていた時期があっても、 今はファイルごとに違う = 書式から推測せず、 サマリ欄から読む
+  - 暗号は従来の ZipCrypto (Python の `zipfile` で読める。 AES ではない)
+  - ⚠️ **zip の中の file 名は UTF-8 flag (0x800) なしの CP932** = `zipfile` が cp437 として読んで化ける。 `info.filename.encode("cp437").decode("cp932")` で直す (flag の立った名前はそのまま)
+  - ⚠️ サマリ欄をそのまま一覧に出すとパスワードが出力に残る = `dl-list` は値を `***` に伏せ、 `dl-get --extract` が内部で使う (どの候補で開けたかも値は出さない)
+- 保存は名簿 CSV と同じ流儀 = 同名で中身が違えば上書きせず別名。 `--extract` は `<dir>/<zip の stem>/` に展開し、 `__MACOSX` と `..` を落とす。 取った資料は学内限定の配布物 = private 層にしか置かない
 
 ## <a id="plan-table-xlsx"></a>授業計画表 (xlsx 出力) で自分の登録を照合する
 
