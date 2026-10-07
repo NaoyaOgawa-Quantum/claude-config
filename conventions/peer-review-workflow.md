@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: referee・審査委員として他者の paper / 申請書を評価するとき
 category: paper
-summary: 他者の paper / 申請書を referee・審査委員として評価する時の規律 (= invitation intake 〔依頼は失効型義務、 noise blocklist に査読 domain を入れない〕・SoT 4 file pattern・引用文献の現物 verify・framework calibration・scoring scale 整合・既送信 score の不可逆性。 paper-audit / rebuttal-letter / erad-submission の sibling で方向違い)
+summary: 他者の paper / 申請書を referee・審査委員として評価する時の規律 (= invitation intake 〔依頼は失効型義務、 noise blocklist に査読 domain を入れない〕・SoT 4 file pattern・引用文献の現物 verify・framework calibration・scoring scale 整合・既送信 score の不可逆性・審査中の原稿を AI の検証に通す手順 〔方針・学習の設定・push しない作業場・別 vendor は reviewer の決定〕。 paper-audit / rebuttal-letter / erad-submission の sibling で方向違い)
 -->
 # Peer Review Workflow (= as a reviewer of external proposals / papers)
 
@@ -25,6 +25,7 @@ reviewer として外部の grant proposal / scientific paper / 申請書 等を
 - [Scoring scale calibration (= 項目別 vs 総合の scale 不整合)](#scoring-scale-calibration)
 - [Scan PDF → markdown transcription discipline](#scan-pdf-transcription)
 - [提出済 score の不可逆性 + audit-trail](#submitted-score-irreversibility)
+- [審査中の原稿を AI の検証に通すとき](#ai-on-confidential-manuscript)
 - [Cross-references](#cross-references)
 
 ---
@@ -338,7 +339,21 @@ peer review の resourcing は通常 confidentiality 要件あり (= 審査委�
 
 - private repo + git-crypt 暗号化で local 保管 (= GitHub 上 ciphertext)
 - 第三者 (= 他 reviewer / 申請者 / 公衆) への漏洩は厳格に維持
-- AI への入力可否は review system / agency の規約に従う (= 一部 system で「審査資料を生成 AI に入力しない」 という要望あり、 単なる要望 ≠ 守秘義務本体、 user 判断で運用)
+- AI への入力可否は review system / agency の規約に従う (= 一部 system で「審査資料を生成 AI に入力しない」 という要望あり、 単なる要望 ≠ 守秘義務本体、 user 判断で運用)。 入力すると決めた後の手順 = [#ai-on-confidential-manuscript](#ai-on-confidential-manuscript)
+
+---
+
+## <a id="ai-on-confidential-manuscript"></a>審査中の原稿を AI の検証に通すとき
+
+未公開の原稿を AI (検証の worker・別 vendor の agent) に読ませる前と後の手順。 入力するかどうかは reviewer の判断 (上の §守秘義務との両立)。
+
+1. **出版社・審査機関の方針を読む** — 査読者の AI 利用の方針は出版社ごとに違い、 同じ出版社でも版で変わる (例 = 公開の指針で「公開型・安全でない AI に原稿を入れない」「安全な AI はデータの扱いを確かめて可」、 雑誌側の方針で「評価に AI を使ったら報告書に明記」)。 雑誌の方針ページとグループ全体の指針の両方を見る。
+2. **使う account ごとに学習への利用の設定を確かめる** — 設定は account ごと (同じ人が 2 account を使い分けていれば両方)。 Claude は claude.ai の 設定 → プライバシー の「Help improve our AI models」 (説明文が chats **and coding sessions** = Claude Code の作業も対象)。 別 vendor の CLI (Codex など) はその CLI がログインしている account (API key か個人の契約か) を先に確かめ、 その契約の data controls を見る。 画面で account を見分ける手がかり (表示名・頭文字) も控える = 設定画面にメールアドレスが出ないことがある。
+3. **置き場所は repo の外の、 push しない作業場** — [`../../ai-collaboration/conventions/cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md) の封じた sandbox (`make-review-sandbox.py create`) をそのまま使う。 検証の台帳・所見・検算 script も原稿の中身なので、 push される repo (検証 campaign の repo・掲示板・SESSION) には置かない。 掲示板には所在も書かない (雑誌名と原稿の所在が push 先に残る)。
+4. **worker の spec に守秘の段を足す** — 原稿の題・文・式・著者名を web 検索・fetch に入れない、 検索は一般の話題と引用文献だけ。 それでも worker が除外語として著者名を検索語に入れた実測がある = 受領時に worker の守秘の申告 (逸脱の記録) を読み、 reviewer に伝える。
+5. **別 vendor に渡すのは reviewer の明示の決定** — Claude Code の auto mode は、 未公開の原稿を別 vendor の CLI に渡す command を data exfiltration として止める (実測)。 止められたら、 掲示板・別 session・別の書き方で同じ結果を狙わない ([`claude-code-permissions.md#chat-approval-reaches-classifier`](claude-code-permissions.md#chat-approval-reaches-classifier) の迂回の禁止)。 reviewer が自分で渡すか、 操作と対象を名指した承認の一文を出す。
+6. **worker が API 側の安全フィルタで止まることがある** — 原稿を読み始めた直後に `safeguards flagged this message` (`reasoning_extraction`) で止まり、 別の model でも同じだった実測がある。 形を変えて何度も投げ直さない (同じ止まり方が続いたら reviewer に戻し、 渡す経路を決めてもらう)。
+7. **受領** — worker の所見と英文の指摘の下書きは input (= [#source-separation](#source-separation) の analysis 側)。 採否と推薦は reviewer が決め、 報告書に AI を検算の一部に使ったことを書く (方針が求める場合。 使った tool を全部)。
 
 ---
 
