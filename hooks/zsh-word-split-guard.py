@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""zsh-word-split-guard.py — zsh で未 quote の複数語変数を for / set -- / -- / git の引数に渡す Bash を実行前に止める (conventions/shell-env.md#claude-issued-shell-commands)。
+"""zsh-word-split-guard.py — zsh で未 quote の複数語変数を for / set -- / -- / git の引数・command の位置に渡す Bash を実行前に止める (conventions/shell-env.md#claude-issued-shell-commands)。
 
 PreToolUse(Bash)。 zsh は未 quote の `$var` を単語分割しない (bash と逆) ので、
     v="a b"; for x in $v      → 1 回だけ回る ("a b")
     set -- $pair              → 引数 1 個
     git commit -- $F          → pathspec 1 個 ("a b c")
+    F="python3 x.py --flag"; $F part.m4a → "python3 x.py --flag" という名前の command を探して失敗
 が黙って別物を処理する。 規則 (shell-env.md の 1・5) を書いた後も同じ日に 3 回再発したので機械化した
 (2026-09-12)。 分割されるのは ${=v}・配列・$(…) を直接書いたとき (2026-09-12 に zsh 5.9 で実測)。
 
 述語 (誤検出を減らすため、 変数が複数語だと同じ command の中で見えるときだけ止める):
-  文脈 = `for NAME in … $V …` / `set -- … $V …` / `… -- … $V …` / `git … $V …`
+  文脈 = `for NAME in … $V …` / `set -- … $V …` / `… -- … $V …` / `git … $V …` / command の位置の `$V …`
+         (command の位置は空白入りの文字列・loop 変数のときだけ。 V=$(command -v x) のような 1 語の出力は止めない)
   $V   = 単独の語 (前後が空白・; | & ( ) 等) で quote されていない。 ${=V}・$V[…]・$V/… (path の連結)・
          特殊 param ($1 $@ …)・quote / heredoc の中は見ない
   複数語と分かる = 同じ command 内に
@@ -41,6 +43,7 @@ SPECIAL = {"argv"}
 
 FIX = ("直し方: 出力を行ごとに回す → `cmd | while read -r x; do …; done` / 空白で割る → `${=V}` / "
        "複数の path・引数 → 配列 `F=(a b c); git commit -- $F` か literal に並べる / "
+       "command と固定の引数をまとめて何度も呼ぶ → 関数 `f() { python3 x.py --flag \"$@\"; }` か配列 `F=(python3 x.py --flag); $F …` / "
        "分割しないのが意図なら \"$V\" と quote して明示する。 "
        "正本 = claude-config/conventions/shell-env.md#claude-issued-shell-commands")
 
@@ -76,6 +79,8 @@ def multiword_reason(cmd: str, v: str) -> tuple[str, str] | None:
 
 def _context(before: str) -> str | None:
     b = LEADING_KW.sub("", before.lstrip())
+    if not b.strip():
+        return "command の位置"
     if re.match(r"for\s+\w+\s+in\s", b):
         return "for … in"
     if re.match(r"set\s+--(?:\s|$)", b):
@@ -107,6 +112,7 @@ def find_issues(cmd: str) -> list[tuple[str, str, str]]:
         if not mw:
             continue
         kind, why = mw
+        # command の位置で $(…) を止めないのは、 c=$(command -v python3); $c x.py のような 1 語の値が普通だから
         if kind == "subst" and ctx not in ("for … in", "set --"):
             continue
         seen.add((v, ctx))
@@ -180,6 +186,14 @@ def selftest() -> int:
     check('msg="a b"; echo $msg', None, "文脈外 (echo)")
     check("c=$(git rev-parse HEAD); git log -1 $c", None, "$(…) の 1 行値を git に渡す (分割目的でない)")
     check("ns=$(git diff --numstat f); set -- $ns", "set --", "$(…) の出力を set -- で割る")
+    # command の位置 (2026-10-07 の実例と同形: 背景の連鎖が 5 回とも command not found で、 末尾の echo DONE で成功に見えた)
+    check('F="python3 scripts/x.py --with-bgm --force"; $F a.m4a --title t; $F b.m4a', "command の位置",
+          "command と引数を文字列 1 つに入れて command として呼ぶ")
+    check('R="python3 r.py"; for n in 1 2; do $R $n; done', "command の位置", "do の後の command の位置")
+    check("B=(python3 x.py --flag); $B sub", None, "command の位置でも配列は止めない")
+    check("P=/usr/bin/python3; $P x.py", None, "command の位置でも空白の無い値は止めない")
+    check("c=$(command -v python3); $c x.py", None, "command の位置の $(…) の 1 語の値は止めない")
+    check('EDITOR="code -w"; echo ok', None, "代入だけで参照が無い")
     print("selftest:", "PASS" if not fails else f"{fails} FAIL")
     return 1 if fails else 0
 
