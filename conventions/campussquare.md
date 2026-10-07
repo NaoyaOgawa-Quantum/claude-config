@@ -44,7 +44,7 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 
 ## <a id="download-center"></a>ダウンロードセンター (配布資料) を script で取る
 
-事務の各課が教員向けに配る資料 (会議資料・手引き・様式) の置き場。 画面ではフォルダを開いて 1 本ずつ落とすが、 一覧と取得は script でできる (実測)。 client = `campussquare-client.py dl-list [--folder <語>] [--from/--to <日付>]` / `dl-get <fileId>... --out-dir <dir> [--extract]`。
+事務の各課が教員向けに配る資料 (会議資料・手引き・様式) の置き場。 画面ではフォルダを開いて 1 本ずつ落とすが、 一覧と取得は script でできる (実測)。 client = `campussquare-client.py dl-list [--folder <語>] [--from/--to <日付>]` / `dl-get <fileId>... --out-dir <dir> [--extract]` / `dl-missing --have <dir> [--folder <語>] [--match <正規表現>]` (保存漏れ = [#download-missing-check](#download-missing-check))。
 
 - **一覧** = flow `SDW0001000-flow` を開いた最初の画面。 全フォルダの中身が HTML 1 枚 (数百 KB) に入っていて、 フォルダの開閉は JavaScript で隠しているだけ
   - フォルダの見出し行 = `<tr id="folder<N>">` の `td.accordion` 4 つ (フォルダ名 / 公開期間 / オーナー = 配った課 / サマリ)。 中身 = 直後の `<tbody id="detail<N>">`
@@ -58,7 +58,9 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
   - 実測した zip の暗号は従来の ZipCrypto (Python の `zipfile` で読める)。 AES の zip が来たら `zipfile` では開けない (client は「方式に未対応」 で止まる)
   - ⚠️ **zip の中の file 名は UTF-8 flag (0x800) なしの CP932** = `zipfile` が cp437 として読んで化ける。 `info.filename.encode("cp437").decode("cp932")` で直す (flag の立った名前はそのまま)
   - ⚠️ サマリ欄をそのまま一覧に出すとパスワードが出力に残る = `dl-list` は値を `***` に伏せ、 `dl-get --extract` が内部で使う (どの候補で開けたかも値は出さない)
-- 保存は名簿 CSV と同じ流儀 = 同名で中身が違えば上書きせず別名。 `--extract` は `<dir>/<zip の stem>/` に展開し、 `__MACOSX` と `..` を落とす。 取った資料は学内限定の配布物 = private 層にしか置かない
+- <a id="download-pdf-password"></a>**パスワード付きの PDF も配られる** (議事録など、 zip でなく PDF 1 本にパスワード。 パスワードは同じくサマリ欄)。 `--extract` は PDF なら暗号化を外した写しを作る (PyMuPDF の `authenticate` → `tobytes(encryption=PDF_ENCRYPT_NONE)`)。 手元に置くのは写しの方 = 検索・抽出で毎回パスワードを要らなくする。 置き場所が暗号化されていることを先に確かめる
+- 保存は名簿 CSV と同じ流儀 = 同名で中身が違えば上書きせず別名。 `--extract` は `<dir>/<stem>/` に展開・復号し、 `__MACOSX` と `..` を落とす。 取った資料は学内限定の配布物 = private 層にしか置かない
+- <a id="download-missing-check"></a>**保存漏れは機械で拾う**: 会議の資料を「通知が来たら取りに行く」 だけで回すと、 取りに行く起点が無かった回の資料が保存されないまま残る。 `dl-missing --folder <語> --have <手元の dir> [--match <正規表現>]` = 一覧のファイル行のうち、 手元の名前に一致するものが無い行だけを出す (一致の鍵 = NFKC で全角・半角の括弧を同じに、 拡張子 `.zip` / `.pdf` と空白を無視 = 展開したフォルダ名・置き直した名前とも突き合う)。 無ければ無出力なので、 session 開始の hook や一覧画面に載せて出し続けられる。 読むたびにログインの入り直しが起きうる (browser が裏で開く) ので、 結果を状態 file に持って間隔を空ける
 
 ## <a id="plan-table-xlsx"></a>授業計画表 (xlsx 出力) で自分の登録を照合する
 
