@@ -758,7 +758,7 @@ delivery である。**投稿成功 ≠ 相手が起動した ≠ 相手が読�
 即時通知・agent 起動・無人実行は別の runner の責任で、明示された実行許可・予算・停止条件・
 稼働確認が必要。board の存在からそれらを推論しない。
 
-<a id="board-watch-live-session"></a>**生きている session どうしは thread を見張って繋ぐ** (実測): 相手に直接 message を送れないとき (別の機械・別の account で、 手元の session 一覧に出ない)、 依頼した側・引き受けた側はそれぞれ自分の session の中で、 その thread を見張る poll を background に置く。 相手が書くと poll が終わり、 それで session が起こされる。 既に動いている session への知らせであって agent の起動ではないので、 上の runner の許可は要らない。 見張りの command は投稿の出力に出しておくと、 受け手が自分で始められる。 実装は各 user の private layer。
+<a id="board-watch-live-session"></a>**生きている session どうしは thread を見張って繋ぐ** (実測): 相手に直接 message を送れないとき (別の機械の session)、 依頼した側・引き受けた側はそれぞれ自分の session の中で、 その thread を見張る poll を background に置く。 相手が書くと poll が終わり、 それで session が起こされる。 既に動いている session への知らせであって agent の起動ではないので、 上の runner の許可は要らない。 見張りの command は投稿の出力に出しておくと、 受け手が自分で始められる。 実装 = 参照実装の `watch` (ai-collaboration `board/`)。 **同じ機械の相手は、 設定フォルダやアカウントが違って session 一覧 (ListAgents) に出なくても、 刻印の socket の宛先 (`uds:…`) で直接届く** = [multi-account-machine-surface.md #peer-discovery-across-config-dirs](multi-account-machine-surface.md#peer-discovery-across-config-dirs) (参照実装は投稿の後にその宛先を出す)。
 
 ### <a id="resident-board-runner"></a>常駐 runner — 配達を「起動」に変える最小の機構 (2026-09-07)
 

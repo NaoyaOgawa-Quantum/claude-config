@@ -356,6 +356,7 @@
 - **[lib/class_meetings.py](lib/class_meetings.py)** — 授業の「第何回か」 をクラスのカレンダーから数え、 撮影時刻を時限に振り分ける helper (python3 class_meetings.py で selftest)
 - **[lib/classroom-courses.mjs](lib/classroom-courses.mjs)** — Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address, coursework list, short answers without names; takes a googleapis classroom client, no imports.
 - **[lib/classroom-courses.test.mjs](lib/classroom-courses.test.mjs)** — Hermetic self-test for classroom-courses.mjs; uses a fake Classroom client and needs no network or googleapis.
+- **[lib/claude_config_dirs.py](lib/claude_config_dirs.py)** — every Claude Code config dir on this machine, so readers of per-session state see all of them.
 - **[lib/commit-msg-leak-matcher.sh](lib/commit-msg-leak-matcher.sh)** — commit message leak matcher (= sensitive-terms.txt + repos.md private list - 10 allowlist の (a)(b)(c) check + 審査中の申請を識別する種目語×評価語の共起 (d))、 claude-code hook + git-side runner の両方が source する DRY 実装
 - **[lib/config_dir_auth.py](lib/config_dir_auth.py)** — Claude Code の設定フォルダ (CLAUDE_CONFIG_DIR) の認証が切れているかを、 `claude` を呼ばずに読む共有判定。
 - **[lib/find-personal-layer.sh](lib/find-personal-layer.sh)** — `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)

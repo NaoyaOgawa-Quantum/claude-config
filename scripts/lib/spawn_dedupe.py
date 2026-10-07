@@ -16,7 +16,7 @@ mode (CLI = scripts/spawn-dispatch-dedupe.py、 hook = hooks/spawn-dedupe-guard.
                 「already started」 なら「作り直さず SendMessage で訂正」 を注入
 
 材料 (どれも読むだけ):
-  - harness の session 刻印 `~/.claude/sessions/<pid>.json` (pid が生きている = 稼働中。 chip から起動した
+  - harness の session 刻印 `<設定フォルダ>/sessions/<pid>.json` (~/.claude と ~/.claude-* の全部。 pid が生きている = 稼働中。 chip から起動した
     session は `name` に chip の title をそのまま持つ)
   - 台帳 `~/.claude/state/spawn-dispatch/<sessionId>.json` (この engine だけが書く、 30 日で片付ける)
   - extension が読む transcript `~/.claude/projects/<cwd を - に>/<sessionId>.jsonl` (helper = transcript_path / human_text)
@@ -45,8 +45,10 @@ import sys
 import tempfile
 import time
 
-SESSIONS_DIR = os.environ.get("CLAUDE_SESSIONS_DIR") or os.path.expanduser("~/.claude/sessions")
-PROJECTS_DIR = os.environ.get("CLAUDE_PROJECTS_DIR") or os.path.expanduser("~/.claude/projects")
+_DEFAULT_SESSIONS = os.path.expanduser("~/.claude/sessions")
+_DEFAULT_PROJECTS = os.path.expanduser("~/.claude/projects")
+SESSIONS_DIR = os.environ.get("CLAUDE_SESSIONS_DIR") or _DEFAULT_SESSIONS
+PROJECTS_DIR = os.environ.get("CLAUDE_PROJECTS_DIR") or _DEFAULT_PROJECTS
 STATE_DIR = os.environ.get("SPAWN_DEDUPE_STATE_DIR") or os.path.expanduser("~/.claude/state/spawn-dispatch")
 EXT_PATH = os.environ.get("SPAWN_DEDUPE_EXT") or os.path.expanduser("~/.claude/spawn-dedupe-ext.py")
 
@@ -90,10 +92,29 @@ def pid_alive(pid) -> bool:
     return True
 
 
+def _all_dirs(primary: str, default: str, kind: str) -> list:
+    """既定のままなら、 この機械の全部の設定フォルダの `<kind>` dir (lib/claude_config_dirs.py)。 差し替えられていれば (test) それだけ。
+    アカウント固定の設定フォルダで動く session (= スマホから始めた worker) は ~/.claude の外に刻印と transcript を書く。
+    ~/.claude だけを見ると、 同じ依頼を受けたその worker が生きていても二重起動を検出できない。"""
+    if primary != default:
+        return [primary]
+    try:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location("claude_config_dirs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_config_dirs.py"))
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        dirs = mod.sessions_dirs() if kind == "sessions" else mod.projects_dirs()
+        return dirs or [primary]
+    except Exception:
+        return [primary]
+
+
 def live_sessions(self_sid: str = "") -> list:
-    """稼働中の session (自分を除く) = [{pid, sid, cwd, name, age_min}]。 刻印が読めない・pid が死んでいるものは除く。"""
+    """稼働中の session (自分を除く) = [{pid, sid, cwd, name, age_min}]。 刻印が読めない・pid が死んでいるものは除く。
+    刻印は全部の設定フォルダから読む (_all_dirs)。"""
     out = []
-    for f in glob.glob(os.path.join(SESSIONS_DIR, "*.json")):
+    files = [f for d in _all_dirs(SESSIONS_DIR, _DEFAULT_SESSIONS, "sessions") for f in glob.glob(os.path.join(d, "*.json"))]
+    for f in files:
         try:
             with open(f, encoding="utf-8") as fh:
                 d = json.load(fh)
@@ -114,11 +135,16 @@ def live_sessions(self_sid: str = "") -> list:
 
 
 def transcript_path(sid: str, cwd: str) -> str:
-    p = os.path.join(PROJECTS_DIR, re.sub(r"[^A-Za-z0-9]", "-", cwd or ""), sid + ".jsonl")
-    if os.path.isfile(p):
-        return p
-    hits = glob.glob(os.path.join(PROJECTS_DIR, "*", sid + ".jsonl"))
-    return hits[0] if hits else ""
+    roots = _all_dirs(PROJECTS_DIR, _DEFAULT_PROJECTS, "projects")
+    for root in roots:
+        p = os.path.join(root, re.sub(r"[^A-Za-z0-9]", "-", cwd or ""), sid + ".jsonl")
+        if os.path.isfile(p):
+            return p
+    for root in roots:
+        hits = glob.glob(os.path.join(root, "*", sid + ".jsonl"))
+        if hits:
+            return hits[0]
+    return ""
 
 
 def human_text(obj: dict) -> str:
@@ -510,6 +536,36 @@ def selftest() -> int:
         finally:
             sys.stderr = old
         check("run auto: duplicate → 2 with stderr", rc == 2 and "🛑" in err.getvalue())
+        # 10. 別の設定フォルダ (~/.claude-<x> = スマホから始めた session の形) の worker も稼働中に数える
+        global _DEFAULT_SESSIONS, _DEFAULT_PROJECTS
+        saved_defaults = (_DEFAULT_SESSIONS, _DEFAULT_PROJECTS, os.environ.get("CLAUDE_CONFIG_DIRS_HOME"),
+                          os.environ.get("CLAUDE_SESSIONS_DIR"), os.environ.get("CLAUDE_PROJECTS_DIR"))
+        try:
+            home = os.path.join(tmp, "home")
+            for cfg in (".claude", ".claude-alpha"):
+                os.makedirs(os.path.join(home, cfg, "sessions"))
+                os.makedirs(os.path.join(home, cfg, "projects", "-tmp-synthetic-Claude"))
+            os.environ["CLAUDE_CONFIG_DIRS_HOME"] = home
+            os.environ.pop("CLAUDE_SESSIONS_DIR", None)
+            os.environ.pop("CLAUDE_PROJECTS_DIR", None)
+            _DEFAULT_SESSIONS = SESSIONS_DIR = os.path.join(home, ".claude", "sessions")
+            _DEFAULT_PROJECTS = PROJECTS_DIR = os.path.join(home, ".claude", "projects")
+            alt = os.path.join(home, ".claude-alpha")
+            with open(os.path.join(alt, "sessions", "444.json"), "w") as fh:
+                json.dump({"pid": os.getpid(), "sessionId": "ffffffff-4444", "cwd": cwd, "name": "スマホの worker",
+                           "startedAt": int(time.time() * 1000) - 60000}, fh)
+            with open(os.path.join(alt, "projects", "-tmp-synthetic-Claude", "ffffffff-4444.jsonl"), "w") as fh:
+                fh.write(json.dumps({"type": "user", "message": {"role": "user", "content": worker_prompt}}, ensure_ascii=False) + "\n")
+            check("a worker in another config dir is live", any(s["sid"] == "ffffffff-4444" for s in live_sessions("x")))
+            rc, txt = pre_spawn(spawn_inp(t="[local推奨] また別の title", sid="jjjjjjjj"), Ext)
+            check("same key held by a worker in another config dir → block", rc == 2 and "ffffffff" in txt)
+        finally:
+            _DEFAULT_SESSIONS, _DEFAULT_PROJECTS = saved_defaults[0], saved_defaults[1]
+            for k, v in zip(("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_SESSIONS_DIR", "CLAUDE_PROJECTS_DIR"), saved_defaults[2:]):
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     SESSIONS_DIR, PROJECTS_DIR, STATE_DIR = saved
     print(f"spawn_dedupe selftest: {'FAIL ' + str(len(fails)) if fails else 'PASS'}")
