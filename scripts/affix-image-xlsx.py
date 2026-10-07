@@ -168,7 +168,7 @@ def main() -> None:
             if args.dry_run:
                 pos = run_osascript(f'''
 tell application id "com.microsoft.Excel"
-  set wbk to open workbook workbook file name (POSIX file "{sbook}")
+  set wbk to open workbook workbook file name (POSIX file "{sbook}") update links do not update links
   delay 1
   set r to range "{args.cell}" of worksheet "{args.sheet}" of wbk
   set L to (left position of r)
@@ -188,7 +188,7 @@ end tell''')
             # the workbook is addressed by the reference `open workbook` returns — never `workbook 1`
             run_osascript(f'''
 tell application id "com.microsoft.Excel"
-  set wbk to open workbook workbook file name (POSIX file "{sbook}")
+  set wbk to open workbook workbook file name (POSIX file "{sbook}") update links do not update links
   delay 1
   tell worksheet "{args.sheet}" of wbk
     set r to range "{args.cell}"

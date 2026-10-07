@@ -134,7 +134,7 @@ on run argv
   with timeout of 200 seconds
     tell application id "com.microsoft.Excel"
       -- no `activate`: Excel stays in the background
-      set wbk to open workbook workbook file name (POSIX file srcPath)
+      set wbk to open workbook workbook file name (POSIX file srcPath) update links do not update links
       try
         if sheetName is "" then
           set tgt to active sheet of wbk

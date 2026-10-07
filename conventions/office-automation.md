@@ -827,6 +827,20 @@ def fit_cell(ws, addr, content, line_height_pt=12.5, pad_pt=4, safety=0.95):
 
 `ws.data_validations.dataValidation` で読める validation rule (例: `type=whole, formula1=9999999`) は openpyxl で write しても Excel 側の dropdown / 入力制限が発動するかは Excel version 依存。 リスト dropdown (extension 形式) は openpyxl が読めず警告を出す。 **値の正当性は openpyxl 側で別途検証する**。
 
+### <a id="external-link-update-prompt"></a>外部リンク入りの様式を開くと Excel が「リンクを更新しますか」 で止まる — `update links do not update links` で開く
+
+**症状**: AppleScript で様式を開いた直後から、 `set display alerts to …` が `-10006`、 `name of every workbook` が `-1728` で失敗し続ける。 PDF 化も記入も全部止まる。 Excel の窓には「このブックには、安全ではない可能性のある外部ソースへのリンクが 1 つ以上含まれています」 (更新しない / 更新する) が出ている (実測、 配布元の file server 上の文書を OLE で指す表を持つ様式)。
+
+**原因**: xlsx の中に `xl/externalLinks/` (別 file への数式リンク・OLE リンク) か `xl/connections.xml` (外部データの取り込み) がある。 開くたびに Excel が更新の可否を聞き、 この確認は `display alerts = false` では消えない。 出ている間は AppleEvent が通らない。
+
+**解法**: 開く時に更新しないと指定する。 リンク先は手元に無い前提なので常に「しない」 (値は file に入っている最後の値のまま):
+
+```applescript
+set wbk to open workbook workbook file name (POSIX file xlsxPath) update links do not update links
+```
+
+層1 の formcase (`scripts/formcase/excel.py`)・`xlsx-to-pdf.sh`・`affix-image-xlsx.py` は全部この指定で開く。 新しい様式を取り込んだら、 開く前に `unzip -l <様式>.xlsx | grep -E 'externalLinks|connections'` で外部リンクの有無を見ておく。 止まってしまった時は、 開いているのが自分の作業用コピーだけかを確かめてから ([`office-app-reset-guard`](#office-app-reset-guard)) 確認窓で「更新しない」 を押し、 そのコピーを保存せずに閉じる。
+
 ### <a id="xlsx-locked-by-excel"></a>xlsx は Excel に open されている間は openpyxl から save できない
 
 **症状**: `wb.save(path)` が `PermissionError: [Errno 13]` で fail する、 または silently 別 tempfile に書いて消える。
