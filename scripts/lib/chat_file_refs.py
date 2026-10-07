@@ -260,19 +260,30 @@ def hook_reason(transcript_path: str) -> str:
     return build_reason(findings, os.path.normpath(root)) if findings else ""
 
 
+def calibrate_files(days: float) -> list[str]:
+    """calibrate が読む transcript (新しい順)。 この機械の全部の設定フォルダ (~/.claude と、 アカウント固定の ~/.claude-<名>。
+    panel の entrypoint の session は ~/.claude の外にも在る = 実測。 列挙と重複の扱い = claude_config_dirs.py)。"""
+    import glob
+    import time
+
+    try:
+        import claude_config_dirs as ccd
+        paths = ccd.transcript_paths()
+    except Exception:
+        paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+    cut = time.time() - days * 86400
+    return sorted((f for f in paths if os.path.getmtime(f) >= cut), key=os.path.getmtime, reverse=True)
+
+
 def calibrate(days: float, show: int = 40, context: bool = False) -> None:
     """過去の transcript の各 turn の最終発話に当て、 発火数と中身を出す (hook-authoring.md#text-pattern-stop-hook)。
     新しい session から順に show 件。 context=True で参照の前後の文も出す (目で仕分けるとき)。
     ⚠️ transcript は local の private data — 出力を公開の場所に貼らない。 file system は今の状態で判定する。"""
-    import glob
-    import time
     from collections import Counter
 
     import transcript_turns as tt
 
-    cut = time.time() - days * 86400
-    files = sorted((f for f in glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
-                    if os.path.getmtime(f) >= cut), key=os.path.getmtime, reverse=True)
+    files = calibrate_files(days)
     n_turns = n_fire = n_link = shown = 0
     reasons: Counter = Counter()
     git_cache: dict = {}

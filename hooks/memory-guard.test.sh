@@ -58,6 +58,15 @@ assert "P5: /memory/ 文字列を含まない"   pass "$(mk_write "/home/tester/
 assert "P6: file_path 無し input"       pass "$(jq -nc '{tool_name:"Write",tool_input:{}}')"
 assert "P7: 空 stdin"                   pass ""
 
+# アカウント固定の設定フォルダ (~/.claude-<名>) の memory = スマホから始めた session・無人 routine が書く path
+ALT="/home/tester/.claude-alt/projects/-home-tester-work/memory"
+assert "D3: 別の設定フォルダの memory への Write" deny "$(mk_write "$ALT/feedback_x.md" "a rule")"
+assert "D4: 別の設定フォルダの memory への Edit"  deny "$(mk_edit "$ALT/reference_y.md" "updated fact")"
+assert "P8: 別の設定フォルダの MEMORY.md は許可"  pass "$(mk_write "$ALT/MEMORY.md" "- index line")"
+assert "P9: 別の設定フォルダの memory 以外"       pass "$(mk_write "/home/tester/.claude-alt/projects/-w/notes/a.md" "x")"
+CLAUDE_CONFIG_DIR=/srv/cfg assert "D5: CLAUDE_CONFIG_DIR の memory" deny "$(mk_write "/srv/cfg/projects/-w/memory/f.md" "x")"
+assert "P10: CLAUDE_CONFIG_DIR 無しなら設定フォルダ外の path は対象外" pass "$(mk_write "/srv/cfg/projects/-w/memory/f.md" "x")"
+
 echo ""
 echo "=== 結果 ==="
 for r in "${results[@]}"; do echo "  $r"; done

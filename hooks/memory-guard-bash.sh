@@ -36,8 +36,9 @@ set -uo pipefail  # -e は使わない (grep no-match 等の正当な非ゼロ e
 
 INPUT=$(cat)
 
-# 高速パス: memory を含まなければ即通過
-[[ "$INPUT" != *"/.claude/projects/"*"/memory/"* ]] && exit 0
+# 高速パス: memory を含まなければ即通過。 どの設定フォルダの memory も対象 (~/.claude と、 アカウント固定の
+# ~/.claude-<名> = スマホから始めた session・無人 routine が書く path。 conventions/multi-account-machine-surface.md#peer-discovery-across-config-dirs)
+[[ "$INPUT" != *"/.claude"*"/projects/"*"/memory/"* ]] && exit 0
 
 if command -v jq &> /dev/null; then
     COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
@@ -48,7 +49,7 @@ fi
 [[ -z "$COMMAND" ]] && exit 0
 
 # 書き込みパターン: > redirect, tee, cp, mv
-WRITE_PATTERN='(>|tee |cp |mv ).*/.claude/projects/.*/memory/'
+WRITE_PATTERN='(>|tee |cp |mv ).*/\.claude(-[^/ ]+)?/projects/.*/memory/'
 if ! echo "$COMMAND" | grep -qE "$WRITE_PATTERN"; then
     exit 0
 fi

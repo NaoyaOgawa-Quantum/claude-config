@@ -57,6 +57,13 @@ assert "P6: 検出限界の固定: python -c 経由" pass "python3 -c \"open('$M
 assert "P7: 検出限界の固定: printf redirect 変数経由" pass "OUT=$MEM/f.md; printf 'x' > \$OUT"
 assert "P8: 空 command"                     pass ""
 
+# アカウント固定の設定フォルダ (~/.claude-<名>) の memory = スマホから始めた session・無人 routine が書く path
+ALT="/home/tester/.claude-alt/projects/-home-tester-work/memory"
+assert "D6: 別の設定フォルダの memory への redirect" deny "echo 'new fact' > $ALT/feedback_x.md"
+assert "D7: 別の設定フォルダの memory への cp"       deny "cp /tmp/draft.md $ALT/reference_v.md"
+assert "P9: 別の設定フォルダの MEMORY.md は許可"     pass "echo '- entry' >> $ALT/MEMORY.md"
+assert "P10: 別の設定フォルダの memory の読み"       pass "cat $ALT/reference_y.md"
+
 echo ""
 echo "=== 結果 ==="
 for r in "${results[@]}"; do echo "  $r"; done

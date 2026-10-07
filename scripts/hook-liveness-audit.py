@@ -13,13 +13,14 @@ session だけで hook が 1 本も走らず、 別 root で開いた session �
 
 何を見るか
 ----------
-1. settings tier: user (`~/.claude/settings.json`) / managed (macOS
+1. settings tier: user (各設定フォルダの `settings.json` = `~/.claude/settings.json` と、 アカウント固定の
+   `~/.claude-<名>/settings.json` 〔そこで動く session = スマホから始めた session・無人 routine の user tier〕) / managed (macOS
    `/Library/Application Support/ClaudeCode/managed-settings.json`、 Linux
    `/etc/claude-code/managed-settings.json`) / 各 root の `.claude/settings.json` と
    `.claude/settings.local.json`。 `disableAllHooks: true` → 🔴、
    `allowManagedHooksOnly: true` → 🟠 (= user / project hook が走らない)。
-   検査する root = transcript (`~/.claude/projects/*/*.jsonl`、 mtime が `--days` 以内) の最初の
-   `cwd` の集合 + `--root`。 `--settings-only` でも root の発見には transcript 冒頭だけを読む
+   検査する root = transcript (この機械の全部の設定フォルダの `projects/*/*.jsonl`、 mtime が `--days` 以内。
+   列挙と重複の扱い = lib/claude_config_dirs.py) の最初の `cwd` の集合 + `--root`。 `--settings-only` でも root の発見には transcript 冒頭だけを読む
    (= 最近開いた root の project-local kill switch を、 別 root の session からでも拾うため)。
 2. transcript 証拠 (`--settings-only` で skip): 同じ transcript を session の root ごとに集計。
    - SessionStart 発火 = `attachment.hookEvent == "SessionStart"` かつ `attachment.command`
@@ -28,6 +29,7 @@ session だけで hook が 1 本も走らず、 別 root で開いた session �
      は command を持たないので自然に除外される)
    - stop summary = `system/stop_hook_summary` の `hookInfos[].command` に `callback` 以外が
      在る件数 (table 表示時のみ全文走査。 `--findings-only` は head だけ読む = 高速)
+   - 集計の単位は (設定フォルダ, root)。 設定フォルダごとに user tier が違いうる (= 片方だけ kill switch) ため
    - SessionStart hook が設定されているのに、 **直近の session から遡って連続
      `--min-sessions` 本以上** 発火証拠が無い root → 🟠 (原因候補: kill switch / workspace
      trust 未承認 / allowManagedHooksOnly / 配線)。 「連続」 で見るので、 除去後に 1 本でも
@@ -61,6 +63,39 @@ MANAGED_DEFAULT = {
     "linux": "/etc/claude-code/managed-settings.json",
 }
 HEAD_LINES = 400  # SessionStart の hook record は transcript 冒頭に並ぶ
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
+def config_units(home, projects_dir):
+    """(設定フォルダの名, projects dir, その user tier の settings.json, 設定フォルダ) の list。
+    projects_dir を渡されたらその dir だけ (user tier = ~/.claude/settings.json、 従来どおり)。
+    渡されなければこの機械の全部の設定フォルダ (~/.claude / $CLAUDE_CONFIG_DIR / ~/.claude-<名>)。"""
+    if projects_dir is not None or _ccd is None:
+        p = Path(projects_dir) if projects_dir is not None else home / ".claude" / "projects"
+        return [("default", p, home / ".claude" / "settings.json", home / ".claude")]
+    return [(_ccd.label(c), Path(c) / "projects", Path(c) / "settings.json", Path(c)) for c in _ccd.config_dirs()]
+
+
+def unit_files(units):
+    """(unit の番号, transcript) の list。 同じ file・同じ session の写しは 1 回 (lib の transcript_files)。"""
+    roots = [str(u[1]) for u in units]
+    out = []
+    if _ccd is not None:
+        for _lab, f in _ccd.transcript_files("*/*.jsonl", roots=roots):
+            for i, r in enumerate(roots):
+                if f.startswith(r.rstrip(os.sep) + os.sep):
+                    out.append((i, Path(f)))
+                    break
+        return out
+    for i, r in enumerate(roots):
+        if Path(r).is_dir():
+            out += [(i, t) for t in sorted(Path(r).glob("*/*.jsonl"))]
+    return out
 
 
 def _tilde(path, home):
@@ -98,8 +133,8 @@ def has_sessionstart_hooks(settings):
     return False
 
 
-def settings_tiers(home, roots, managed_path):
-    """(tier, path, scope) を返す。 同じ実体 file は 1 回だけ。"""
+def settings_tiers(home, roots, managed_path, units=None):
+    """(tier, path, scope) を返す。 同じ実体 file は 1 回だけ (設定フォルダの settings.json が既定への symlink なら 1 回)。"""
     tiers = []
     seen = set()
 
@@ -111,7 +146,9 @@ def settings_tiers(home, roots, managed_path):
         seen.add(key)
         tiers.append((tier, p, scope))
 
-    add("user", home / ".claude" / "settings.json", "all sessions (this user)")
+    for label, _proj, user_settings, cfg in (units or [("default", None, home / ".claude" / "settings.json", None)]):
+        add("user", user_settings,
+            "all sessions (this user)" if label == "default" else f"sessions using {_tilde(cfg, home)}")
     if managed_path:
         add("managed", Path(managed_path), "all sessions (this machine)")
     for root in sorted(roots):
@@ -121,9 +158,9 @@ def settings_tiers(home, roots, managed_path):
     return tiers
 
 
-def audit_settings(home, roots, managed_path):
+def audit_settings(home, roots, managed_path, units=None):
     findings = []
-    for tier, path, scope in settings_tiers(home, roots, managed_path):
+    for tier, path, scope in settings_tiers(home, roots, managed_path, units):
         data = load_json(path)
         if data is None:
             continue
@@ -186,84 +223,79 @@ def scan_transcript(path, deep):
     return root, ss, stop_cmd, stop_total
 
 
-def discover_roots(projects_dir, days):
-    """transcript 冒頭の最初の cwd だけを読んで root 集合を返す (--settings-only 用、 高速)。"""
+def discover_roots(files, days):
+    """transcript 冒頭の最初の cwd だけを読んで root 集合を返す (--settings-only 用、 高速)。 files = unit_files()。"""
     cutoff = time.time() - days * 86400
     roots = set()
-    if not projects_dir.is_dir():
-        return roots
-    for pdir in projects_dir.iterdir():
-        if not pdir.is_dir():
-            continue
-        for t in pdir.glob("*.jsonl"):
-            try:
-                if t.stat().st_mtime < cutoff:
-                    continue
-                with open(t, encoding="utf-8", errors="replace") as f:
-                    for i, line in enumerate(f):
-                        if i >= 50:
-                            break
-                        if '"cwd"' not in line:
-                            continue
-                        try:
-                            rec = json.loads(line)
-                        except ValueError:
-                            continue
-                        if isinstance(rec, dict) and rec.get("cwd"):
-                            roots.add(rec["cwd"])
-                            break
-            except OSError:
+    for _i, t in files:
+        try:
+            if t.stat().st_mtime < cutoff:
                 continue
+            with open(t, encoding="utf-8", errors="replace") as f:
+                for i, line in enumerate(f):
+                    if i >= 50:
+                        break
+                    if '"cwd"' not in line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(rec, dict) and rec.get("cwd"):
+                        roots.add(rec["cwd"])
+                        break
+        except OSError:
+            continue
     return roots
 
 
-def scan_projects(projects_dir, days, deep):
-    """root → list of session dict (mtime 降順)。"""
+def scan_projects(files, days, deep):
+    """(unit の番号, root) → list of session dict (mtime 降順)。 files = unit_files()。"""
     cutoff = time.time() - days * 86400
     by_root = {}
-    if not projects_dir.is_dir():
-        return by_root
-    for pdir in projects_dir.iterdir():
-        if not pdir.is_dir():
+    for unit, t in files:
+        try:
+            mt = t.stat().st_mtime
+        except OSError:
             continue
-        for t in pdir.glob("*.jsonl"):
-            try:
-                mt = t.stat().st_mtime
-            except OSError:
-                continue
-            if mt < cutoff:
-                continue
-            res = scan_transcript(t, deep)
-            if res is None:
-                continue
-            root, ss, stop_cmd, stop_total = res
-            if not root:
-                continue
-            by_root.setdefault(root, []).append(
-                {"path": t, "mtime": mt, "ss": ss, "stop_cmd": stop_cmd, "stop_total": stop_total}
-            )
+        if mt < cutoff:
+            continue
+        res = scan_transcript(t, deep)
+        if res is None:
+            continue
+        root, ss, stop_cmd, stop_total = res
+        if not root:
+            continue
+        by_root.setdefault((unit, root), []).append(
+            {"path": t, "mtime": mt, "ss": ss, "stop_cmd": stop_cmd, "stop_total": stop_total}
+        )
     for sessions in by_root.values():
         sessions.sort(key=lambda s: s["mtime"], reverse=True)
     return by_root
 
 
 def audit(home, projects_dir, managed_path, extra_roots, days, min_sessions, settings_only, deep):
+    """projects_dir = None なら全部の設定フォルダ (config_units)。"""
     extra = {str(Path(r).expanduser()) for r in extra_roots}
+    units = config_units(home, projects_dir)
+    files = unit_files(units)
     if settings_only:
         by_root = {}
-        roots = discover_roots(projects_dir, days) | extra
+        roots = discover_roots(files, days) | extra
     else:
-        by_root = scan_projects(projects_dir, days, deep)
-        roots = set(by_root) | extra
-    findings = audit_settings(home, roots, managed_path)
+        by_root = scan_projects(files, days, deep)
+        roots = {root for _u, root in by_root} | extra
+    findings = audit_settings(home, roots, managed_path, units)
 
-    user_settings = load_json(home / ".claude" / "settings.json")
     managed_settings = load_json(Path(managed_path)) if managed_path else None
-    global_ss = has_sessionstart_hooks(user_settings) or has_sessionstart_hooks(managed_settings)
+    managed_ss = has_sessionstart_hooks(managed_settings)
+    unit_ss = [has_sessionstart_hooks(load_json(u[2])) or managed_ss for u in units]
 
     rows = []
-    for root in sorted(by_root):
-        sessions = by_root[root]
+    for unit, root in sorted(by_root):
+        sessions = by_root[(unit, root)]
+        label = units[unit][0]
+        global_ss = unit_ss[unit]
         r = Path(root)
         proj_ss = any(
             has_sessionstart_hooks(load_json(r / ".claude" / n)) for n in ("settings.json", "settings.local.json")
@@ -278,6 +310,7 @@ def audit(home, projects_dir, managed_path, extra_roots, days, min_sessions, set
         last_ss = next((s["mtime"] for s in sessions if s["ss"]), None)
         row = {
             "root": root,
+            "config": label,
             "sessions": len(sessions),
             "with_ss": with_ss,
             "streak": streak,
@@ -291,8 +324,9 @@ def audit(home, projects_dir, managed_path, extra_roots, days, min_sessions, set
         elif streak >= min_sessions:
             row["status"] = "🟠"
             since = time.strftime("%Y-%m-%d", time.localtime(last_ss)) if last_ss else f"過去 {days} 日で一度も"
+            where = _tilde(r, home) + ("" if label == "default" else f" [設定フォルダ {label}]")
             findings.append(
-                f"🟠 {_tilde(r, home)}: 直近 {streak} session 連続で SessionStart hook の発火記録なし "
+                f"🟠 {where}: 直近 {streak} session 連続で SessionStart hook の発火記録なし "
                 f"(最後の発火 = {since}) — 原因候補: disableAllHooks / workspace trust 未承認 / "
                 f"allowManagedHooksOnly / 配線。 判別 = conventions/hook-authoring.md#disableallhooks-kill-switch"
             )
@@ -316,7 +350,7 @@ def print_table(findings, rows, home, days, deep, settings_only):
     print("-" * len(hdr))
     for r in rows:
         stop = f"{r['stop_cmd']}/{r['stop_total']}" if deep else "-"
-        name = _tilde(r["root"], home)
+        name = _tilde(r["root"], home) + ("" if r.get("config", "default") == "default" else f" [{r['config']}]")
         if len(name) > 52:
             name = "…" + name[-51:]
         print(f"{name:<52} {r['sessions']:>5} {r['with_ss']:>5} {r['streak']:>6} {stop:>14}  {r['status']}")
@@ -441,6 +475,42 @@ def selftest():
         managed.unlink()
         f6, rows6 = audit(home, projects, str(managed), [], 30, 3, False, False)
         check(not any(f.startswith("🟠 ") and "連続" in f for f in f6), "SessionStart hook 未設定なら streak finding なし")
+
+        # 既定 (projects_dir=None) = 全部の設定フォルダ。 アカウント固定の設定フォルダは自分の settings.json が user tier
+        if _ccd is not None:
+            h2 = tmp / "home2"
+            ss_hook = {"hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "x.sh"}]}]}}
+            (h2 / ".claude").mkdir(parents=True)
+            (h2 / ".claude" / "settings.json").write_text(json.dumps(ss_hook), encoding="utf-8")
+            (h2 / ".claude-alt").mkdir()
+            (h2 / ".claude-alt" / "settings.json").write_text(json.dumps({**ss_hook, "disableAllHooks": True}), encoding="utf-8")
+            (h2 / ".claude-same").mkdir()
+            os.symlink(h2 / ".claude" / "settings.json", h2 / ".claude-same" / "settings.json")
+            root_p = tmp / "work" / "P"
+            root_p.mkdir(parents=True)
+            for cfg, ss in ((".claude", "x.sh"), (".claude-alt", None), (".claude-same", "x.sh")):
+                d = h2 / cfg / "projects" / ("-" + str(root_p).strip("/").replace("/", "-"))
+                d.mkdir(parents=True)
+                for i in range(3):
+                    _write_transcript(d / f"{cfg.strip('.')}-{i}.jsonl", str(root_p), ss)
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(h2)
+                f7, rows7 = audit(h2, None, None, [], 30, 3, False, False)
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            j7 = "\n".join(f7)
+            check(sorted((r["config"], r["sessions"]) for r in rows7) == [("alt", 3), ("default", 3), ("same", 3)],
+                  "既定 = 全部の設定フォルダ、 (設定フォルダ, root) ごとに集計")
+            check("sessions using ~/.claude-alt" in j7 and "[user]" in j7, "アカウント固定の設定フォルダの settings.json も user tier として検査")
+            check(sum("[user]" in f for f in f7) == 1, "既定への symlink の settings.json は 1 回だけ")
+            check("[設定フォルダ alt]" in j7 and j7.count("連続") == 1, "発火証拠なしは、 その設定フォルダの行だけが 🟠")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("")
@@ -458,14 +528,17 @@ def main():
     ap.add_argument("--findings-only", action="store_true", help="finding 行だけ出す (clean なら無出力、 head だけ読む)")
     ap.add_argument("--strict", action="store_true", help="finding があれば exit 1")
     ap.add_argument("--home", default=None, help=argparse.SUPPRESS)
-    ap.add_argument("--projects-dir", default=None, help="transcript の親 dir (既定 ~/.claude/projects)")
+    ap.add_argument("--projects-dir", default=None,
+                    help="transcript の親 dir (既定 = この機械の全部の設定フォルダ。 渡すとその dir だけ + user tier は ~/.claude)")
     ap.add_argument("--managed-settings", default=None, help="managed settings の path (既定 = OS 標準)")
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args()
     if a.selftest:
         return selftest()
     home = Path(a.home).expanduser() if a.home else Path.home()
-    projects = Path(a.projects_dir).expanduser() if a.projects_dir else home / ".claude" / "projects"
+    if a.home:
+        os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(home)  # 設定フォルダの列挙もその HOME で
+    projects = Path(a.projects_dir).expanduser() if a.projects_dir else None
     managed = a.managed_settings if a.managed_settings is not None else MANAGED_DEFAULT.get(sys.platform)
     deep = not a.findings_only
     findings, rows = audit(home, projects, managed, a.root, a.days, a.min_sessions, a.settings_only, deep)
