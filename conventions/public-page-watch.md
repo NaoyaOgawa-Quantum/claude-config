@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 「いつ変わるか分からないが、 変わったらすぐ動く」 公開ページの告知 (受付の再開・募集の開始・日程の変更・議事の結果) を待つとき + 待っている告知の正本を記録に書くとき + 無人の定期実行から人に知らせる経路 (OS 通知・ダイアログ・スマホ push) を組むとき + headless `claude -p` を通知の送信だけに使うとき + 見張っていたページが変わったが判断に要る中身がそこに無いとき (#watch-where-the-content-lands)
+when: 「いつ変わるか分からないが、 変わったらすぐ動く」 公開ページの告知 (受付の再開・募集の開始・日程の変更・議事の結果) を待つとき + 待っている告知の正本を記録に書くとき + 無人の定期実行から人に知らせる経路 (OS 通知・ダイアログ・スマホ push) を組むとき + headless `claude -p` から通知を送ろうとしたとき (スマホには届かない、 #sealed-headless-push) + 見張っていたページが変わったが判断に要る中身がそこに無いとき (#watch-where-the-content-lands)
 category: infra
-summary: 告知の待ちは人の「その頃に見る」 に載せず、 台帳のページを定期に読んで目印の間の本文の差分で拾う (道具 = scripts/web-page-watch.py)。 知らせる文は「変わった」 で止めず、 決め手の文言 (「受付を中止しています」 が消えた等) と今すぐやることまで書く。 数秒で消えるバナーは単独で頼らず、 dashboard の最上段と session 開始時 (確認するまで出続ける) を土台に、 急ぐものだけ押すまで消えないダイアログとスマホ push を重ねる。 dashboard / session hook は state を読むだけ (そこで巡回すると通知を消費する)。 追加の経路は巡回ごとに健康診断し、 失敗を黙らせない。 headless `claude -p` で push を送るときは hook・MCP・CLAUDE.md を切り、 prompt は stdin で渡す (道具 = scripts/headless-push-notification.sh)。 告知の正本は層になっている (状況 = そのページ / 規則 = 要綱・規程 / 運用 = 案内・FAQ) ので、 記録には読んだ版を書き、 動く前に版を見比べる
+summary: 告知の待ちは人の「その頃に見る」 に載せず、 台帳のページを定期に読んで目印の間の本文の差分で拾う (道具 = scripts/web-page-watch.py)。 知らせる文は「変わった」 で止めず、 決め手の文言 (「受付を中止しています」 が消えた等) と今すぐやることまで書く。 数秒で消えるバナーは単独で頼らず、 dashboard の最上段と session 開始時 (確認するまで出続ける) を土台に、 急ぐものだけ押すまで消えないダイアログとスマホ push を重ねる。 dashboard / session hook は state を読むだけ (そこで巡回すると通知を消費する)。 追加の経路は巡回ごとに健康診断し、 失敗を黙らせない。 headless `claude -p` の PushNotification はスマホに届かない (Remote Control が要る)。 `-p` を短い仕事に使うときは hook・MCP・CLAUDE.md を切り、 prompt は stdin で渡す (道具 = scripts/headless-push-notification.sh)。 告知の正本は層になっている (状況 = そのページ / 規則 = 要綱・規程 / 運用 = 案内・FAQ) ので、 記録には読んだ版を書き、 動く前に版を見比べる
 -->
 # 公開ページの告知を見張る
 
@@ -91,11 +91,19 @@ macOS のバナー通知は数秒で消え、 通知センターは開かない�
   この検査が見つけた)。 逆に `env -i` で環境を空にした試験は厳しすぎ、 USER 等が無いと keychain の
   認証が読めず「未ログイン」 と誤判定した (実測) = launchd の job を手で起動して確かめる
 
-## <a id="sealed-headless-push"></a>7. headless `claude -p` を通知の送信だけに使うときは閉じる
+## <a id="sealed-headless-push"></a>7. headless `claude -p` の push はスマホに届かない / `-p` を短い仕事に閉じる
 
-PushNotification は headless `claude -p` からも呼べる (`scheduled-tasks.md`)。 ただし普段の設定のまま起動すると、
-**通知を送らずに別の仕事を始める** (実測: config dir の Stop hook が求める処理に引っ張られ、 手元の MCP で
-メールを読み始めた)。 送信だけの run に閉じる:
+⚠️ **headless `claude -p` の PushNotification はスマホに届かない**。 tool は呼べるが、 スマホへの push を送るのは
+Remote Control がつながった session だけで (公式の mobile のページ: Remote Control が有効なときに push を送れる)、
+`-p` は Remote Control を持てない (CLI の `--remote-control` は対話 session 用)。 実測: この経路の呼び出し 4 本の記録は
+全部「Not sent — this terminal is active …」 か「Mobile push not sent (Remote Control inactive).」 で、 無人の時間帯
+の run も前者だった = 一度も届いていなかった。 tool は exit 0 で「送っていない」 と返すので、 **「Not sent」 を成功と読まない**
+(下の道具は exit 3)。 無人の定期処理からスマホへ知らせるには、 Remote Control に依らない別の経路が要る
+(例: 既にある bot からの chat の DM)。
+
+以下は `-p` を短い仕事に閉じる方法の記録 (通知以外の用途にも効く)。 普段の設定のまま起動すると、
+**頼んだことをせずに別の仕事を始める** (実測: config dir の Stop hook が求める処理に引っ張られ、 手元の MCP で
+メールを読み始めた)。 閉じ方:
 
 - **hook を止める** = `--settings '{"disableAllHooks":true,"remoteControlAtStartup":false}'`
 - **MCP を外す** = `--strict-mcp-config` を `--mcp-config` なしで付ける (`--tools` で絞っても MCP の tool は残った)
@@ -104,7 +112,8 @@ PushNotification は headless `claude -p` からも呼べる (`scheduled-tasks.m
   飲み込み「Input must be provided」 で落ちる (実測)
 - **使う config dir を明示する** = 既定の `~/.claude` は account の切替で変わり、 未ログインのマシンもあった (実測)。
   届けたい account に pin した dir を使う
-- **成否は出力の印で判定する** = prompt で `PUSH_RESULT <tool の結果>` を 1 行出させ、 無ければ失敗
+- **成否は出力の印で判定する** = prompt で `PUSH_RESULT <tool の結果>` を 1 行出させ、 無ければ失敗。 印があっても
+  中身が「Not sent / not sent」 なら届いていない
 - `--bare` は hook を止めるが OAuth を使えなくなる (API key 前提) ので、 この用途には使えない
 - launchd は LANG 空なので prompt は ASCII にし、 多バイトの本文は file に書いて Read させる
 

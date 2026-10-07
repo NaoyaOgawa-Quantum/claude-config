@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# headless-push-notification.sh — 無人の定期実行から、 閉じた headless `claude -p` 1 回でスマホ (Claude アプリ) に push 通知を送る。 --probe で送らずに送れる状態かだけを見る (token 不要)
+# headless-push-notification.sh — 無人の定期実行から、 閉じた headless `claude -p` 1 回で PushNotification を呼ぶ (⚠️ -p からはスマホに届かない = 結果は exit 3、 conventions/public-page-watch.md#sealed-headless-push)。 --probe で CLI とログインだけを見る (token 不要)
 # ---------------------------------------------------------------------------
 # 使い方:
 #   headless-push-notification.sh "本文 1" ["本文 2" ...]   … 本文を 1 通の push にまとめて送る
@@ -14,8 +14,12 @@
 #   CLAUDE_PUSH_MODEL       model (既定 sonnet)
 #   CLAUDE_PUSH_DRY=1       claude を呼ばず、 送る本文だけを出す
 #
-# exit: 0 = PushNotification を呼べた (「Not sent (user active)」 を含む = キーボード操作中は送られない仕様) /
-#       1 = CLI が無い・未ログイン・出力に PUSH_RESULT 行が無い。 呼び出し側は非 0 を「届いていない」 として残すこと。
+# exit: 0 = PushNotification が送ったと返した /
+#       1 = CLI が無い・未ログイン・出力に PUSH_RESULT 行が無い /
+#       3 = tool は呼べたが「送っていない」 と返した (Not sent / not sent = 端末が使用中・Remote Control が無効 など)。
+#       呼び出し側は非 0 を「届いていない」 として surface に残すこと。 0 以外を成功と読まない
+#       (実測: 3 を 0 で返していた間、 呼び出し側 4 本の記録は全部「送っていない」 で、 一度も届いていなかった)。
+#       出力の先頭に実行時刻の行 (push-run <時刻>) を出す = 呼び出し側の log でどの結果がいつのものか分かる。
 #
 # なぜこう閉じるか (正本 = conventions/public-page-watch.md#sealed-headless-push、 各項は実測):
 #   - hook を止める (--settings の disableAllHooks)。 止めないと config dir の SessionStart / Stop hook が走り、
@@ -74,6 +78,13 @@ printf '%s' "Use the Read tool on the file $MSG. Then call the PushNotification 
       --model "${CLAUDE_PUSH_MODEL:-sonnet}" \
       --tools Read PushNotification > "$STATE_DIR/push-last.log" 2>&1
 rc=$?
+printf 'push-run %s\n' "$(date '+%F %T')"
 cat "$STATE_DIR/push-last.log"
 grep -q "PUSH_RESULT" "$STATE_DIR/push-last.log" || exit 1
-exit $rc
+[ "$rc" -eq 0 ] || exit "$rc"
+# 「送っていない」 は成功ではない (tool は exit 0 で返すので、 文言で見る)
+if grep "PUSH_RESULT" "$STATE_DIR/push-last.log" | grep -qi "not sent"; then
+  echo "NOT_DELIVERED: $(grep -m1 "PUSH_RESULT" "$STATE_DIR/push-last.log" | sed 's/^.*PUSH_RESULT *//')"
+  exit 3
+fi
+exit 0
