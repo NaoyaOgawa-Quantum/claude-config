@@ -48,3 +48,4 @@ desktop app の画面の挙動 (リンクの開き方、 通知、 エラー文�
 - 通知音の仕様 (完了通知は常に無音 等) = [`macos-claude-app-notifications.md#app-notification-model`](macos-claude-app-notifications.md#app-notification-model)
 - 思考の要約が出ない仕組み (表示を「思考」 にするまで engine を `--thinking-display omitted` で動かす / メニューの訳語) = [`macos-claude-app-thinking-display.md`](macos-claude-app-thinking-display.md)
 - hook が frontend を見分ける値 (engine の entrypoint 一覧) = [`hook-authoring.md#entrypoint-values`](hook-authoring.md#entrypoint-values)
+- インポートした session の record の形・会話記録の変換・再開時の移動 (別 account の session を写す道具が前提にし、 版ごとに本体を機械で点検する) = [`multi-account-machine-surface.md#session-list-per-account`](multi-account-machine-surface.md#session-list-per-account)
