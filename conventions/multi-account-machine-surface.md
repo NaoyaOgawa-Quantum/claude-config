@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: アカウント × マシン × 端末の複数セル運用を設計・診断するとき
 category: harness-core
-summary: アカウント × マシン × 端末 (desktop app / スマホ remote) の 2×2×2 を全部シームレスにする設計原理 (= 3 軸の本質差・切替 mechanics・seamless invariant I1-I9・破れの検出・cross-machine 不可視の正直な限界。 RC server / multi-machine-state / scheduled-tasks の全体像 doc)
+summary: アカウント × マシン × 端末 (desktop app / スマホ remote) の 2×2×2 を全部シームレスにする設計原理 (= 3 軸の本質差・切替 mechanics・seamless invariant I1-I10・同じマシンの設定フォルダを跨ぐ session の発見と知らせ・破れの検出・cross-machine 不可視の正直な限界。 RC server / multi-machine-state / scheduled-tasks の全体像 doc)
 -->
 # multi-account-machine-surface.md — アカウント × マシン × 端末 の 2×2×2 を全部シームレスにする
 
@@ -35,7 +35,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 
 ## <a id="seamless-invariants"></a>Seamless の invariant (= 8 セル + セル間移動が全部生きている条件)
 
-以下 9 つが**全マシンで**成立していれば、 8 セルのどこからでも仕事が始められ・続けられる。 各 invariant は機械 check 可能にする (= 固定表に書いた「はず」 ではなく live 状態から検証する。 固定表は現実と drift する):
+以下 10 個が**全マシンで**成立していれば、 8 セルのどこからでも仕事が始められ・続けられる。 各 invariant は機械 check 可能にする (= 固定表に書いた「はず」 ではなく live 状態から検証する。 固定表は現実と drift する):
 
 | # | invariant | 破れの症状 | 検出 / 修復 |
 |---|---|---|---|
@@ -48,6 +48,7 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 | I7 | session は**自分の worker host + account を会話ログに自己申告**する (= SessionStart hook が hostname / surface / **account** / session-id を注入し、 **この session で最初に書く text (途中経過の 1 行・harness の状況促しへの返答を含む) の 1 行目**に 1 行 stamp。 account は harness metadata でなく whoami probe で引く 〔= §典型的な破れかた「session の自己アカウント同定を harness metadata で行う誤り」、 2026-08-28 追加〕。 stamp は会話ログに残るので **bridge が死んだ後も scroll-back で読める**。 タイトルには頼れない — RC の auto-name は hostname prefix 既定だが AI 自動タイトルが上書きすると消える 〔2026-07-02 実測〕) | bridged session が切断した時 (= [remote-control-server.md #ts-desktop-bridge-4090](remote-control-server.md#ts-desktop-bridge-4090)) 「どのマシンに行けば復旧できるか」 が UI から分からず、 host 特定が transcript / reflog の forensics になる (2026-07-02 実測 ~30 分) | 機構 = 3 段の hook (SessionStart 注入 / 最初の prompt 直後の再注入 / 最初の turn 終わりの Stop 検査) + 事後 audit、 Claude と Codex で共通 = [#first-reply-stamp-mechanism](#first-reply-stamp-mechanism)。 ⚠️ desktop app は注入を drop すると観測されていた ([hook-authoring.md #frontend-dependent-cowork](hook-authoring.md#frontend-dependent-cowork)。 2026-09-11: 少なくとも一部は root 限定の `disableAllHooks` が原因 = [#disableallhooks-kill-switch](hook-authoring.md#disableallhooks-kill-switch)。 届くかどうかを前提にしない) ので、 注入が無くても成り立つよう — **Desktop session の最初の tool call で whoami probe (`claude-session-whoami.py --stamp`) を実行**し、 その 1 行 (`🖥 <host> · <desktop|cli|rc>/<label> = <account> · session <id8>`) をそのまま最初の返信の冒頭に置く。 ⚠️ `hostname -s` 単独では account 軸が抜け、 harness の userEmail を信じて誤同定する (2026-08-28 + 2026-09-05 の 2 回、 後者は拡張の署名 account との一致判定まで誤り permission 障害の切り分けを 1 段飛ばした)。 surface 軸は 2026-09-05 から `rc/<label>` (= Remote Control server 配下、 プロセス祖先の cmdline で判定、 fail-open で `cli/`) を区別 — 「リモートか手元か」 も冒頭 1 行で読める。 surface file は補助であり、当該 tool result が worker host / account の ground truth。⚠️ 検証結果を **public surface** (公開 repo の file / commit message / issue) に書く時は hostname literal でなく属性 (「MacBook 側」 等) で書き、 具体値は個人層に置く (= 機器名はしばしば人名を含む。 2026-09-01 実 leak → force-push 修正の再発防止) |
 | I8 | **無人ジョブは launchd + CLI 認証 only** — desktop app の scheduled task に置かない (= registry が account × app-install scoped で、 アカウント切替が旧 registry の enabled task を**黙って復活**させ、 移行済ジョブと二重実行 + session 一覧 noise になる。 2026-07-04 実測: swap から発覚まで 2 日 silent) | account swap 後に旧 scheduled task が並走 (= 同一ジョブの heartbeat 二重打刻 / recents に routine session が数十件積み上がる) | fleet-heartbeat が全 account registry の enabled task id を毎時収集、 reader が `--warn-desktop-tasks` で 🔴 surface ([multi-machine-state.md #fleet-heartbeat](multi-machine-state.md#fleet-heartbeat))。 解除 = 該当マシンの desktop app で enabled:false 化 ([scheduled-tasks.md #registrable-session-types](scheduled-tasks.md#registrable-session-types)) |
 | I9 | **「picker に見える environment 群 = 常に現スマホ account のもの」 を運用知識として保持** (= 各マシン × account に env は 1 つずつ、 4 セル同時表示は platform 上あり得ない。 「どの account か」 の判別軸は env 名でなく**スマホアプリの現アカウント**) | 「意図しない account の session に入った」 と感じる (実際はスマホの現 account の env に正しく入っている = account 自覚の欠落、 2026-07-04 実測) / 「4 つ見えない」 と誤診 | ⚠️ **env の表示名は hostname 固定で configurable でない** (2026-07-04 実測: installer が `--name` + session-name-prefix に `<host>-<alias>` を焼いた server で env を fresh 登録させても label は hostname のまま。 flags は spawn session の**初期名**にのみ効き、 それも AI 自動タイトルが上書きし得る = I7)。 ゆえに機械対策は無く、 本 invariant は knowledge ([remote-control-server.md #multi-account-servers](remote-control-server.md#multi-account-servers)) |
+| I10 | **同じマシンの別の設定フォルダで動く session どうしが、 互いを見つけて知らせられる** (= desktop の session と、 アカウント固定の設定フォルダで動くスマホ発の session) | スマホから始めた session が、 desktop の session の兄弟一覧・二重起動の検出・宛先の model の確認に出ない。 ListAgents に互いが出ず、 名前の SendMessage が「reachable でない」 で失敗する (実測) | 機構と道具 = [#peer-discovery-across-config-dirs](#peer-discovery-across-config-dirs) |
 
 **I7 の Codex mapping (2026-09-11)**: Codex でも startup / resume / clear 後の最初の返信を自己同定 stamp で始める。現行の公式 Hook input から session id と model、local hook process から host、観測できた app-process signal から desktop surface までは取る。account と未観測 surface/effort は推測せず `unknown` と表示する。Hook 注入が届かなければ最初の tool call で `~/.codex/claude-config-hooks/session_stamp.py` を実行し、その出力を冒頭へ置く。技術正本と取得境界は [`codex/PARITY.md#conversation-start-stamp`](../codex/PARITY.md#conversation-start-stamp)。Claude CLI auth や config default を Codex Desktop の account/実効値へ流用しない。
 
@@ -79,6 +80,26 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 **使ってはいけない信号**: transcript 先頭の `bridge-session.ownerAccountUuid` は session の account ではない (registry の account と 42/95 で食い違った)。
 
 **Codex の限界**: fixture test のみ。 UserPromptSubmit の additionalContext が Codex で model に届くかは、 hook の trust 承認後に新しい task で確かめる ([codex/PARITY.md#conversation-start-stamp](../codex/PARITY.md#conversation-start-stamp))。
+
+## <a id="peer-discovery-across-config-dirs"></a>I10: 同じマシンの別の設定フォルダの session を見つけて知らせる
+
+**事実 (実測)**:
+
+- desktop app の session は、 app のアカウントに依らず既定の設定フォルダ (`~/.claude`) を使う。 アカウント固定の Remote Control server (I1) から生えた session (= スマホから始めた session) と、 `CLAUDE_CONFIG_DIR` を付けた CLI・無人 job は、 その設定フォルダ (`~/.claude-<alias>`) を使う
+- harness は生きている session を設定フォルダの `sessions/<pid>.json` に刻印し、 transcript を `projects/` に書く。 **ListAgents が出す同じマシンの session は、 自分の設定フォルダの刻印の分だけ**。 別の設定フォルダの session は、 アカウントが同じでも出ず、 名前の SendMessage は「reachable でない」 で失敗する (既定 → 固定、 固定 → 既定、 同じアカウントの固定 → 既定、 の 3 通りで実測)
+- 刻印には session の socket (`messagingSocketPath`、 置き場は設定フォルダに依らず共通) が書いてある。 **SendMessage の `to` に `uds:<socket>` を書くと、 設定フォルダとアカウントを跨いで届き、 返事も `from` の宛先で戻る** (両方向で実測)
+- 他のマシンの session: ListAgents は、 同じアカウントの Remote Control session を他のマシンの分も `bridge:` の宛先で出す作り (CLI 本体の読み、 未実測)。 アカウントもマシンも違う相手への直接の道は無い = 掲示板の thread を見張る ([multi-session-coordination.md #board-watch-live-session](multi-session-coordination.md#board-watch-live-session))
+
+**道具** (どれもその機械の全部の設定フォルダを読む = [`scripts/lib/claude_config_dirs.py`](../scripts/lib/claude_config_dirs.py)):
+
+- [`scripts/list-live-sessions.py`](../scripts/list-live-sessions.py): 兄弟ごとに設定フォルダと `uds:` 宛先。 SessionStart の兄弟の表示では、 自分と別の設定フォルダの兄弟にだけ宛先を付ける
+- [`scripts/session-model.py`](../scripts/session-model.py): 宛先の model と `SendMessage to=uds:…`
+- 掲示板の投稿 (ai-collaboration `board/board.py`): 次に動く session がこの機械で生きていれば、 投稿の後にその `uds:` 宛先を 1 行出す
+- 二重起動の検出 ([`scripts/lib/spawn_dedupe.py`](../scripts/lib/spawn_dedupe.py)) も、 全部の設定フォルダの刻印と transcript を読む
+
+**捨てた案**: 固定の設定フォルダの `sessions/` を既定の `sessions/` への symlink にして、 ListAgents に全部を出させる — harness の内部状態 (同じ dir に pid ごとの通信の鍵 `<pid>.<hash>.key` も在る) をアカウント間で共有することになり、 副作用を確かめる手段が無い。 宛先を読む道具の側で跨ぐ。
+
+**注意**: 届いたことは読まれたことではない (permission mode の違う session は人の承認待ちに置くことがある = SendMessage の説明)。 記録は掲示板が先 ([multi-session-coordination.md #board-receipt-carrier](multi-session-coordination.md#board-receipt-carrier))。 socket は process ごとで、 session を開き直すと変わる = 送る直前に引く。
 
 ## <a id="failure-modes"></a>典型的な破れかたと検出
 

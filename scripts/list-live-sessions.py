@@ -10,8 +10,11 @@
   awareness 素材として既に在るのに、 session には surface されていない。 本 script は
   その disk 刻印を読み、 *同じ cwd で今 生きてる兄弟 session* を一覧化する (= discovery 半分の robust 実体)。
 
-  ⚠️ これは「兄弟が存在する・素性」 までで、 send_message できる addressable id (`local_<uuid>`) は
-  持てない (= harness ブロック、 plan §1 F4)。 messaging でなく race-awareness の道具。
+  読む刻印はこの機械の全部の設定フォルダ (~/.claude と ~/.claude-* と $CLAUDE_CONFIG_DIR)。 各行に、 その刻印の
+  socket から作る SendMessage の宛先 (`uds:<path>`) を出す: harness の ListAgents は設定フォルダごとで、 別の
+  設定フォルダ (= アカウント固定の Remote Control server = スマホから始めた session) の兄弟は名前で届かないことがあるが、
+  この宛先なら設定フォルダとアカウントを跨いで届く (実測。 規約 = multi-account-machine-surface.md#peer-discovery-across-config-dirs)。
+  desktop app の `send_message` (ccd) の `local_<uuid>` は扱わない。
 
 設計上の安全: 全 path で fail-open (= dashboard 連鎖 / hook を止めない)。 読むだけ・何も書かない。
 
@@ -38,9 +41,29 @@ import os
 import sys
 import time
 
-# test 用 env override (= 既定は実 ~/.claude。 hook test / fixture で差し替えるため)
-SESSIONS_DIR = os.environ.get("CLAUDE_SESSIONS_DIR") or os.path.expanduser("~/.claude/sessions")
-PROJECTS_DIR = os.environ.get("CLAUDE_PROJECTS_DIR") or os.path.expanduser("~/.claude/projects")
+# 読む場所 = この機械の全部の設定フォルダ (~/.claude / $CLAUDE_CONFIG_DIR / ~/.claude-*、 lib/claude_config_dirs.py)。
+# アカウント固定の Remote Control server (= スマホから始めた session) や CLAUDE_CONFIG_DIR を付けた CLI は ~/.claude でなく
+# 自分の設定フォルダに刻印と transcript を書く。 ~/.claude だけを読むと、 その session は生きていても兄弟に出ない (実測)。
+# 各行に設定フォルダの名前と SendMessage の宛先 (`uds:<socket>`) を出す = harness の ListAgents は設定フォルダごとなので、
+# 別の設定フォルダの session には名前では届かず、 この宛先なら届く (規約 = multi-account-machine-surface.md#peer-discovery-across-config-dirs)。
+# test 用 env override: CLAUDE_SESSIONS_DIR / CLAUDE_PROJECTS_DIR = 1 つの dir で走査を置き換える。
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
+def _sessions_dirs() -> list[str]:
+    if _ccd is not None:
+        return _ccd.sessions_dirs()
+    return [os.environ.get("CLAUDE_SESSIONS_DIR") or os.path.expanduser("~/.claude/sessions")]
+
+
+def _projects_dirs() -> list[str]:
+    if _ccd is not None:
+        return _ccd.projects_dirs()
+    return [os.environ.get("CLAUDE_PROJECTS_DIR") or os.path.expanduser("~/.claude/projects")]
 
 # 各 session の実際の model (transcript の最後の応答の message.model)。 題名の札や chip の tag は推奨で、
 # model を決めない = 仕事を送る前に読む値 (multi-session-coordination.md#delegate-model-routing)。
@@ -80,8 +103,13 @@ def _encode_cwd(cwd: str) -> str:
 
 def _intent_snippet(session_id: str, cwd: str, max_len: int = 70) -> str:
     """対応 jsonl から直近の人間 user 発話を best-effort 抽出 (= その session が今 何の話か)。"""
-    path = os.path.join(PROJECTS_DIR, _encode_cwd(cwd), f"{session_id}.jsonl")
-    if not os.path.isfile(path):
+    path = ""
+    for root in _projects_dirs():
+        p = os.path.join(root, _encode_cwd(cwd), f"{session_id}.jsonl")
+        if os.path.isfile(p):
+            path = p
+            break
+    if not path:
         return ""
     last = ""
     try:
@@ -125,12 +153,16 @@ def _intent_snippet(session_id: str, cwd: str, max_len: int = 70) -> str:
 
 def collect(self_uuid: str | None = None, cwd_filter: str | None = None) -> list[dict]:
     out = []
+    files = []
     try:
-        files = glob.glob(os.path.join(SESSIONS_DIR, "*.json"))
+        for sdir in _sessions_dirs():
+            label = _ccd.label_of(sdir) if _ccd is not None else ""
+            files += [(f, label) for f in glob.glob(os.path.join(sdir, "*.json"))]
     except Exception:
         return out
     now_ms = int(time.time() * 1000)
-    for f in files:
+    seen: set[str] = set()
+    for f, label in files:
         try:
             with open(f, "r", encoding="utf-8") as fh:
                 d = json.load(fh)
@@ -139,7 +171,7 @@ def collect(self_uuid: str | None = None, cwd_filter: str | None = None) -> list
         pid = d.get("pid")
         sid = d.get("sessionId", "")
         cwd = d.get("cwd", "")
-        if not isinstance(pid, int) or not sid:
+        if not isinstance(pid, int) or not sid or sid in seen:
             continue
         if cwd_filter and cwd != cwd_filter:
             continue
@@ -149,6 +181,7 @@ def collect(self_uuid: str | None = None, cwd_filter: str | None = None) -> list
         age_min = None
         if isinstance(started, (int, float)):
             age_min = max(0, (now_ms - started) // 60000)
+        seen.add(sid)
         out.append({
             "pid": pid,
             "sessionId": sid,
@@ -159,6 +192,8 @@ def collect(self_uuid: str | None = None, cwd_filter: str | None = None) -> list
             "is_self": bool(self_uuid) and sid == self_uuid,
             "intent": _intent_snippet(sid, cwd),
             "model": _model_of(sid, cwd),
+            "config": label,
+            "address": _ccd.socket_address(d) if _ccd is not None else "",
         })
     out.sort(key=lambda r: (r["cwd"], -(r["started_at"] or 0)))
     return out
@@ -186,17 +221,34 @@ def render(rows: list[dict], self_uuid: str | None) -> str:
             sid = r["sessionId"][:8]
             intent = f"  「{r['intent']}」" if r["intent"] else ""
             model = f" / {r['model']}" if r.get("model") else " / model ?"
-            lines.append(f"   • pid {r['pid']} / {sid} / {_fmt_age(r['age_min'])}前起動{model}{tag}{intent}")
+            cfg = f" / 設定フォルダ {r['config']}" if r.get("config") not in (None, "", "default") else ""
+            to = f"\n       SendMessage の to = {r['address']}" if r.get("address") and not r["is_self"] else ""
+            lines.append(f"   • pid {r['pid']} / {sid} / {_fmt_age(r['age_min'])}前起動{model}{cfg}{tag}{intent}{to}")
     return "\n".join(lines)
+
+
+def _other_dir_note(r: dict, self_config: str | None) -> str:
+    """自分と別の設定フォルダの兄弟には宛先を添える (ListAgents の名前では届かないことがある)。"""
+    if not r.get("address") or self_config is None or r.get("config") == self_config:
+        return ""
+    return f" [設定フォルダ {r.get('config') or '?'} → to={r['address']}]"
+
+
+OTHER_DIR_FOOTER = ("   ↳ [設定フォルダ …] = 自分と別の設定フォルダの session。 ListAgents の名前では届かないことがある"
+                    " (別アカウントでは実測で出なかった) → 知らせるなら SendMessage の to に、 その uds: 宛先をそのまま書く")
 
 
 def surface(self_uuid: str | None, cwd_filter: str | None) -> str:
     """hook/dashboard 向け: 自分以外の兄弟が同 cwd に在る時だけ短文、 無ければ空 (= 沈黙)。"""
     rows = collect(self_uuid=self_uuid, cwd_filter=cwd_filter)
     siblings = [r for r in rows if not r["is_self"]]
+    self_rows = [r for r in rows if r["is_self"]]
+    # 自分の設定フォルダ: self 行から、 無ければ CLAUDE_CONFIG_DIR (hook は self 行より先に走ることがある)
+    self_config = self_rows[0].get("config") if self_rows else (
+        _ccd.label(os.environ["CLAUDE_CONFIG_DIR"]) if _ccd is not None and os.environ.get("CLAUDE_CONFIG_DIR") else
+        ("default" if _ccd is not None else None))
     # cwd_filter 無指定なら「自分の cwd」 を self 行から推定して同 cwd のみに絞る
     if not cwd_filter and self_uuid:
-        self_rows = [r for r in rows if r["is_self"]]
         if self_rows:
             mycwd = self_rows[0]["cwd"]
             siblings = [r for r in siblings if r["cwd"] == mycwd]
@@ -207,7 +259,9 @@ def surface(self_uuid: str | None, cwd_filter: str | None) -> str:
     for r in siblings:
         intent = f" — 「{r['intent']}」" if r["intent"] else ""
         model = f", {r['model']}" if r.get("model") else ""
-        body.append(f"   • {r['sessionId'][:8]} ({_fmt_age(r['age_min'])}前起動{model}){intent}")
+        body.append(f"   • {r['sessionId'][:8]} ({_fmt_age(r['age_min'])}前起動{model}){intent}{_other_dir_note(r, self_config)}")
+    if any(_other_dir_note(r, self_config) for r in siblings):
+        body.append(OTHER_DIR_FOOTER)
     return head + "\n" + "\n".join(body)
 
 
@@ -233,6 +287,42 @@ def _selftest() -> int:
             print("FAIL surface non-empty on no-match"); ok = False
     except Exception as e:
         print(f"FAIL surface raised {e}"); ok = False
+    # 設定フォルダを跨ぐ: ~/.claude の自分と ~/.claude-alpha の兄弟 (= スマホから始めた session の形)
+    if _ccd is not None:
+        import tempfile
+        saved = {k: os.environ.get(k) for k in ("CLAUDE_SESSIONS_DIR", "CLAUDE_PROJECTS_DIR", "CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR")}
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = td
+                for cfg, sid, pidf in ((".claude", "aaaaaaaa-0000-0000-0000-000000000001", "1"),
+                                       (".claude-alpha", "bbbbbbbb-0000-0000-0000-000000000002", "2")):
+                    os.makedirs(os.path.join(td, cfg, "sessions"))
+                    os.makedirs(os.path.join(td, cfg, "projects", _encode_cwd("/w/p")))
+                    with open(os.path.join(td, cfg, "sessions", pidf + ".json"), "w", encoding="utf-8") as fh:
+                        json.dump({"pid": os.getpid(), "sessionId": sid, "cwd": "/w/p", "startedAt": 0,
+                                   "messagingSocketPath": f"/tmp/cc-socks/{pidf}.sock"}, fh)
+                    with open(os.path.join(td, cfg, "projects", _encode_cwd("/w/p"), sid + ".jsonl"), "w", encoding="utf-8") as fh:
+                        fh.write(json.dumps({"type": "user", "message": {"content": f"topic in {cfg}"}}, separators=(",", ":")) + "\n")
+                rows = collect(self_uuid="aaaaaaaa-0000-0000-0000-000000000001")
+                other = [r for r in rows if r["sessionId"].startswith("bbbbbbbb")]
+                if not (len(rows) == 2 and other and other[0]["config"] == "alpha" and other[0]["address"] == "uds:/tmp/cc-socks/2.sock"):
+                    print(f"FAIL collect across config dirs: {rows}"); ok = False
+                if not (other and other[0]["intent"] == "topic in .claude-alpha"):
+                    print("FAIL intent read from the other config dir's transcript"); ok = False
+                s = surface("aaaaaaaa-0000-0000-0000-000000000001", None)
+                if "bbbbbbbb" not in s or "to=uds:/tmp/cc-socks/2.sock" not in s or "ListAgents" not in s:
+                    print(f"FAIL surface: sibling in another config dir must carry its address: {s!r}"); ok = False
+                s2 = surface("bbbbbbbb-0000-0000-0000-000000000002", None)
+                if "aaaaaaaa" not in s2 or "uds:/tmp/cc-socks/1.sock" not in s2:
+                    print(f"FAIL surface from the pinned side: {s2!r}"); ok = False
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
 

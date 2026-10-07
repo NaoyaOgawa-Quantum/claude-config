@@ -36,7 +36,9 @@ def fmt(row: dict) -> str:
     when = f" (最後の応答 {row['model_at'][:16]})" if row.get("model_at") else " (応答がまだ無い = model は記録に無い)"
     name = f"  name={row['name']}" if row.get("name") else ""
     status = f"  status={row['status']}" if row.get("status") else ""
-    return f"{sid}  {model}  tier={row['tier'] or '?'}{when}{status}{name}"
+    cfg = f"  config={row['config']}" if row.get("config") and row["config"] != "default" else ""
+    to = f"  SendMessage to={row['address']}" if row.get("address") else ""
+    return f"{sid}  {model}  tier={row['tier'] or '?'}{when}{status}{name}{cfg}{to}"
 
 
 def selftest() -> int:
@@ -120,6 +122,34 @@ def selftest() -> int:
         r = subprocess.run([sys.executable, me, "--live", "--json"], env=env, capture_output=True, text=True)
         rows = json.loads(r.stdout or "[]")
         check("--live --json lists live sessions with models", r.returncode in (0, 3) and {x["sessionId"] for x in rows} == {sid, sid2})
+        # every config dir on the machine: a session registered under ~/.claude-<x> is live too, with its address
+        home = os.path.join(td, "home")
+        for cfg in (".claude", ".claude-alpha"):
+            os.makedirs(os.path.join(home, cfg, "sessions"))
+            os.makedirs(os.path.join(home, cfg, "projects", "-w-p"))
+        sid3, sid4 = str(uuid.uuid4()), str(uuid.uuid4())
+        for cfg, s, pidfile in ((".claude", sid3, "11.json"), (".claude-alpha", sid4, "12.json")):
+            with open(os.path.join(home, cfg, "sessions", pidfile), "w", encoding="utf-8") as fh:
+                json.dump({"pid": os.getpid(), "sessionId": s, "cwd": "/w/p", "name": f"in {cfg}",
+                           "messagingSocketPath": f"/tmp/cc-socks/{pidfile[:2]}.sock"}, fh)
+            with open(os.path.join(home, cfg, "projects", "-w-p", f"{s}.jsonl"), "w", encoding="utf-8") as fh:
+                fh.write(line("assistant", "claude-opus-5-5", "t1") + "\n")
+        for k in ("CLAUDE_SESSIONS_DIR", "CLAUDE_PROJECTS_DIR"):
+            os.environ.pop(k, None)
+        os.environ["CLAUDE_CONFIG_DIRS_HOME"] = home
+        live = {s["sessionId"]: s for s in sm.live_sessions()}
+        check("a session in another config dir (~/.claude-<x>) is live", sid4 in live and sid3 in live)
+        check("live rows carry the config label and the socket address",
+              live.get(sid4, {}).get("config") == "alpha" and live.get(sid4, {}).get("address") == "uds:/tmp/cc-socks/12.sock"
+              and live.get(sid3, {}).get("config") == "default")
+        check("live_address finds a session by prefix in any config dir",
+              (sm.live_address(sid4[:8]) or {}).get("address") == "uds:/tmp/cc-socks/12.sock" and sm.live_address("short") is None)
+        check("the model of a session in another config dir is read from its own transcript", sm.model_of(sid4, "/w/p") == "claude-opus-5-5")
+        env2 = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_SESSIONS_DIR", "CLAUDE_PROJECTS_DIR")}
+        r = subprocess.run([sys.executable, me, sid4[:8]], env=env2, capture_output=True, text=True)
+        check("CLI prints the config and the SendMessage address", r.returncode == 0 and "config=alpha" in r.stdout
+              and "SendMessage to=uds:/tmp/cc-socks/12.sock" in r.stdout)
+        os.environ.pop("CLAUDE_CONFIG_DIRS_HOME", None)
     print("session-model selftest: " + ("ALL PASS" if not fails else f"FAILED {len(fails)}"))
     return 1 if fails else 0
 

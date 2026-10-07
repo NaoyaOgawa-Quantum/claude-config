@@ -16,8 +16,13 @@ Where the facts live (Claude Code, measured on a desktop install):
 Reading: transcripts reach tens of MB, so read the tail (TAIL_BYTES) first and fall back to a full scan only
 when the tail holds no assistant turn. Everything here is read-only and never raises on a broken file.
 
-Env overrides (tests, other config dirs): CLAUDE_SESSIONS_DIR, CLAUDE_PROJECTS_DIR (one dir; the default also
-scans ~/.claude-*/projects for headless config dirs).
+Every config dir on the machine is read (`~/.claude`, `$CLAUDE_CONFIG_DIR`, `~/.claude-*` = lib/claude_config_dirs.py):
+a session started with another config dir (an account-pinned Remote Control server = a session started from a phone,
+a headless job) registers and writes its transcript there, and is live all the same. Each live row carries the
+config dir's label and the session's socket address (`uds:<path>`), which SendMessage accepts as `to` across config
+dirs and accounts on this machine (conventions/multi-account-machine-surface.md#peer-discovery-across-config-dirs).
+
+Env overrides (tests, fixtures): CLAUDE_SESSIONS_DIR, CLAUDE_PROJECTS_DIR (one dir each; replaces the scan).
 
 Convention: conventions/multi-session-coordination.md#delegate-model-routing (read the actual model before
 sending work to a session).
@@ -29,6 +34,15 @@ import json
 import os
 import re
 
+try:  # sibling module; this file is also loaded by path (spec_from_file_location) without lib/ on sys.path
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location(
+        "claude_config_dirs", os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_config_dirs.py"))
+    _ccd = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_ccd)
+except Exception:  # pragma: no cover - an old checkout without the module: the default dir only
+    _ccd = None
+
 TAIL_BYTES = 256 * 1024
 _UUID_RE = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
 _ID_RE = re.compile(r"^[0-9a-f-]{4,36}$")
@@ -36,15 +50,37 @@ _ID_RE = re.compile(r"^[0-9a-f-]{4,36}$")
 TIERS = (("mythos", "fable"), ("fable", "fable"), ("opus", "opus"), ("sonnet", "sonnet"), ("haiku", "haiku"))
 
 
+def sessions_dirs() -> list[str]:
+    """Every live-session registry dir on this machine (one per config dir)."""
+    if _ccd is not None:
+        return _ccd.sessions_dirs()
+    return [os.environ.get("CLAUDE_SESSIONS_DIR") or os.path.expanduser("~/.claude/sessions")]
+
+
 def sessions_dir() -> str:
-    return os.environ.get("CLAUDE_SESSIONS_DIR") or os.path.expanduser("~/.claude/sessions")
+    """The first registry dir (kept for older callers; new code reads sessions_dirs())."""
+    dirs = sessions_dirs()
+    return dirs[0] if dirs else os.path.expanduser("~/.claude/sessions")
 
 
 def projects_dirs() -> list[str]:
+    if _ccd is not None:
+        return _ccd.projects_dirs()
     override = os.environ.get("CLAUDE_PROJECTS_DIR")
     if override:
         return [override]
     return [os.path.expanduser("~/.claude/projects")] + sorted(glob.glob(os.path.expanduser("~/.claude-*/projects")))
+
+
+def _config_label(path: str) -> str:
+    return _ccd.label_of(path) if _ccd is not None else ""
+
+
+def _address(entry: dict) -> str:
+    if _ccd is not None:
+        return _ccd.socket_address(entry)
+    sock = entry.get("messagingSocketPath")
+    return f"uds:{sock}" if isinstance(sock, str) and sock.endswith(".sock") else ""
 
 
 def tier(model: str) -> str:
@@ -122,23 +158,44 @@ def last_model(path: str) -> dict | None:
 
 
 def live_sessions() -> list[dict]:
-    """Sessions whose process is alive, from the registry: sessionId / name / host / cwd / status / pid."""
+    """Sessions whose process is alive, from every config dir's registry: sessionId / name / host / cwd / status /
+    pid / config (the config dir's label, '' when unknown) / address (`uds:<socket>`, '' when the registry has none)."""
     out = []
-    for f in glob.glob(os.path.join(sessions_dir(), "*.json")):
-        try:
-            with open(f, encoding="utf-8") as fh:
-                d = json.load(fh)
-        except (OSError, ValueError):
-            continue
-        if not isinstance(d, dict) or not isinstance(d.get("sessionId"), str) or not d["sessionId"]:
-            continue
-        pid = d.get("pid")
-        if isinstance(pid, int) and not _pid_alive(pid):
-            continue
-        out.append({"sessionId": d["sessionId"], "name": str(d.get("name") or ""), "host": str(d.get("hostSessionId") or ""),
-                    "cwd": str(d.get("cwd") or ""), "status": str(d.get("status") or ""), "pid": pid})
+    seen: set[str] = set()
+    for sdir in sessions_dirs():
+        for f in glob.glob(os.path.join(sdir, "*.json")):
+            try:
+                with open(f, encoding="utf-8") as fh:
+                    d = json.load(fh)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(d, dict) or not isinstance(d.get("sessionId"), str) or not d["sessionId"]:
+                continue
+            pid = d.get("pid")
+            if isinstance(pid, int) and not _pid_alive(pid):
+                continue
+            if d["sessionId"] in seen:
+                continue
+            seen.add(d["sessionId"])
+            out.append({"sessionId": d["sessionId"], "name": str(d.get("name") or ""),
+                        "host": str(d.get("hostSessionId") or ""), "cwd": str(d.get("cwd") or ""),
+                        "status": str(d.get("status") or ""), "pid": pid,
+                        "config": _config_label(sdir), "address": _address(d)})
     out.sort(key=lambda s: s["sessionId"])
     return out
+
+
+def live_address(session_id: str) -> dict | None:
+    """The one live session with this id (exact, or a prefix of 8+ characters), with its `address`; else None.
+    Never raises."""
+    try:
+        sid = (session_id or "").strip()
+        if len(sid) < 8:
+            return None
+        hits = [s for s in live_sessions() if s["sessionId"] == sid or s["sessionId"].startswith(sid)]
+        return hits[0] if len(hits) == 1 else None
+    except Exception:
+        return None
 
 
 def resolve(target: str) -> list[dict]:
