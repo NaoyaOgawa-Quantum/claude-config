@@ -129,7 +129,7 @@ def run_osascript(script: str, args, label: str, session=None, staged=(), runner
 # (probe で実測: merge で 200 秒 timeout → 再試行の open が -609)。 終わったら true に戻す。
 # open の `update links do not update links`: 外部リンク (別 file への OLE / 数式リンク) を持つ様式は、 開くと
 # 「安全ではない可能性のある外部ソースへのリンク」 の確認が出る。 display alerts = false では消えず、 出ている間は
-# 以後の AppleEvent が -10006 / -1728 で失敗し続ける (2026-10-07 実測 = 配布元の file server を指すリンク入りの様式)。
+# 以後の AppleEvent が -10006 / -1728 で失敗し続ける (実測 = 配布元の file server を指すリンク入りの様式)。
 # リンク先は手元に無い前提なので常に更新しない (値は file に入っている最後の値のまま)。
 EXPORT_SCRIPT = '''
 on run argv

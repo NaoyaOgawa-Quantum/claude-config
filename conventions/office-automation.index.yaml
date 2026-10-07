@@ -118,6 +118,9 @@ sections:
     legacy: "1-5"
     level: 3
     title: "Excel data validation の auto-resize は外部信号で発動しない"
+  - id: external-link-update-prompt
+    level: 3
+    title: "外部リンク入りの様式を開くと Excel が「リンクを更新しますか」 で止まる — `update links do not update links` で開く"
   - id: xlsx-locked-by-excel
     legacy: "1-6"
     level: 3
