@@ -35,12 +35,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import first_reply_stamp as frs  # noqa: E402
 
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+    import claude_config_dirs as _ccd  # noqa: E402
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
 # whoami --wait を hook に入れた日。 これ以降の注入で「未同定」 が出たら race 対策が効いていない
 WAIT_FIX_DATE = "2026-09-12"
 
 
-def claude_glob() -> str:
-    return os.environ.get("FIRST_REPLY_STAMP_CLAUDE_GLOB") or str(Path.home() / ".claude*" / "projects" / "*" / "*.jsonl")
+def claude_files() -> list[str]:
+    """Claude の transcript。 既定 = この機械の全部の設定フォルダ (~/.claude / $CLAUDE_CONFIG_DIR / ~/.claude-<名>、
+    同じ session の写しは 1 回 = lib/claude_config_dirs.py)。 env の glob があればそれだけ (test 用)。"""
+    pattern = os.environ.get("FIRST_REPLY_STAMP_CLAUDE_GLOB")
+    if pattern:
+        return glob.glob(pattern)
+    if _ccd is not None:
+        return [f for _lab, f in _ccd.transcript_files("*/*.jsonl")]
+    return glob.glob(str(Path.home() / ".claude*" / "projects" / "*" / "*.jsonl"))
 
 
 def codex_root() -> Path:
@@ -131,7 +144,7 @@ def codex_session(path: Path) -> dict | None:
 def collect(days: int, with_codex: bool, since_date: str = "") -> list[dict]:
     cutoff = time.time() - days * 86400
     rows = []
-    for name in glob.glob(claude_glob()):
+    for name in claude_files():
         path = Path(name)
         try:
             if path.stat().st_mtime < cutoff:

@@ -15,7 +15,7 @@ desktop app の log (既定 `~/Library/Logs/Claude/main*.log`) の 3 形式の�
   <YYYY-MM-DD HH:MM:SS> [info] Received permission response for <id>: <decision> (tool: <tool>)
   <YYYY-MM-DD HH:MM:SS> [info] Mapping internal session <local_id> to CLI session <session_id>
 同じ行が 2 回ずつ書かれることがあるので request id で dedupe する。 log の時刻は local time。
-3 行目が desktop 側の session id (local_…) と transcript 側の session id (= `~/.claude/projects/` の
+3 行目が desktop 側の session id (local_…) と transcript 側の session id (= `<設定フォルダ>/projects/` の
 file 名・各 record の `sessionId`) を結ぶ唯一の鍵。 同じ local_id の Mapping 行は繰り返し書かれ、
 再開で別の CLI session に付け替わることがあるので、 時刻つきで持ち dialog の時刻で引く。
 
@@ -39,7 +39,7 @@ mode
 ----
   (既定)              tool 別件数 / decision 内訳 / 応答待ち秒 (中央値・最大)
   --latest N          直近 N 件を 1 行ずつ
-  --attribute         transcript (`~/.claude/projects/**.jsonl`、 sub-agent の transcript を含む) の
+  --attribute         transcript (`<設定フォルダ>/projects/**.jsonl`、 sub-agent の transcript を含む) の
                       tool_use と突合 (上の 3 制約。 窓 = dialog 発行の --before 秒前 〜 --after 秒後、
                       既定 8 / 2)。 main / sub-agent / unmatched に振り分け、 Edit/Read/Write は path の
                       上位 2 階層、 Bash は先頭語で bucket する。 direct / queue / unmapped の内訳も出す
@@ -232,20 +232,49 @@ def print_latest(reqs, n):
 
 
 # ---------------------------------------------------------------- transcripts
+# 読む transcript = 既定でこの機械の全部の設定フォルダの projects/ (~/.claude と、 アカウント固定の ~/.claude-<名> =
+# スマホから始めた session・無人 routine、 と $CLAUDE_CONFIG_DIR)。 desktop の session は ~/.claude にしか無いので
+# desktop log との突合 (--attribute / --diagnose) は ~/.claude の分で決まるが、 --from-transcripts は CLI・スマホの
+# session の承認待ちも拾う。 列挙と重複の扱い = lib/claude_config_dirs.py の transcript_files。
+
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
+def _transcript_paths(projects_dir):
+    """projects_dir = None なら全部の設定フォルダ、 path (1 つか list) ならその dir だけ。"""
+    if projects_dir is None:
+        if _ccd is not None:
+            return [Path(f) for _lab, f in _ccd.transcript_files("**/*.jsonl")]
+        projects_dir = Path("~/.claude/projects").expanduser()
+    roots = projects_dir if isinstance(projects_dir, (list, tuple)) else [projects_dir]
+    out = []
+    for r in roots:
+        for root, _dirs, files in os.walk(r):
+            out += [Path(root) / fn for fn in files if fn.endswith(".jsonl")]
+    return out
+
+
+def config_label(p) -> str:
+    """transcript の設定フォルダの名。 ~/.claude と不明は空 (表示しない)。"""
+    if _ccd is None:
+        return ""
+    lab = _ccd.label_of(str(p))
+    return "" if lab in ("default", "?") else lab
+
 
 def iter_transcripts(projects_dir, since):
     lo = since_epoch(since) - 86400  # mtime は最終書込み時刻なので 1 日余裕
-    for root, _dirs, files in os.walk(projects_dir):
-        for fn in files:
-            if not fn.endswith(".jsonl"):
+    for p in _transcript_paths(projects_dir):
+        try:
+            if p.stat().st_mtime < lo:
                 continue
-            p = Path(root) / fn
-            try:
-                if p.stat().st_mtime < lo:
-                    continue
-            except OSError:
-                continue
-            yield p
+        except OSError:
+            continue
+        yield p
 
 
 def transcript_session_id(p):
@@ -451,6 +480,8 @@ def print_from_transcripts(cands, home, wait):
     print("")
     for u, g in cands[-30:]:
         who = "sub-agent" if u["sub"] else "main"
+        cfg = config_label(u.get("path", ""))
+        who += f"[{cfg}]" if cfg else ""
         print(f"  {fmt_t(u['t'])}  {who:<9} wait {g:>6.0f}s  {bucket(u, home)}")
 
 
@@ -846,6 +877,37 @@ def selftest():
         rows_b = diagnose([req("Bash", 2000.0)], du, 8.0, 2.0,
                           load_pretooluse_hooks([str(st2)]), 3000, run_hooks=True, cwd=tmp)
         check(rows_b[0][1] == "fixed", "block を返す hook は fixed (= 今はもう dialog が出ない) と分類")
+
+        # 既定 (projects_dir=None) = この機械の全部の設定フォルダ。 偽の HOME に既定とアカウント固定の 2 つ
+        if _ccd is not None:
+            fh_home = tmp / "cfg-home"
+            for cfg, tid in ((".claude", "c1"), (".claude-alt", "c2")):
+                d = fh_home / cfg / "projects" / "-w"
+                d.mkdir(parents=True)
+                (d / f"s-{tid}.jsonl").write_text(json.dumps(
+                    {"type": "assistant", "timestamp": iso("2026-09-11 12:00:00"),
+                     "message": {"content": [{"type": "tool_use", "id": tid, "name": "Read", "input": {}}]}}) + "\n",
+                    encoding="utf-8")
+            # アカウント固定の設定フォルダの memory は既定の memory への symlink (二重に読まない)
+            (fh_home / ".claude" / "projects" / "-w" / "memory").mkdir()
+            (fh_home / ".claude" / "projects" / "-w" / "memory" / "m.jsonl").write_text("{}\n", encoding="utf-8")
+            os.symlink(fh_home / ".claude" / "projects" / "-w" / "memory", fh_home / ".claude-alt" / "projects" / "-w" / "memory")
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = str(fh_home)
+                au, _ar = load_tool_events(None, "2026-09-11", want_results=True)
+                paths = list(_transcript_paths(None))
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check(sorted(u["id"] for u in au) == ["c1", "c2"], "既定 = 全部の設定フォルダの transcript を読む")
+            check(sorted(config_label(u["path"]) for u in au) == ["", "alt"], "~/.claude 以外の設定フォルダの名を出す")
+            check(sum(p.name == "m.jsonl" for p in paths) == 1, "symlink の memory は 1 回だけ")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("")
@@ -856,7 +918,8 @@ def selftest():
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--log-dir", default="~/Library/Logs/Claude", help="desktop app の log dir")
-    ap.add_argument("--projects-dir", default="~/.claude/projects", help="transcript の親 dir")
+    ap.add_argument("--projects-dir", default=None,
+                    help="transcript の親 dir (既定 = この機械の全部の設定フォルダの projects/)")
     ap.add_argument("--since", default=None, help="YYYY-MM-DD (local)")
     ap.add_argument("--latest", type=int, default=0, help="直近 N 件を 1 行ずつ")
     ap.add_argument("--attribute", action="store_true", help="transcript と時刻突合して main / sub-agent に振り分け")
@@ -880,7 +943,7 @@ def main():
     if a.selftest:
         return selftest()
     home = Path.home()
-    projects = Path(a.projects_dir).expanduser()
+    projects = Path(a.projects_dir).expanduser() if a.projects_dir else None
     if a.from_transcripts:
         uses, results = load_tool_events(projects, a.since, want_results=True)
         tools = tuple(t.strip() for t in a.tools.split(",") if t.strip())

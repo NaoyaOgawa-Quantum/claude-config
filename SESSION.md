@@ -20,6 +20,8 @@
 
 ## Open items（forward-looking）
 
+- [ ] **全部の設定フォルダを読む対応の残り 3 つは規則保護の file = 本人の裁定待ち** ([multi-account-machine-surface.md#peer-discovery-across-config-dirs](conventions/multi-account-machine-surface.md#peer-discovery-across-config-dirs)) — `scripts/hook-liveness-audit.py` (設定フォルダごとの user tier と、 (設定フォルダ, root) ごとの集計) / `scripts/lib/chat_file_refs.py` の calibrate (panel の entrypoint の session は `~/.claude` の外にも在る = 実測) / `hooks/memory-guard.sh`・`memory-guard-bash.sh` (アカウント固定の設定フォルダの memory の path が guard を素通りする = 実測、 test の陰性対照で 5 件)。 適用後の全文・diff・test の結果 = owner 個人層の `plans/2026-10-07-config-dir-readers-proposals/`
+
 - [ ] **claude-app-account-mirror の実 app での初回の実走** — Claude からは入れられない (classifier が session 記録の改ざんとして止める) ので、 本人が install した後の session で確かめる: ① 表示していない account の一覧に `⇄<元>` の写しが出る ② 写しを開くと「インポートしたセッションを再開しますか？」 が出て、 再開後の会話記録が `projects/<slug>/<新しい cli id>.jsonl` に移り元と別になる ③ 表示中の account の dir には書かない (`--status` の待ちの数) ④ launchd の log が変化の無い回は無音。 test は偽の userData だけ = 実 app の挙動は本体を読んだ推定
 
 - [ ] **collaborator-check の未実走の面** — Claude Code の project hook は headless で発火を確認、 共同編集者の実機・Windows (Git Bash)・Codex (hook なし = CLAUDE.md の「1 回実行」 頼み) は未確認。 共同編集者の最初の session の報告で確かめる

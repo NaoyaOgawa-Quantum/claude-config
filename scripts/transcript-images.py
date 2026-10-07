@@ -6,6 +6,9 @@ base64 で入っているだけで、 そのままでは見られない。 取�
 写真の直前の assistant 発話と並べると、 何を表示した結果の画面かが分かる (--list)。
 手順 = conventions/debugging-discipline.md#transcript-screenshots
 
+session id の先頭は、 この機械の全部の設定フォルダの projects/ から探す (~/.claude と、 アカウント固定の
+~/.claude-<名> = スマホから始めた session・無人 routine、 と $CLAUDE_CONFIG_DIR。 lib/claude_config_dirs.py)。
+
 使い方:
   transcript-images.py <transcript.jsonl | session id の先頭> --list
   transcript-images.py <…> --out DIR [--match 語] [--png]
@@ -28,7 +31,17 @@ import tempfile
 EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif"}
 
 
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+    import claude_config_dirs as _ccd
+except Exception:  # pragma: no cover - 古い配置
+    _ccd = None
+
+
 def find_transcript(arg: str) -> str | None:
+    """path か session id の先頭。 全部の設定フォルダで 1 本に決まれば、 その path。"""
+    if _ccd is not None:
+        return _ccd.find_transcript(arg)
     if os.path.isfile(arg):
         return arg
     hits = sorted(glob.glob(os.path.expanduser(f"~/.claude/projects/*/{arg}*.jsonl")))
@@ -129,6 +142,23 @@ def selftest() -> int:
         out = write_images(items, os.path.join(t, "out"), png=False)
         check("file に書き出す (中身は元の bytes)", len(out) == 1 and open(out[0], "rb").read()[:4] == b"\x89PNG")
         check("id の先頭では見つからない path は None", find_transcript("no-such-session-id-xyz") is None)
+        if _ccd is not None:  # アカウント固定の設定フォルダ (スマホから始めた session) の id も引ける
+            alt = os.path.join(t, "home", ".claude-alt", "projects", "-w")
+            os.makedirs(alt)
+            shutil.copy(tr, os.path.join(alt, "abcdef12-0000.jsonl"))
+            saved = {k: os.environ.get(k) for k in ("CLAUDE_CONFIG_DIRS_HOME", "CLAUDE_CONFIG_DIR", "CLAUDE_PROJECTS_DIR")}
+            try:
+                for k in saved:
+                    os.environ.pop(k, None)
+                os.environ["CLAUDE_CONFIG_DIRS_HOME"] = os.path.join(t, "home")
+                hit = find_transcript("abcdef12")
+            finally:
+                for k, v in saved.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
+            check("~/.claude 以外の設定フォルダの session も id の先頭で引ける", hit == os.path.join(alt, "abcdef12-0000.jsonl"))
         bad = [dict(items[0], data="!!!not-base64", k=1)] + items
         out2 = write_images(bad, os.path.join(t, "out2"), png=False)
         check("base64 として読めない画像は飛ばして残りを書く", len(out2) == 1 and out2[0].endswith("-0.png"))
