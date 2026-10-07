@@ -967,6 +967,8 @@ def _recipe_tests(tmp, inst, expect) -> None:
     expect("recipe: 既定の name_vars は {stem} だけ", RC.Recipe().name_vars("x") == {"stem": "x"})
     expect("recipe: 登録の無い様式は BuildError", _raises(RC.BuildError, RC.recipe_for, "nope"))
     expect("recipe: seals_for は既定で seals", r.seals_for("g1") == R1.seals)
+    expect("recipe: print_source は既定で渡した束のまま",
+           r.print_source("g1", Path("sealed.pdf"), Path("plain.pdf"), Path("w.xlsx"), Path(".")) == Path("sealed.pdf"))
     expect("押印画像の command が設定に無ければ BuildError",
            _raises(RC.BuildError, RC._seal_image))
     expect("seal_mode: 既定は image、 physical を受け付け、 他の値は ConfigError",

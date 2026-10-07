@@ -441,6 +441,12 @@ class Recipe:
         """print / confirm 以外の出力 (raster・送付用 xlsx 等) を作って path を返す。 作らない role は None。"""
         return None
 
+    def print_source(self, group: str, src: Path, plain: Path, workbook: Path, tmp: Path) -> Path:
+        """print の出力にする PDF。 src = 押印を重ねた束 (seal_mode が image の時) か押印なしの束。 既定 = src のまま。
+        窓口へ原本でなく写しだけを出す頁がある様式は、 その頁を写し (白黒・印影入り) に差し替えた束を返す
+        (= 刷る版に原本の頁を残さない。 原本の頁を刷ると、 印の無い原本が紙で出回る = 実測)。"""
+        return src
+
     def name_vars(self, stem: str) -> dict:
         """出力名の型に渡す変数。 既定 = ``{stem}`` だけ。 派生名の要る様式は足す (= 名づけは呼び元のもの)。"""
         return {"stem": stem}
@@ -769,7 +775,7 @@ def _build(m, doc_id, groups, out_dir=None) -> dict:
                       " (seal_mode: physical)")
             for role, rel in outs.items():
                 if role == "print":
-                    src = sealed if overlay else plain
+                    src = rc.print_source(g, sealed if overlay else plain, plain, wb, tmp)
                 elif role == "confirm":
                     src = plain
                 else:
