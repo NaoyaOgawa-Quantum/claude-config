@@ -813,6 +813,8 @@ hook の効きは build だけでなく **frontend (= terminal CLI / IDE 拡張 
 > | Stop の `decision: block` | **効く** | 既存の Stop hook の発火条件を最終 message でわざと満たした → transcript に meta の user 行 `Stop hook feedback: …` と `hook_blocking_error` (Stop) が残り、 同じ turn が続いた |
 > | hook の `systemMessage` | **会話に表示されない** | UPS hook が `systemMessage` を出した session で、 owner の画面にその行は無かった (目視)。 transcript には `hook_system_message` として残る = 記録はされるが user には見えない |
 >
+> **再確認 (2026-10-07、 desktop 埋込 build 2.1.287)**: UserPromptSubmit の additionalContext を prompt の直後に受領 (transcript に `hook_additional_context` / UserPromptSubmit)。 Stop の block は 1 turn に 3 本 (別々の hook) が同時に返り、 3 本とも feedback として届いて同じ turn が続いた (`hook_blocking_error` / Stop × 3)。 表の 2 面は変わらず。
+>
 > 帰結: desktop でも「model に届ける」 手段 (additionalContext / block) は使えるが、 「user に見せる」 手段として `systemMessage` は使えない。 実装例 = [`multi-account-machine-surface.md#first-reply-stamp-mechanism`](multi-account-machine-surface.md#first-reply-stamp-mechanism)。
 >
 > **原因の大部分は kill switch と判明 (2026-09-11)**: owner の主作業 root の project-local に `disableAllHooks: true` が入っていた ([#disableallhooks-kill-switch](#disableallhooks-kill-switch))。 その root で開いた desktop session は 9/1 以降すべて SessionStart の発火記録 0、 同期間に別 root で開いた session は発火していた。 09-05 の再測定もその root の session だった**可能性が高い** (同日の同 root の session はすべて発火記録 0)。 09-09 の測定 session の root は記録から特定できていないが、 同 root の session はすべて 0 なので別 root だったと**推論**できる (推論であって確認ではない)。 決め手 = 同じ desktop session で、 除去前は PreToolUse の ask が出ず (jq はあり fail-open ではない)、 除去直後は PostToolUse の additionalContext が届いた = frontend でなく設定の差。 06-13 の観測がこれで説明できるかは記録が無く未確定 (06-13 には SessionStart hook がプロセスとして走った trace があり、 全停止とは完全には合わない)。
