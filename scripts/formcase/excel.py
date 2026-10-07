@@ -127,6 +127,10 @@ def run_osascript(script: str, args, label: str, session=None, staged=(), runner
 
 # display alerts = false: 体裁の変更 (merge 等) が確認 dialog を出すと AppleEvent が返らず -1712 で止まる
 # (probe で実測: merge で 200 秒 timeout → 再試行の open が -609)。 終わったら true に戻す。
+# open の `update links do not update links`: 外部リンク (別 file への OLE / 数式リンク) を持つ様式は、 開くと
+# 「安全ではない可能性のある外部ソースへのリンク」 の確認が出る。 display alerts = false では消えず、 出ている間は
+# 以後の AppleEvent が -10006 / -1728 で失敗し続ける (2026-10-07 実測 = 配布元の file server を指すリンク入りの様式)。
+# リンク先は手元に無い前提なので常に更新しない (値は file に入っている最後の値のまま)。
 EXPORT_SCRIPT = '''
 on run argv
   set xlsxPath to item 1 of argv
@@ -137,7 +141,7 @@ on run argv
       set formcaseStep to "open"
       try
         delay 2
-        set wbk to open workbook workbook file name (POSIX file xlsxPath)
+        set wbk to open workbook workbook file name (POSIX file xlsxPath) update links do not update links
         delay 3
         set formcaseStep to "ops"
         %OPS%
@@ -337,7 +341,7 @@ on run argv
   with timeout of 300 seconds
     tell application "Microsoft Excel"
       delay 2
-      set wbk to open workbook workbook file name (POSIX file xlsxPath)
+      set wbk to open workbook workbook file name (POSIX file xlsxPath) update links do not update links
       delay 3
       {body}
       calculate
@@ -379,7 +383,7 @@ on run argv
     tell application "Microsoft Excel"
       delay 2
       set display alerts to false
-      set wbk to open workbook workbook file name (POSIX file xlsxPath)
+      set wbk to open workbook workbook file name (POSIX file xlsxPath) update links do not update links
       delay 3
       set ws to worksheet {_q(sheet)} of wbk
       calculate
