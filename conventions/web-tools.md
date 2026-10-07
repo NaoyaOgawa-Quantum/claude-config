@@ -15,13 +15,17 @@ WebSearch の result block 末尾に付く自然言語 summary は検索エン�
 
 ### How to apply
 
-- メールアドレス・電話番号・URL のような事実値は、リンクされた source ページ (公式サイト・PDF press release 等) を WebFetch / curl で直接確認してから採用する
+- メールアドレス・電話番号・URL のような事実値は、リンクされた source ページ (公式サイト・PDF press release 等) の原文を curl で取って確認してから採用する (WebFetch の答えも要約モデルを通る = 下の [#webfetch-answer-is-generated](#webfetch-answer-is-generated))
 - 複数の異なる値が出てきたら最新の公式 source を優先
 - ヒットしたリンクのうち最も authoritative なもの (組織の公式 domain 等) を優先
 
 ### 典型パターン
 
 ある組織の窓口メールアドレスを WebSearch で取得しようとすると、summary に「`<role>@<domain-A>`」 のような値が返ってくることがある。実際に source を確認すると、PDF (古い文書) には「`<role>@<domain-B>`」、現行公式 contact ページには「`<role>@<domain-C>`」 と書いてあって、summary に出た `<domain-A>` 版はどちらにも存在しない hallucination だった、というケース。検索エンジンが「`<role>` + 組織ドメインの慣用 prefix」 から推測しただけ。
+
+### <a id="webfetch-answer-is-generated"></a>WebFetch の答えも生成物 — 原文の数・主張の確認に使わない
+
+WebFetch は取った page を小さなモデルに渡し、 prompt への答えを返す。 その答えは原文の写しではなく生成物で、 原文に無い数や主張を足すことがある (実測: 論文 PDF のある節の要約を頼むと、 原文が「3 か 4」 とする数を「5〜7」 と答え、 原文に無い検査の基準まで並べた)。 原文の数・言い回し・ある節の推奨を確かめるときは、 原文を読む = PDF は curl で取って PyMuPDF で text にするか、 手元の写しを開く。 WebFetch の答えと規約の記述が食い違ったら、 まず WebFetch の側を疑う。
 
 ## WebFetch は `<head>` 内 meta タグ・JSON-LD を落とす
 

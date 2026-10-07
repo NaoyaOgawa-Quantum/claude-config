@@ -690,14 +690,16 @@ matplotlib が CJK フォント (macOS Hiragino 等の `.ttc`、`pdf.fonttype = 
 読めることもある → 「PDF を目視した」だけでは気づかない。fitz / gs の両エンジンで化けたので、
 投稿先・審査側の PDF 変換でも危険と判断する。
 
-- ❌ `pdf.fonttype = 3` — 古い matplotlib では CJK 非対応 (`UnicodeEncodeError`)、しかも失敗時に
-  出力 PDF を壊す (0 byte / 不完全)。
+- ❌ Hiragino 等の字体のまま `pdf.fonttype = 3` に切り替える — glyph 名が非 ASCII の字体では `UnicodeEncodeError`
+  で落ち、しかも失敗時に出力 PDF を壊す (0 byte / 不完全)。 字体ごと替えれば 3 で通る (下の ✅)。
 - ❌ gs `-dNoOutputFonts` で outline 化 — 化けた glyph をそのままパス化するだけで無効
   (+ gs 既定の PDF 1.7 は dvipdfmx が取り込み拒否し build が silent 失敗する。1.5 を指定しても無意味)。
 - ✅ **Agg レンダリングの PNG (300 dpi) を `\includegraphics` する** — viewer / 変換系に依存しない。
   モノクロ印刷前提の書類 (科研費調書等) なら品質は十分。
 - 代替 (vector が必要な場合): `.ttc` でない単体 TTF (IPAex 等) を `font_manager` で指定して Type 42
   埋め込み (未検証)。
+- ✅ (vector のまま、 LuaLaTeX で実測) TeX 同梱の原ノ味 OTF を `addfont()` で登録し、 `pdf.fonttype` は既定 (3) のまま
+  → `\includegraphics` した頁で描画も文字抽出も正常。 原ノ味でも 42 にすると日本語だけ消える = [`beamer-slides.md` §10](beamer-slides.md#generate-figures-not-scavenge)。
 
 検証の作法: 図を含む頁を **fitz 等で raster 化して目視** (PDF viewer の表示を信じない)、
 `page.get_fonts()` で埋め込みフォントの素性も見る。
@@ -952,6 +954,8 @@ bash ~/Claude/claude-config/scripts/install-precommit-bib.sh .
 - `ö` 等 Unicode 西欧文字 → `{\"o}` 等の LaTeX accent command
 
 **Claude への規律**: `.tex/.bib` を新規作成・編集する前に本 convention を読むこと。 Markdown 流儀で literal `—` を直書きすると LaTeX で正しく render されない (Unicode em-dash は通常の LaTeX font に欠落することが多い)。 hook が機械的に catch するが、 hook 未 install repo では catch されない (= 2026-05-14 個人層 private repo の深い path で発生、 RCA は `claude-config/DESIGN.md`)。
+
+<a id="fontspec-textendash"></a>⚠️ **LuaLaTeX / XeLaTeX で `\newfontfamily` で読んだ字体には `\textendash` / `\textemdash` を書く**: hook は `–` を `--` に書き換えるが、 `--` を en dash にするのは字体の `Ligatures=TeX` で、 fontspec は `\setmainfont` / `\setsansfont` には既定で付けるのに `\newfontfamily` には付けない。 その字体の中の `--` は 2 本のハイフンのまま組まれる (実測: 大きな数字の指数の負号が「--36」 になった)。 build は通るので、 PDF を画像にして見るか文字を抽出して `--` を探す。
 
 ### <a id="pre-commit-hook-old-design-failure"></a>旧設計の失敗 (2026-05-14)
 

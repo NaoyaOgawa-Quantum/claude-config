@@ -42,6 +42,7 @@ scope を足したら token を取り直す (consent を 1 回)。 同じ OAuth 
 ## <a id="late-submission-lock"></a>API で作った課題と「期限後に提出を締め切る」
 
 - API で作った課題 (courseWork) には `associatedWithDeveloper: true` が永続的に付き、 画面の「期限後に提出を締め切る」 が灰色になる (「サードパーティ製ツールからの提出は締め切ることができません」)。 DRAFT で作っても外れない = **期限後の締切が要る課題は画面で作る**
+- 「API で作って、 締切の設定だけ後から画面で変える」 も成り立たない (画面のスイッチが灰色のまま)。 API の側にも項目が無い: 公式の discovery (`https://classroom.googleapis.com/$discovery/rest?version=v1` の `schemas.CourseWork.properties`) で期限まわりは `dueDate` / `dueTime` / `submissionModificationMode` だけ、 公式ガイド (Grades) も締切後の提出を止めるのは Classroom アプリの設定と書く (実測)。 API が変わったかを確かめるときは、 説明の要約でなくこの discovery の項目を見る
 - これは課題単位の制限で、 **API で作ったクラスそのものには及ばない**: API で作ったクラスの中で画面から作った課題は、 締切を ON にできる (実測)。 クラスを API で用意して、 毎週の課題は画面で作る、 という分業が成り立つ
 - ⚠️ 未検証: 同じ課題の「生徒はクラスメイトに返信できます」 も同じ制限を受けるか (画面で投稿するときに同じ文言が出るかを見れば分かる)
 - API の既定値が画面の既定値と違う項目: `submissionModificationMode` は API の既定が `MODIFIABLE_UNTIL_TURNED_IN` (提出後は編集不可)、 画面の既定は「生徒は解答を編集できます」 = `MODIFIABLE`。 画面と同じにしたいなら明示する

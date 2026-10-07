@@ -125,7 +125,7 @@ layer 1 (public) のドメイン固有規約 146 file をカテゴリ別に列�
 
 ## 論文・発表・研究文書 (`paper`)
 
-- **[beamer-slides.md](beamer-slides.md)** — Beamer/metropolis または編集可能な PPTX / Keynote で研究スライドを作る・直すとき + 既存デッキの「同じ感じ」を引き継ぐとき
+- **[beamer-slides.md](beamer-slides.md)** — Beamer/metropolis または編集可能な PPTX / Keynote で研究スライドを作る・直すとき + 既存デッキの「同じ感じ」を引き継ぐとき + 「最新のデザインでかっこよく」 と頼まれたとき (#design-from-principles)
   - 研究スライドの技術規約 (= Beamer の build・font・section・page label / 既存デッキの構成・意匠・素材を分けて継承 / editable PPTX の共通 artifact-tool helper / Keynote 読戻し + PDF 出荷 / 全頁 visual QA / QR payload と link 検査。giving-talks.md〔中身/作法〕と相補)
 - **[giving-talks.md](giving-talks.md)** — 講演・セミナー・発表の準備をするとき (+ 日本語版: [giving-talks.ja.md](giving-talks.ja.md))
   - 講演のしかた (= Robert Geroch "Suggestions For Giving Talks" arXiv:gr-qc/9703019 の own-words ダイジェスト、 主題選択 / 3-4 メッセージ構成 / 導入は全体の 1-5 / 視覚資料は図>言葉>式 / 1h で非自明な式 5 本・スライド 10 枚 / 質問は完全に正直に 等。 セミナー・JC・卒論発表の準備時に読む、 英語本体)
