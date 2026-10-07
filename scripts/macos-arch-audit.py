@@ -277,7 +277,9 @@ def check_apps(native: str, findings: list) -> list[str]:
     roots = ["/Applications", str(HOME / "Applications")]
     foreign, dead = [], []
     for root in roots:
-        for app in glob.glob(root + "/*.app") + glob.glob(root + "/*/*.app") + glob.glob(root + "/*/*/*.app"):
+        # Unity Hub のエディタは <root>/Unity/Hub/Editor/<版>/Unity.app (深さ 5) = 3 段の glob に入らない (実測: Intel だけの古い版が漏れた)
+        pats = [root + "/*.app", root + "/*/*.app", root + "/*/*/*.app", root + "/Unity/Hub/Editor/*/Unity.app"]
+        for app in sorted({a for p in pats for a in glob.glob(p)}):
             info = Path(app) / "Contents" / "Info.plist"
             try:
                 d = plistlib.loads(info.read_bytes())

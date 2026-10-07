@@ -249,18 +249,21 @@ sudo find ~/Library/Containers/com.<vendor>.* -type f \
 
 ### 完全削除 = 本人が Finder で選んで ⌘⌫
 
-script からの経路は全部拒否される (macOS 26 で実測): `sudo rm` (EPERM) / `/usr/bin/trash` (`-5000 afpAccessDenied`) / Finder への AppleScript `delete` (`-5000`)。 一方、 **本人が Finder でその folder を選んで ⌘⌫ するとゴミ箱へ移る** (実測) = recovery mode で SIP を切る経路は要らない。 agent は `open -R <path>` で 1 つずつ選択状態にして渡す (渡し方と、 名前で探させてはいけない理由 = [`macos-gui-app-automation.md#hand-off-selected-item`](macos-gui-app-automation.md#hand-off-selected-item))。
+script からの削除の経路は拒否される (macOS 26 で実測): `sudo rm` (EPERM) / `/usr/bin/trash` (`-5000 afpAccessDenied`) / Finder への AppleScript `delete` (`-5000`)。 一方、 **本人が Finder でその folder を選んで ⌘⌫ するとゴミ箱へ移る** (実測) = recovery mode で SIP を切る経路は要らない。
+
+<a id="container-rename-to-trash"></a>⚠️ **dir ごと `~/.Trash/` の下へ `mv` する (同じ volume の rename) のは、 sudo なしで通ったことがある** (実測、 macOS 26。 本体を消した後に残った container)。 ⌘⌫ を頼む前に試す。 Finder の「戻す」 は効かない。 ゴミ箱を空にするときに通るかは確かめていない。 1 つの dir にまとめて移すと、 同じ bundle id の名前が `Containers` と `Application Scripts` の両方にあるので 2 本目が `Directory not empty` で止まる = 移す先の名前に元の置き場所を付ける。 agent は `open -R <path>` で 1 つずつ選択状態にして渡す (渡し方と、 名前で探させてはいけない理由 = [`macos-gui-app-automation.md#hand-off-selected-item`](macos-gui-app-automation.md#hand-off-selected-item))。
 
 ### App Store 経由 install の `.app` は `/Applications` からも消えない
 
-WeChat 等の App Store install app は root 所有で、 `/Applications/` からの `sudo rm` が拒否される場合がある。 **Finder で右クリック → 「ゴミ箱に入れる」** が最短ルート (= LaunchServices 経由の App Store 認識 uninstall が走る)。 script からは `/usr/bin/trash` が `-5000` で拒否され、 Finder への AppleScript `delete` は管理者パスワードの確認を出してゴミ箱へ移す (実測。 root 所有の `/Library/Extensions/*.kext` も同じ)。
+WeChat 等の App Store install app は root 所有で、 `/Applications/` からの `sudo rm` が拒否される場合がある。 **Finder で右クリック → 「ゴミ箱に入れる」** が最短ルート (= LaunchServices 経由の App Store 認識 uninstall が走る)。 script からは `/usr/bin/trash` が `-5000` で拒否され、 Finder への AppleScript `delete` は管理者パスワードの確認を出してゴミ箱へ移す (実測。 root 所有の `/Library/Extensions/*.kext` も同じ)。 `sudo mv <app> ~/.Trash/<dir>/` も通った (実測、 macOS 26) = 他の root 所有の片付けと 1 本の script にまとめ、 本人が terminal のタブでパスワードを 1 回入れる。
 
 ### <a id="agent-uninstall-sequence"></a>agent が app を消すときの段取り
 
+0. **開発元で選ぶとき** (「この会社・この国のアプリを全部」): Developer ID の app は `codesign -dvv <app>` の `Authority=Developer ID Application: <開発元> (<TeamIdentifier>)`。 App Store の app は署名が Apple 名義で開発元が出ない = `https://itunes.apple.com/lookup?bundleId=<bundle id>&country=<国コード>` の `sellerName`。 bundle id の綴りは開発元を表さないことがある (個人開発者の app)。 本体がもう無い app は残骸の bundle id と、 Finder 拡張・File Provider 拡張の container の名前で拾う。
 1. **消す = ゴミ箱へ移す**: `/usr/bin/trash <path>` (macOS 標準、 Finder の「戻す」 が効く)。 `rm` / `brew uninstall --zap` は戻せないので使わない。 ゴミ箱を空にするのは本人。
-2. **残骸の置き場所**: bundle id と vendor 名で `~/Library/{Application Support,Caches,Preferences,Containers,Group Containers,Application Scripts,Saved Application State,HTTPStorages,WebKit,LaunchAgents}` と `/Library/{LaunchAgents,LaunchDaemons,PrivilegedHelperTools,Extensions,Audio/Plug-Ins/HAL,CoreMediaIO/Plug-Ins/DAL}` を見る。 Homebrew cask なら `brew info --json=v2 --cask <token>` の `zap` が置き場所の checklist。 移行アシスタントで移した Mac は、 退避した旧版の `.app` の置き場所も見る。
+2. **残骸の置き場所**: bundle id と vendor 名で `~/Library/{Application Support,Caches,Preferences,Containers,Group Containers,Application Scripts,Saved Application State,HTTPStorages,WebKit,LaunchAgents}` と `/Library/{LaunchAgents,LaunchDaemons,PrivilegedHelperTools,Extensions,Audio/Plug-Ins/HAL,CoreMediaIO/Plug-Ins/DAL}` を見る。 Homebrew cask なら `brew info --json=v2 --cask <token>` の `zap` が置き場所の checklist。 移行アシスタントで移した Mac は、 退避した旧版の `.app` の置き場所も見る。 File Provider 拡張の `~/Library/Application Support/FileProvider/<拡張の id>` と、 最近使った書類の一覧 `~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/<bundle id>.sfl3` も残る (実測)。 ⚠️ 名前の部分一致は利用者のデータ (同期フォルダの写真の dir など) にも当たる = 残骸かを 1 件ずつ見てから移す。
 3. **brew の記録**: ゴミ箱へ移した後に `brew uninstall --cask <token>` で Caskroom の記録だけ外す (外さないと `brew upgrade` が入れ直す)。
-4. **script で動かせなかったもの**: root 所有 → Finder への AppleScript `delete` (パスワード確認は本人)。 container → 本人の ⌘⌫ (上の「完全削除」)。
+4. **script で動かせなかったもの**: root 所有 → Finder への AppleScript `delete` か、 `sudo mv` を 1 本の script にまとめて本人が terminal で (パスワードは本人)。 container → 先に dir ごと `~/.Trash/` の下へ `mv` ([#container-rename-to-trash](#container-rename-to-trash))、 拒まれたら本人の ⌘⌫ (上の「完全削除」)。
 5. **最後に同じ名前で置き場所を scan し直し**、 残りが 0 になってから本人に「ゴミ箱を空に」 と渡す。
 
 ---
