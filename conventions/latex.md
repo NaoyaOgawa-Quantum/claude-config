@@ -281,6 +281,14 @@ grep -vE '^\s*%' file.tex
 
 display math・図は行数でなく rendered での専有量で別途見積もる。
 
+## <a id="source-comment-scope"></a>source の comment に査読の記録を書かない — 置き場は results note
+
+**ルール:** source の comment に書くのは、 版ごとの変更の要点・組版の注・コメントアウトした旧文 (盲検に出すときは写しで剥がす) まで。 **査読の verdict・finding の一覧・results や plans への path・依頼の token・依頼者の発言の引用は書かない**。 置き場は results note と commit message の本文 (件名に結論を書くと、 盲検の受け手が repo の log から読む)。
+
+**Why:** comment は剥がす段のある経路 (封じた sandbox の referee copy) では消えるが、 剥がす段の無い経路 (repo を直読する受け手) では対象と一緒に届く。 受領のたびに記録を source に書き戻すと、 次の round の盲検の対象に前回の結論が入る (実測: 掲示板経由の受け手が、 対象の先頭 comment に前回の verdict と訂正の一覧を読んだと申告した)。 汚染経路の分類 = [`cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md#contamination-channels) (d)。
+
+**How to apply:** 盲検に出す対象は経路に依らず写しにする (`strip-tex-comments.py IN OUT` → `check-review-target.py OUT` が exit 0)。 commit 時は .tex の comment に足した査読の語と記録への path を `check-review-target.py --staged-warn` が警告する (commit は止めない。 個人層の pre-commit に配線して使う)。
+
 ## <a id="math-mode-protection"></a>地の文に math 文字を裸で書かない (math mode 保護)
 
 **ルール:** 地の文 (= `$...$` `\(...\)` `equation` 環境の外) では、 `^` `_` `\dagger` `\hat` 等の **math mode 専用記号を含む式片**を裸で書かない。 全部 `$...$` で囲うか、 日本語に置き換える。

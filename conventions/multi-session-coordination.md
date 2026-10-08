@@ -429,7 +429,7 @@ sender 側は上記 spawn-spec template を書いて chip を投げる。 receiv
 
 ### <a id="review-handoff"></a>作ったものの検収を別 session に頼むとき — 作業書に書くことと、 受け手の進め方
 
-作った本人の 4 軸 sweep は、 自分の説明を自分で確かめる形になる。 道具・hook・検出器のように「説明と実装の食い違い」 が後で高くつくものは、 別 session に検収を頼むと安く見つかる (実測: 起票側の sweep と全 test が緑の成果物から、 誤検出 3 形・見逃し 2 形・説明と本体の食い違い 2 件が出た)。 盲検の査読 ([`cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md)) と違い、 受け手は repo も記録も読める — 隔離でなく**読む順序**で独立を保つ。
+作った本人の 4 軸 sweep は、 自分の説明を自分で確かめる形になる。 道具・hook・検出器のように「説明と実装の食い違い」 が後で高くつくものは、 別 session に検収を頼むと安く見つかる (実測: 起票側の sweep と全 test が緑の成果物から、 誤検出 3 形・見逃し 2 形・説明と本体の食い違い 2 件が出た)。 盲検の査読 ([`cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md)) と違い、 受け手は repo も記録も読める — 隔離でなく**読む順序**で独立を保つ。 読む順序で守れるのは、 起票側の記録が対象と別の file にあるときだけ — 対象 file の中 (先頭 comment など) に結論や記録への path があれば、 先に剥がした写しを対象にする ([`cold-eyes-isolation.md`](../../ai-collaboration/conventions/cold-eyes-isolation.md#contamination-channels) (d))。 盲検にしたいなら読む順序でなく [`#board-blind-variant`](../../ai-collaboration/conventions/cold-eyes-isolation.md#board-blind-variant) の形にし、 掲示板の依頼は `--review-target` か `--not-blind` のどちらかを付ける。
 
 **作業書 (起票側)**:
 - 目的を「問題なしの報告を作ること」 でなく「不具合・誤検出・見逃し・説明と実装の食い違い・公開してはいけない記述を見つけること」 と書く。
