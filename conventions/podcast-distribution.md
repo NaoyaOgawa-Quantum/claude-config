@@ -120,7 +120,7 @@ PNG は元の絵として手元に残す。
 |---|---|---|
 | ホスト | 番組の RSS (curl で読む。python の既定の User-Agent は弾かれることがある) | 回の数と最新の回 = 突き合わせの基準 |
 | Apple Podcasts | `https://itunes.apple.com/lookup?id=<番組の番号>&entity=podcastEpisode&limit=1&country=<国>` | 番組が出ているか (公開の直後は 0 件) と最新の回 |
-| YouTube | `https://www.youtube.com/feeds/videos.xml?playlist_id=<番組の再生リスト ID>` | 公開されている回 (非公開の間は 0、新しい 15 回まで) |
+| YouTube | `https://www.youtube.com/feeds/videos.xml?playlist_id=<番組の再生リスト ID>` | 公開されている回 (非公開の間は 0、新しい 15 回まで)。⚠️ 公開中でも一時的に 404 を返すことがある (実測: 404 の数分後に 200 で全回) = 1 回の 404 を「非公開」と読まず、間をおいて読み直す。読み直しても 200 でなければ「読めない」と報告する (非公開かどうかはこれでは分からない) |
 | Spotify / Amazon Music | 番組ページ | 開くか (HTTP 200) だけ。回までは見えない |
 | ホストの番組ページ・公式サイト | 各ページの HTML | 各配信先へのリンクが全部あるか |
 
