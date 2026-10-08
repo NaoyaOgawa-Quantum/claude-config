@@ -75,6 +75,8 @@ summary: アカウント × マシン × 端末 (desktop app / スマホ remote)
 
 **Stop 段の mode**: `DEFAULT_STOP_MODE` (導入時 = observe、 observe の記録に誤発火が無いのを確かめて block に上げた) を env `FIRST_REPLY_STAMP_STOP` (off / observe / block) で上書きできる。 observe の記録は `<config dir>/state/first-reply-stamp/stop-log.jsonl` (Codex は `~/.codex/state/claude-config-first-reply-stamp/`)。 block に上げるのは、 記録と audit で誤発火が無いのを確かめてから (= 値の変更を commit で残す)。 1 session につき評価は最初の Stop の 1 回だけで、 以後の turn では transcript を読まない。
 
+<a id="stamp-text-missing-from-transcript"></a>**誤発火の 1 つの型 — 最初の途中経過の text が transcript に残らない** (実測、 desktop、 原因未確認): 最初の turn の最初の text (stamp の 1 行で始まる途中経過の文) が transcript の file に無く、 同じ turn の後の途中経過の文は残っていた。 Stop 段は transcript だけを読むので、 stamp を出していても「無い」 と差し戻す。 差し戻されたら指示どおり stamp の 1 行だけを出せば済む (中身の出し直しは要らない)。 疑うときは transcript で最初の turn の assistant の text を数え、 画面に出した最初の文が入っているかを見る。 2 回目が出たら、 Stop 段が `last_assistant_message` 以外に途中経過の text を拾う経路を持てるかを調べる。
+
 **desktop で届くもの・届かないもの** (2026-09-11 実測 = [hook-authoring.md #desktop-hook-honor-remeasure](hook-authoring.md#desktop-hook-honor-remeasure)): UserPromptSubmit の additionalContext と Stop の block は届く。 `systemMessage` は会話に表示されないので、 user 向けの表示には使えない。 `sessionTitle` (hook 出力) は CLI が受け付けるが、 desktop の題名に反映されるかは未確認で、 AI 自動題名や spawn の題名を潰すので採らない。
 
 **使ってはいけない信号**: transcript 先頭の `bridge-session.ownerAccountUuid` は session の account ではない (registry の account と 42/95 で食い違った)。
