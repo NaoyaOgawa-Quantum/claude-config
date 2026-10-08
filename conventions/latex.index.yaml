@@ -55,6 +55,9 @@ sections:
   - id: exclude-comments-from-length
     level: 2
     title: "長さ・段落構造の判断にコメントアウト行を数えない"
+  - id: source-comment-scope
+    level: 2
+    title: "source の comment に査読の記録を書かない — 置き場は results note"
   - id: math-mode-protection
     level: 2
     title: "地の文に math 文字を裸で書かない (math mode 保護)"
