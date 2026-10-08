@@ -31,6 +31,15 @@
 - LaTeX: `<base>/claude-config/conventions/latex.md`
 - 個人層モデル: `<base>/claude-config/docs/personal-layer.md`
 
+## チャット応答での数式の書き方
+
+Claude デスクトップアプリ (Code タブ) のレンダラが解釈できる形式だけを使う (2026-10-09 検証):
+
+- 区切りは `$…$` (インライン)、`$$…$$` (ディスプレイ)、`\(…\)` (インライン) のみ。**`\[…\]` は使わない** (描画されず生のまま表示される)。
+- コマンドは KaTeX 標準のみ。physics パッケージ (`\ket`, `\bra`, `\abs`, `\exv`)、`\mathscr`、リポのプリアンブル固有マクロは使わない (未知コマンドが一つあると数式全体が生表示になる)。
+- 数式をコードブロックや backtick の中に入れない。`$$` ブロックの内側に空行を置かない。
+- 長い導出はチャットに書かず、`.md` ファイルや Artifact に出す。
+
 ## Projects
 
 リポ一覧の正本は [`repos.md`](repos.md)。現在の作業プロジェクト（autocompact 復帰時に巡回する active な repo）は、この `CLAUDE.md` の下に `### 現在の作業プロジェクト` セクションを置いて列挙する（git 同期先が正。`~/.claude/.../memory/MEMORY.md` は index-only、[`docs/convention-design-principles.md` §8.7](../claude-config/docs/convention-design-principles.md#mechanism-application-example)）。
