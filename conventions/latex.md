@@ -876,6 +876,8 @@ JHEP.bst のような `F.~Last` 形式の bst では、ブレース内が全部 
 - 既存 refs.bib の entry を**検証せずに**信用する（共同編集者や過去の自分が誤同定している可能性。実例: 同名著者の別論文と取り違え、改訂版のタイトルを初版と混同 等）
 - 似たキーワード・近い年代の論文を「これだろう」 と推測して埋める
 
+**本 (教科書) の照合経路** (実測): 論文と違って DOI の registry が無いので、 出版社の商品頁 (著者・章題の一覧)、 Google Books (章題と開始頁)、 図書館の union catalog (出版地・頁数・series・ISBN・LCCN、 [`web-tools.md#cinii-library-holdings`](web-tools.md#cinii-library-holdings)) の 3 つを重ねる。 **章番号はどの情報源にも印字されないことがある** → 本文では章を題と開始頁で引く (「章 N」 と書かない)。 章の中身 (節題・式) は本を開かない限り未照合なので、 その本に帰属させるのは順序と題だけにし、 結果そのものは原典 (原論文・総説) に帰属させる。
+
 **典型的な落とし穴**:
 
 - Mandelbrot 1977 と 1982 で本のタイトルが違う（1977: *Fractals: Form, Chance, and Dimension* / 1982: *The Fractal Geometry of Nature*。同著者・近接年・関連内容で取り違いやすい）
