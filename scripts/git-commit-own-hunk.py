@@ -40,6 +40,9 @@ commit は `git commit` で作る (pre-commit / prepare-commit-msg / commit-msg 
 
     # 版で指定 (「親の版 + 自分の変更」 の全文を自分で作った時)。 作った時の HEAD を --base に書く
     git-commit-own-hunk.py -F msg.txt --base <sha> --version <path> mine.txt
+    #   ⚠️ --version は作業 tree に書かない (全文は相手の変更の混ざった作業 tree に当てられない)。 commit の後、
+    #   作業 tree が親の版のままだと自分の commit を取り消す差分に見える = 作業 tree が親の版と一致するなら
+    #   `git checkout HEAD -- <path>`、 相手の変更が在るなら自分の変更を作業 tree にも当てる (= --replace を使う方が楽)
 
     --dry-run   commit せずに、 何が commit されるかを出す
     --no-worktree  置換を作業 tree に当てない (もう自分で当ててある時)
