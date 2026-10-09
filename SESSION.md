@@ -21,7 +21,7 @@
 ## Open items（forward-looking）
 
 
-- [ ] **claude-app-account-mirror の実 app での初回の実走** — Claude からは入れられない (classifier が session 記録の改ざんとして止める) ので、 本人が install した後の session で確かめる: ① 表示していない account の一覧に `⇄<元>` の写しが出る ② 写しを開くと「インポートしたセッションを再開しますか？」 が出て、 再開後の会話記録が `projects/<slug>/<新しい cli id>.jsonl` に移り元と別になる ③ 表示中の account の dir には書かない (`--status` の待ちの数) ④ launchd の log が変化の無い回は無音。 test は偽の userData だけ = 実 app の挙動は本体を読んだ推定
+- [ ] **claude-app-account-mirror の実 app での初回の実走** — 常駐は本人が 2 台に入れた。 実測済み = ③ 表示中の account の dir には書かない (`--status` の待ちの数) / app が写しの record を読み込む (切替の後の app の log に読み込みの失敗なし)。 未観察 = ① 写しが一覧に**見える形で**出る (元をアーカイブした session の写しはアーカイブ済みに入る = 元の isArchived を引き継ぐ。 扱いの裁定待ち) ② 写しを開くと「インポートしたセッションを再開しますか？」 が出て、 会話記録が `projects/<slug>/<新しい cli id>.jsonl` に移る ④ launchd の log が変化の無い回は無音
 
 - [ ] **collaborator-check の未実走の面** — Claude Code の project hook は headless で発火を確認、 共同編集者の実機・Windows (Git Bash)・Codex (hook なし = CLAUDE.md の「1 回実行」 頼み) は未確認。 共同編集者の最初の session の報告で確かめる
 - [ ] **規則保護 gate の `apply` は対象と候補が同じだと何もしない** — installer が先に file を書き、 commit の gate で止まった場合に当たる。 実測では `approve --candidate <写し> --region …` で記録して通した。 `apply` が記録だけは行うようにするかは owner 判断
