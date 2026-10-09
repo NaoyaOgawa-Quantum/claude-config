@@ -289,6 +289,8 @@ display math・図は行数でなく rendered での専有量で別途見積も�
 
 **How to apply:** 盲検に出す対象は経路に依らず写しにする (`strip-tex-comments.py IN OUT` → `check-review-target.py OUT` が exit 0)。 commit 時は .tex の comment に足した査読の語と記録への path を `check-review-target.py --staged-warn` が警告する (commit は止めない。 個人層の pre-commit に配線して使う)。
 
+**本文も同じ** (実測): 「盲検で査読を受け、 その訂正を取り込んだ」 と受領を本文に 1 文で書くと、 comment を剥がした写しにも残り、 組版面で全読者に届く (封じた判定 session が申告規則で停止した = 検出器は働いたが 1 走分が無駄になる)。 受領の事実も results note に。 `check-review-target.py` はこの型の本文の文を kind body-history で止める。
+
 ## <a id="math-mode-protection"></a>地の文に math 文字を裸で書かない (math mode 保護)
 
 **ルール:** 地の文 (= `$...$` `\(...\)` `equation` 環境の外) では、 `^` `_` `\dagger` `\hat` 等の **math mode 専用記号を含む式片**を裸で書かない。 全部 `$...$` で囲うか、 日本語に置き換える。
