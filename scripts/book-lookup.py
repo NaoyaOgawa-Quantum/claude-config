@@ -17,6 +17,9 @@
      `amazon` (通販の商品ページ、 商品 id = ISBN-10) で価格と入手を取る。 値付けは出品者込みで定価より高いことがあり、
      「残り N 点」 は出品在庫。 空の応答が時々返るので間を置いて取り直す。 楽天の検索結果は洋書では海外取り寄せの上乗せで
      定価と離れ「注文できない」 ばかりになる = 洋書の価格には使わない (実測)。
+  6. **1 か所が応答しないと、 その列だけが「応答なし」 になる** — 書店の 1 ページの read timeout で command ごと落ち、
+     先に取れていた openBD の価格も残りの本も出ないことがあった (実測)。 今はその本のその列だけ「応答なし = 未確認」
+     と出して先へ進む。 「応答なし」 は「価格なし」 (= 注文できない見込み) と違う。 時間をおいて取り直す。
 
 手順と判断の一般則 = conventions/book-purchase-lookup.md。
 
@@ -274,27 +277,49 @@ def cmd_opac(a) -> None:
         time.sleep(PAUSE)
 
 
+def fetch_or_none(url: str) -> str | None:
+    """照会先が応答しない (read timeout・接続できない) ときは None を返す。 呼び元はその列だけ「応答なし」 にして先へ進む
+    (= 1 か所の timeout で command ごと落ち、 取れていた分まで失わないため)。 HTTP の status (404 など) は呼び元が扱う。"""
+    try:
+        return fetch(url)
+    except urllib.error.HTTPError:
+        raise
+    except (urllib.error.URLError, OSError):  # socket.timeout は OSError の子 (3.9)
+        return None
+
+
 def cmd_price(a) -> None:
     isbns = [to_isbn13(x) or x for x in a.isbn]
     bad = [x for x in isbns if not to_isbn13(x)]
     if bad:
         print("⚠️ ISBN として読めない: " + ", ".join(bad), file=sys.stderr)
     good = [x for x in isbns if to_isbn13(x)]
-    ob = parse_openbd(json.loads(fetch("https://api.openbd.jp/v1/get?isbn=" + ",".join(good)))) if good else {}
+    ob_page = fetch_or_none("https://api.openbd.jp/v1/get?isbn=" + ",".join(good)) if good else None
+    ob = parse_openbd(json.loads(ob_page)) if ob_page else {}
+    if good and ob_page is None:
+        print("⚠️ openBD が応答しない = 登録価格は未確認", file=sys.stderr)
     for isbn in good:
         kind = "01" if isbn.startswith("9784") else "02"
         try:
-            tax, base, stock = parse_kinokuniya(page_text(fetch(f"https://www.kinokuniya.co.jp/f/dsg-{kind}-{isbn}")))
-            kino = f"紀伊國屋 税込 {tax} (本体 {base}) {stock}" if tax else "紀伊國屋 価格なし = 注文できない見込み"
+            page = fetch_or_none(f"https://www.kinokuniya.co.jp/f/dsg-{kind}-{isbn}")
+            if page is None:
+                kino = "紀伊國屋 応答なし = 未確認 (時間をおいて取り直す)"
+            else:
+                tax, base, stock = parse_kinokuniya(page_text(page))
+                kino = f"紀伊國屋 税込 {tax} (本体 {base}) {stock}" if tax else "紀伊國屋 価格なし = 注文できない見込み"
         except urllib.error.HTTPError as e:  # 商品ページの無い ISBN は 404 で返る (自費出版の洋書など)
             if e.code != 404:
                 raise
             kino = "紀伊國屋 商品ページなし (404) = 取り扱いなし"
-        row = [isbn, f"openBD {ob.get(isbn, '登録なし')}", kino]
+        row = [isbn, f"openBD {ob.get(isbn, '登録なし') if ob_page else '応答なし'}", kino]
         time.sleep(PAUSE)
         if a.rakuten:
-            rp, rs = parse_rakuten(page_text(fetch(f"https://books.rakuten.co.jp/search?sitem={isbn}&g=001")), isbn)
-            row.append(f"楽天 税込 {rp} {rs}" if rp else "楽天 該当なし")
+            page = fetch_or_none(f"https://books.rakuten.co.jp/search?sitem={isbn}&g=001")
+            if page is None:
+                row.append("楽天 応答なし = 未確認")
+            else:
+                rp, rs = parse_rakuten(page_text(page), isbn)
+                row.append(f"楽天 税込 {rp} {rs}" if rp else "楽天 該当なし")
             time.sleep(PAUSE)
         print("\t".join(row))
 
@@ -364,6 +389,35 @@ def selftest() -> int:
     check(parse_amazon("<html>empty</html>") == {}, "Amazon: 書名が無い応答は空 = 取り直す")
     rk = parse_rakuten(f"本 合成の本 ISBN：{isbn13} 2020年発売 ／ 合成出版 2,200円 (税込) 送料無料 ご注文できない商品 ※ページの更新", isbn13)
     check(rk == ("2,200", "ご注文できない商品"), "楽天: 検索結果のその本の行から価格と注文可否")
+
+    # 照会先が応答しなくても command は落ちず、 その列だけ「応答なし」 (network に出ない = fetch を差し替える)
+    import contextlib
+    import io
+    import socket
+    import types
+    g = globals()
+    real_fetch, real_pause = g["fetch"], g["PAUSE"]
+    ob_json = json.dumps([{"summary": {"isbn": isbn13}, "onix": {"ProductSupply": {"SupplyDetail": {
+        "Price": [{"PriceType": "01", "PriceAmount": "2000"}]}}}}])
+
+    def price_out(openbd_up: bool) -> str:
+        def fake_fetch(url, timeout=30, encoding="utf-8"):
+            if "openbd" in url and openbd_up:
+                return ob_json
+            raise socket.timeout("The read operation timed out")
+        g["fetch"], g["PAUSE"] = fake_fetch, 0
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(io.StringIO()):
+                cmd_price(types.SimpleNamespace(isbn=[isbn13], rakuten=True))
+            return buf.getvalue()
+        finally:
+            g["fetch"], g["PAUSE"] = real_fetch, real_pause
+
+    out = price_out(True)
+    check("openBD 2000" in out and "紀伊國屋 応答なし" in out and "楽天 応答なし" in out,
+          "price: 書店が応答しなくても openBD の価格は出て、 書店の列だけ「応答なし」")
+    check("openBD 応答なし" in price_out(False), "price: openBD も応答しなければ「登録なし」 でなく「応答なし」")
     return 0 if ok else 1
 
 
