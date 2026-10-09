@@ -31,6 +31,18 @@
 - LaTeX: `<base>/claude-config/conventions/latex.md`
 - 個人層モデル: `<base>/claude-config/docs/personal-layer.md`
 
+## チャット応答での数式の書き方
+
+Claude デスクトップアプリ (Code タブ) のレンダラが解釈できる形式だけを使う (2026-10-09 検証):
+
+- 区切りは `$…$` (インライン)、`$$…$$` (ディスプレイ)、`\(…\)` (インライン) のみ。**`\[…\]` は使わない** (描画されず生のまま表示される)。
+- 開き `$` の直後と閉じ `$` の直前に空白を置かない (`$ x $` は生表示)。インライン数式は 1 行に収める (行をまたぐと生表示)。
+- 表のセルに `|` や `\|` を含む数式を書かない (`$\langle\psi|\phi\rangle$` はセル区切りに取られる)。`\mid` / `\vert` / `\lVert` で代用するか、表の外に出す。
+- コマンドは KaTeX 標準のみ。**physics パッケージのコマンドは不可** (`\dd`, `\dv`, `\pdv`, `\abs`, `\norm`, `\ev`, `\mel`, `\comm`, `\tr`, `\Tr`): `\mathrm{d}x`, `\frac{\partial f}{\partial x}`, `|x|`, `\|v\|`, `\langle A\rangle`, `\operatorname{Tr}` で書く。`\mathbb{1}`, `\mathds{1}`, `\id` も不可 (`\mathbb{I}` か `\mathbf{1}`)。リポのプリアンブル固有マクロも不可。未知コマンドが一つあると数式全体が生表示になる。
+- 使えるもの (検証済): `\ket`, `\bra`, `\braket`, `\mathscr`, `\mathfrak`, `\bm`, `\boldsymbol`, `\operatorname`, `\dfrac`, `\lVert`, `\coloneqq`, `\hbar`。
+- 数式をコードブロックや backtick の中に入れない。`$$` ブロックの内側に空行を置かない。
+- 長い導出はチャットに書かず、`.md` ファイルや Artifact に出す。
+
 ## Projects
 
 リポ一覧の正本は [`repos.md`](repos.md)。現在の作業プロジェクト（autocompact 復帰時に巡回する active な repo）は、この `CLAUDE.md` の下に `### 現在の作業プロジェクト` セクションを置いて列挙する（git 同期先が正。`~/.claude/.../memory/MEMORY.md` は index-only、[`docs/convention-design-principles.md` §8.7](../claude-config/docs/convention-design-principles.md#mechanism-application-example)）。
