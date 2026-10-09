@@ -1,0 +1,50 @@
+{
+  "_comment": "既知の壊れ方のエラー文 → その壊れ方を書いた規約の節。 hooks/known-error-nudge.py が Bash の出力・エラー文と突き合わせる。 規約に壊れ方を書いたら、 そのエラー文の変わらない部分を 1 件足す (match は部分一致、 \"regex\": true で正規表現)。 doc は本 repo からの path + #anchor (anchor の無い doc は path だけ)。 match の文字列は doc の本文にも書く = --check が doc・anchor の実在と、 match が doc にあることを確かめる。 hint は 1 文 (原因と最初の一手)",
+  "entries": [
+    {
+      "match": "Non-UTF-8 code starting with",
+      "doc": "conventions/batch-text-edits.md#system-python-long-multibyte-line",
+      "hint": "macOS 付属の python 3.9 の既知の不具合 (1023 byte を超える多バイト行)。 file は UTF-8 のままで、 1・2 行目に `# -*- coding: utf-8 -*-` を書けば通る"
+    },
+    {
+      "match": "Xcode license agreements",
+      "doc": "conventions/shell-env.md#system-python3-is-xcode-gated",
+      "hint": "/usr/bin/python3 は Xcode に従う shim で、 ライセンスに同意していないと python を起動する全部が exit 69 で落ちる"
+    },
+    {
+      "match": "died of signal 9",
+      "doc": "conventions/hook-authoring.md#killed-hook-stub",
+      "hint": "macOS に kill された git hook。 scripts/heal-hook-stubs.sh で同じ中身の新しい file に作り直す"
+    },
+    {
+      "match": "Bad CPU type in executable",
+      "doc": "conventions/macos-cpu-arch.md#migration-intel-to-apple-silicon",
+      "hint": "別の arch (Intel) 用の binary。 Apple Silicon 用に入れ直すか、 Rosetta を入れる"
+    },
+    {
+      "match": "forkpty: Device not configured",
+      "doc": "conventions/macos-claude-app-pty-leak.md",
+      "hint": "pty の上限を Claude.app が使い切っている"
+    },
+    {
+      "match": "Remote Control is not enabled for your account",
+      "doc": "conventions/remote-control-server.md#ts-version-mismatch",
+      "hint": "組織の設定でなく、 CLI が古い (v2.1.139 未満) ことが多い"
+    },
+    {
+      "match": "Remote Control requires claude.ai subscription auth",
+      "doc": "conventions/remote-control-server.md#ts-api-key-conflict",
+      "hint": "env に ANTHROPIC_API_KEY が混ざっている"
+    },
+    {
+      "match": "You must be logged in to use Remote Control",
+      "doc": "conventions/remote-control-server.md#requirements-and-selfheal",
+      "hint": "その config dir の claude.ai の login が無い・切れた (直るとサーバーは 60 秒以内に自分で戻る)"
+    },
+    {
+      "match": "Workspace not trusted",
+      "doc": "conventions/remote-control-server.md#ts-workspace-trust",
+      "hint": "新しい config dir の headless 起動で、 作業 dir の trust が未承認"
+    }
+  ]
+}

@@ -450,9 +450,17 @@ count return「0」 / 「期待と違う中身」 は 3 つの distinct な状�
 2. hit したら doc の診断手順・root・workaround を先に読む (= 再導出しない)。 forensics する場合も doc の「測るべき artifact」 に従う
 3. 症状が出た component を即 root としない (= victim 可能性を 1 path check)
 
+### <a id="known-error-lookup"></a>機械の網 — エラー文の台帳
+
+上の 1 は session の反射に頼るので、 下の関連事故のとおり規約に記録済みの壊れ方でも引かれないことがある。 エラー文が決まっている壊れ方は、 hook [`hooks/known-error-nudge.py`](../hooks/known-error-nudge.py) が Bash の出力・エラー文に台帳 [`hooks/known-errors.json`](../hooks/known-errors.json) の文字列を見つけた瞬間に、 その壊れ方を書いた節を Claude に知らせる (PostToolUse と PostToolUseFailure = command が失敗したときも鳴る、 同じ壊れ方は 1 session に 1 回)。
+
+- **規約に壊れ方を書いたら、 そのエラー文の変わらない部分を台帳に 1 件足す**。 `python3 hooks/known-error-nudge.py --check` が doc と anchor の実在と、 match の文字列が doc の本文にあることを確かめる (= 台帳だけに書いたエラー文を作らない)。
+- 射程は台帳にある文字列だけ = 決まった文の無い症状 (遅い・黙って止まる・出力が欠ける) は 1 の grep に戻る。 Bash 以外の tool の出力も見ない。
+
 ### 関連事故
 
 - **2026-06-08 pty leak 再診**: macOS pty 枯渇 (`forkpty: Device not configured`) は `conventions/macos-claude-app-pty-leak.md` が症状・診断 (`lsof /dev/ptmx`)・root・workaround まで完全記載済だったのに grep せず、 lsof (= 誤って slave `/dev/ttys` を測定 → 「leak 無し / burst」 と誤診) + web 検索 + transcript 解析の fresh forensics に 1 session 費やして再導出した。 過去 session の transcript (= §7 grep) から既存 doc に辿り着いて自己訂正。 冒頭で `grep -ri ptmx conventions/` していれば即解決 + slave 誤測も回避できた。
+- **macOS 付属 python の `Non-UTF-8 code` (実測)**: [`batch-text-edits.md#system-python-long-multibyte-line`](batch-text-edits.md#system-python-long-multibyte-line) に記録済みの壊れ方に別の session が当たり、 規約を grep せずに書き方を変えて回避し、 締めの報告で「原因を確かめていない」 と書いた。 規律の文だけでは 2 回とも効かなかったので、 上の機械の網を置いた。
 
 ---
 
