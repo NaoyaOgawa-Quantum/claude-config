@@ -14,8 +14,9 @@ subcommand:
   dl-list [--folder 語] [--from D] [--to D]                                           ダウンロードセンターの配布資料の一覧 (フォルダ | fileId | ファイル名 | 登録日 | サマリ)
   dl-get <fileId>... --out-dir DIR [--extract] [--from D] [--to D]                    配布資料を DIR に保存 (--extract = zip を DIR/<zip の stem>/ に展開、 パスワード付きの PDF は暗号化を外した写しを同じ所に。 パスワードはサマリ欄から)
   dl-missing --have DIR [--have DIR] [--folder 語] [--match 正規表現] [--from D] [--to D]  手元に無い配布資料 (名前の鍵 = NFKC・拡張子なし・空白なし で突き合わせ。 無ければ無出力)
+  schedule [--from YYYY-MM] [--months N] [--days]                                    自分のスケジュール (時間割のコマと教室)。 既定 = 曜日・時限・科目・教室ごとの回数、 --days = 1 日 1 行 (TSV)
   get <path>                                                                         任意 path を GET (debug 用)
-  status                                                                             いま読めるか (GET 1 本、 切れていれば復帰を試す)
+  status                                                                            いま読めるか (GET 1 本、 切れていれば復帰を試す)
   doctor                                                                             配線だけ (cookie を復号できて値が壊れていないか。 network なし、 健全なら無言)
   probe [path ...]                                                                   切れ方の採取 (cookie なし・偽の session id で撃ち、 302 の行き先・Set-Cookie の名前・切れ判定を並べる)
 
@@ -58,6 +59,7 @@ SYLLABUS_FLOW = "SYW0001000-flow"
 GRADE_FLOW = "SIW0001000-flow"  # 成績登録 / 履修者名簿ダウンロード
 DL_FLOW = "SDW0001000-flow"  # ダウンロードセンター (フォルダごとの配布資料の一覧)
 DL_FILE_FLOW = "SDW-filerefer-flow"  # 配布資料 1 本 (&fileId=<N>、 302 → 200 の attachment)
+SCHEDULE_FLOW = "PTW0001200-flow"  # スケジュール管理 (自分の時間割のコマ・休講・補講の月表示。 教室つき)
 PROBE_PATHS = [PORTAL, f"{FLOW}?_flowId={SYLLABUS_FLOW}"]
 
 
@@ -123,6 +125,50 @@ def result_rows(page):
         if cells and ref:
             rows.append({"cells": cells, "refer": ref.groups()})
     return rows
+
+
+# ── 自分のスケジュール (conventions/campussquare.md#teacher-schedule) ──
+_SLOT = re.compile(r"^(\d+)限:(.+)@([^@]+)$")
+_WEEKDAY = "月火水木金土日"
+
+
+def schedule_parse(page):
+    """スケジュール管理の月表示 → [{date, period, course, room, kind}]。 時限つきの行だけ (「[休日 ]日曜日」 の行は捨てる)。
+    日付は各日の「予定を足す」 link (addSchedule(YYYYMMDD)) から取る。 科目名・教室は NFKC (全角の数字・英字を半角に)。
+    kind = 行の span の class (開講 = kaiko。 休講・補講は別の class = 画面の凡例の色分け)。"""
+    out = []
+    for td in re.findall(r"<td[^>]*>(.*?)</td>", page, re.S):
+        d = re.search(r"addSchedule\((\d{8})\)", td)
+        if not d:
+            continue
+        ymd = d.group(1)
+        for kind, text in re.findall(r'<span class="([^"]*)">(.*?)</span>', td, re.S):
+            t = unicodedata.normalize("NFKC", htmllib.unescape(re.sub(r"<[^>]+>", "", text))).strip()
+            m = _SLOT.match(t)
+            if m:
+                out.append({"date": f"{ymd[:4]}-{ymd[4:6]}-{ymd[6:]}", "period": m.group(1),
+                            "course": m.group(2).strip(), "room": m.group(3).strip(), "kind": kind})
+    return out
+
+
+def schedule_month(page):
+    """月表示の見出しの (年, 月)。 無ければ画面構造の変化として止める。"""
+    m = re.search(r"(\d{4})年(\d{1,2})月", html_to_text(page))
+    if not m:
+        raise SystemExit("スケジュール管理の月の見出しが見つからない (= 画面構造の変化か、 週単位の表示になっている)")
+    return int(m.group(1)), int(m.group(2))
+
+
+def schedule_summary(rows):
+    """行 → 曜日・時限・科目・教室・種別ごとに [(曜日, 時限, 科目, 教室, 種別, 回数, 初回, 最終)]。 同じ日の同じ行は 1 回と数える
+    (旧課程・新課程で時間割番号が 2 つある授業は、 同じ「時限:科目@教室」 が 2 行出る)。"""
+    from datetime import date as _date
+    days = {}
+    for r in rows:
+        wd = _WEEKDAY[_date.fromisoformat(r["date"]).weekday()]
+        days.setdefault((wd, r["period"], r["course"], r["room"], r["kind"]), set()).add(r["date"])
+    order = {c: i for i, c in enumerate(_WEEKDAY)}
+    return [(*k, len(v), min(v), max(v)) for k, v in sorted(days.items(), key=lambda kv: (order[kv[0][0]], kv[0][1:]))]
 
 
 # ── ダウンロードセンター (conventions/campussquare.md#download-center) ──
@@ -481,6 +527,38 @@ class CampusSquare(CookieSession):
             page = self.post_flow(f)
         return page
 
+    def schedule(self, start=None, months=1):
+        """自分のスケジュールを start (YYYY-MM、 既定 = 今月) から months か月分 = schedule_parse の行 (その月の外の日は捨てる)。
+        月は画面の「prev / next」 と同じ POST (form ScheduleListForm、 event setPrevMonth / setNextMonth) で送る。 読むだけ。"""
+        page = self.open_flow(SCHEDULE_FLOW)
+        cur = schedule_month(page)
+        want = tuple(map(int, start.split("-"))) if start else cur
+        index = lambda ym: ym[0] * 12 + ym[1] - 1
+        month_of = lambda i: (i // 12, i % 12 + 1)
+
+        def move(page, k):
+            f = form_fields(page, "ScheduleListForm")
+            f["_eventId"] = "setNextMonth" if k > 0 else "setPrevMonth"
+            expect = month_of(index(schedule_month(page)) + k)
+            page = self.post_flow(f)
+            if schedule_month(page) != expect:
+                raise SystemExit(f"月を送れなかった ({f['_eventId']} の後が {schedule_month(page)}、 期待 {expect})")
+            return page
+
+        while schedule_month(page) != want:
+            page = move(page, 1 if index(want) > index(schedule_month(page)) else -1)
+        rows, seen = [], set()
+        for i in range(months):
+            if i:
+                page = move(page, 1)
+            y, m = schedule_month(page)
+            for r in schedule_parse(page):
+                key = tuple(r.values())
+                if r["date"][:7] == f"{y:04d}-{m:02d}" and key not in seen:
+                    seen.add(key)
+                    rows.append(r)
+        return rows
+
     def dl_get(self, file_id):
         """配布資料 1 本 = (bytes, file 名, Content-Type)。 GET → 302 → 200 の attachment (file 名は Content-Disposition)。"""
         r = self._request("GET", f"{FLOW}?_flowId={DL_FILE_FLOW}&fileId={int(file_id)}")
@@ -676,6 +754,26 @@ def _dl_selftest_cases():
     ]
 
 
+def _schedule_selftest_cases():
+    page = ('<div>2026年10月</div><table><tr><td class="kyujitsu"><div><a onclick="addSchedule(20261004);"></a>'
+            '<div class="cal-content"><span class="kaiko">[休日 ]日曜日</span></div></div></td>'
+            '<td class="day"><div><a onclick="addSchedule(20261005);"></a><div class="cal-content">'
+            '<span class="kaiko">2限:物理学Ａ@９１０１</span><br><span class="kaiko">2限:物理学Ａ@９１０１</span><br>'
+            '<span class="kyuko">4限:Ｍ_演習Ｉ@研究室</span></div></div></td>'
+            '<td class="day"><div><a onclick="addSchedule(20261012);"></a><div class="cal-content">'
+            '<span class="kaiko">2限:物理学Ａ@９１０１</span></div></div></td></tr></table>')
+    rows = schedule_parse(page)
+    return [
+        ("schedule_parse: 休日の行を捨て、 全角を NFKC で半角に", [r["room"] for r in rows] == ["9101", "9101", "研究室", "9101"]
+         and rows[0] == {"date": "2026-10-05", "period": "2", "course": "物理学A", "room": "9101", "kind": "kaiko"}
+         and rows[2]["kind"] == "kyuko"),
+        ("schedule_month: 見出しの年月", schedule_month(page) == (2026, 10)),
+        ("schedule_summary: 同じ日の重複は 1 回・曜日つき", schedule_summary(rows) == [
+            ("月", "2", "物理学A", "9101", "kaiko", 2, "2026-10-05", "2026-10-12"),
+            ("月", "4", "M_演習I", "研究室", "kyuko", 1, "2026-10-05", "2026-10-05")]),
+    ]
+
+
 def selftest():
     host = "cs.example.ac.jp"
     cases = [
@@ -709,7 +807,7 @@ def selftest():
         ("inside: 別 host・Shibboleth・context 外は外", inside("https://cs.example.ac.jp/campusweb/x.do", host)
          and not inside("https://cs.example.ac.jp/Shibboleth.sso/SAML2/POST", host)
          and not inside("https://idp.example.com/campusweb/", host) and not inside("https://cs.example.ac.jp/", host)),
-    ] + _dl_selftest_cases()
+    ] + _dl_selftest_cases() + _schedule_selftest_cases()
     for name, good in checks:
         ok &= bool(good)
         print("PASS" if good else "FAIL", name)
@@ -752,6 +850,10 @@ def main():
     p.add_argument("--have", action="append", required=True, metavar="DIR",
                    help="手元の置き場 (直下の file・dir の名前を見る。 複数可)")
     p.add_argument("--match", default="", help="ファイル名への正規表現 (例: 2026年度)")
+    p = sub.add_parser("schedule", help="自分のスケジュール (時間割のコマと教室)")
+    p.add_argument("--from", dest="start", metavar="YYYY-MM", help="始めの月 (既定 = 今月)")
+    p.add_argument("--months", type=int, default=1, help="何か月分 (既定 1)")
+    p.add_argument("--days", action="store_true", help="1 日 1 行の TSV (日付 曜日 時限 科目 教室 種別)")
     p = sub.add_parser("get"); p.add_argument("path")
     sub.add_parser("status")
     sub.add_parser("doctor")
@@ -796,6 +898,19 @@ def run(a, cs):
     elif a.cmd == "syllabus":
         page = cs.syllabus(a.year, a.code)
         print(page if a.html else html_to_text(page))
+    elif a.cmd == "schedule":
+        if a.start and not re.fullmatch(r"\d{4}-\d{1,2}", a.start):
+            raise SystemExit("--from は YYYY-MM")
+        rows = cs.schedule(a.start, max(a.months, 1))
+        if a.days:
+            from datetime import date as _date
+            for r in rows:
+                print("\t".join([r["date"], _WEEKDAY[_date.fromisoformat(r["date"]).weekday()], r["period"],
+                                 r["course"], r["room"], r["kind"]]))
+        else:
+            print(f"# 自分のスケジュール: {len(rows)} 行 (曜日時限 | 科目 | 教室 | 回数 (初回〜最終)。 種別が開講 〔kaiko〕 以外なら末尾に)")
+            for wd, per, course, room, kind, n, first, last in schedule_summary(rows):
+                print(f"{wd}{per} | {course} | {room} | {n} 回 ({first}〜{last})" + ("" if kind == "kaiko" else f" | {kind}"))
     elif a.cmd == "roster-csv":
         body, name = cs.roster_csv(a.year, a.exam)
         out, _ = save_no_clobber(Path(a.out_dir).expanduser() / Path(name).name, body)  # 同じ日の取り直しは上書きしない
