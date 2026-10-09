@@ -97,6 +97,13 @@ status() {
     [ -f "$LOG" ] && { echo "  --- log tail ---"; tail -5 "$LOG" | sed 's/^/  /'; }
   else
     echo "not installed ($LABEL)"
+    # --label-suffix で入れた server が別にあれば言う (= 「not installed」 を「この機械に server が無い」 と読ませない。
+    # pinned per-account 構成では suffix の無い既定 label は入れないので、 素の --status は常にこの行に落ちる)
+    if [ -z "$LABEL_SUFFIX" ]; then
+      base_re=$(printf '%s' "$LABEL_BASE" | sed 's/\./\\./g')
+      others=$(ls "$HOME/Library/LaunchAgents/" 2>/dev/null | sed -n "s/^$base_re\.\(.*\)\.plist\$/\1/p" | tr '\n' ' ')
+      [ -n "$others" ] && echo "  ほかの label で入っている server: ${others}→ --status --label-suffix <その名前> で見る"
+    fi
   fi
 }
 
