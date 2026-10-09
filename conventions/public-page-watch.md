@@ -98,8 +98,10 @@ Remote Control がつながった session だけで (公式の mobile のペー�
 `-p` は Remote Control を持てない (CLI の `--remote-control` は対話 session 用)。 実測: この経路の呼び出し 4 本の記録は
 全部「Not sent — this terminal is active …」 か「Mobile push not sent (Remote Control inactive).」 で、 無人の時間帯
 の run も前者だった = 一度も届いていなかった。 tool は exit 0 で「送っていない」 と返すので、 **「Not sent」 を成功と読まない**
-(下の道具は exit 3)。 無人の定期処理からスマホへ知らせるには、 Remote Control に依らない別の経路が要る
-(例: 既にある bot からの chat の DM)。
+(下の道具は exit 3)。 無人の定期処理からスマホへ知らせるには、 Remote Control に依らない別の経路が要る。
+例 = 既にある chat の bot が、 持ち主だけが居る**知らせ専用の channel** に書く (スマホの chat アプリに通知が出る)。
+bot との DM は会話にも使うので、 知らせを混ぜない。 送信の CLI を宛先固定の薄い script で包み、 書けなければ非 0 で返して
+呼び出し側が surface に残す (宛先が持ち主だけなので、 外部への発信の確認とは別の扱いにできる)。
 
 以下は `-p` を短い仕事に閉じる方法の記録 (通知以外の用途にも効く)。 普段の設定のまま起動すると、
 **頼んだことをせずに別の仕事を始める** (実測: config dir の Stop hook が求める処理に引っ張られ、 手元の MCP で
