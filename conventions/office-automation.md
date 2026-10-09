@@ -1677,6 +1677,7 @@ Excel / Word が直接吐いた PDF は素のままで OK (= OS 標準フォン�
 - **font 検査の ✓ を印刷の安全宣言と読まない**: ✓ は「既知の壊れ方 (PyMuPDF 描画・非埋め込み) が無い」 だけ。 検査の述語は font の**出自**を見ており、 RIP が glyph を出すかは見ていない
 - **化けは 1 部目の現物でしか分からない** → **部数のある刷りは 1 部出して見てから残りを出す** (= 全部数を一度に投げると、 化けたとき全部刷り直しになる。 [`print-preflight`](#print-preflight) の「1 枚ずつ」 が効く理由がこれ)
 - 直し方は本節と同じ 600dpi raster (`pdf-print-preflight.py --rasterize <out> --pages all --dpi 600`)。 raster 後は font が 0 個になるので、 RIP に解釈させる余地が残らない
+- **機械** (実測の 2 例目の後に追加): preflight は数式・記号の font (CM の SY/MI/EX、 AMS、 TX/PX、 OpenType math) を見つけると 🟠 を出し、 `--extract` の vector 版は exit 1 で lp の gate を通さない = 数式の多い文書は `--rasterize` が唯一の経路。 人の反射 (PASS を raster 不要と読むこと) に頼らない
 
 ⚠️ **追加観察 (実測、 同じ laser printer)**: `insert_font(fontfile=<OTF>)` で実 font を埋め込んでも**化けた** (= 「埋め込んだから安全」 も不成立)、 `get_pixmap(colorspace=csGRAY)` だと**認印の朱が黒**になる → **raster は RGB**。 機械 gate = [`scripts/pdf-print-preflight.py`](../scripts/pdf-print-preflight.py) (`--rasterize` で RGB 600dpi を生成)、 印刷前 4 点 gate = [`print-preflight`](#print-preflight)。 ⚠️ 本節が在っても、 印刷前に読まれず化けた紙を何度も刷った実測がある = 「まず [symptom-index](#symptom-index) を引く」 の実例 (機械の止め方 = [`print-preflight`](#print-preflight))。
 

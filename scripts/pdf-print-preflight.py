@@ -90,6 +90,16 @@ BUILTIN_BASEFONTS = {
 
 
 # 寸法 (mm を丸めた短辺・長辺) → 名前
+# 数式・記号の font (TeX の CM/AMS/TX/PX 記号 font と OpenType math)。 正しく埋め込まれていても laser queue の RIP が
+# 記号だけ落とした実測 (office-automation.md#raster-scope-beyond-processed-pdf) → 見つけたら vector 版を刷らせず raster へ
+MATH_FONT_RE = re.compile(r"(?i)^(?:CM(?:SY|MI|EX|BSY|MIB)|MSAM|MSBM|RSFS|STMARY|WASY|EU[FS][MB]|[TP]X(?:SY|MI|EX)|LMMath|LatinModernMath|"
+                          r"XITSMath|STIX.*Math|TeXGyre.*Math|Asana.*Math|CambriaMath|Cambria Math)")
+
+
+def is_math_font(basefont: str) -> bool:
+    return bool(MATH_FONT_RE.match(basefont.split("+")[-1].replace(" ", "")))
+
+
 PAPER_NAMES = {(210, 297): "A4", (148, 210): "A5", (297, 420): "A3", (182, 257): "B5 JIS", (176, 250): "B5 ISO",
                (257, 364): "B4 JIS", (216, 279): "Letter", (100, 148): "はがき"}
 
@@ -119,6 +129,7 @@ def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=N
             infos.append(f"page 数 {n} = 期待 ✓ (= はみ出していない。 どの頁を刷るかは下の頁の一覧)")
 
     risky = []
+    math_fonts = set()
     has_image = False
     for page in doc:
         for f in page.get_fonts(full=True):
@@ -126,6 +137,8 @@ def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=N
             xref, ext, ftype, basefont, name = f[0], f[1], f[2], f[3], f[4]
             base = basefont.split("+")[-1]
             nonembedded = (ext == "n/a")
+            if is_math_font(base):
+                math_fonts.add(base)
             if name in BUILTIN_FONT_NAMES or base in BUILTIN_BASEFONTS or nonembedded:
                 risky.append(f"{basefont} ({ftype}, ref={name}, ext={ext})")
             elif ftype == "Type0" and "+" not in basefont:
@@ -142,6 +155,10 @@ def inspect(path, expect_pages=None, template=None, pages_check=True, fidelity=N
         infos.append("font: PyMuPDF 描画 / 非埋め込み font なし ✓ "
                      "(= 既知の壊れ方が無いだけ。 printer の RIP が全 glyph を出す保証ではない "
                      "= 正しく subset 埋め込みされた CM Type1 でも laser queue が記号を落とした実測あり)")
+    if math_fonts:
+        shown = ", ".join(sorted(math_fonts)[:6]) + (f", … 他 {len(math_fonts) - 6}" if len(math_fonts) > 6 else "")
+        findings.append(f"🟠 数式・記号の font が {len(math_fonts)} 個 ({shown}): 正しく埋め込まれていても laser の RIP が記号だけ落とした実測あり "
+                        "→ vector 版は刷らず --rasterize で RGB raster 版を作って刷る (font ✓ は raster 不要の判定ではない)")
     if has_image:
         infos.append("画像あり (認印等) — raster 化するなら RGB (gray にすると朱が黒になる)")
     sizes = sorted({(round(pg.rect.width * 25.4 / 72), round(pg.rect.height * 25.4 / 72)) for pg in doc})
@@ -420,6 +437,9 @@ def rasterize(src, out, dpi=600, fit=None):
 
 
 def selftest():
+    assert is_math_font("ABCDEF+CMSY10") and is_math_font("CMEX10") and is_math_font("LatinModernMath-Regular") \
+        and is_math_font("XITSMath-Regular") and not is_math_font("CMR10") and not is_math_font("LMRoman10-Regular") \
+        and not is_math_font("HiraginoSans-W3"), "math font predicate"
     d = tempfile.mkdtemp()
     # A: PyMuPDF 組み込み japan font で文字 → FAIL
     a = os.path.join(d, "a.pdf")
