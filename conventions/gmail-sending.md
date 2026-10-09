@@ -84,7 +84,7 @@ for p in full["payload"].get("parts", []):
 
 <a id="bounce-attribution"></a>**配達失敗の通知は thread か同封の元の header で送信に結びつける — 届いた時刻の近さで結びつけない**: Gmail は通知を元の message と同じ thread に入れ、 通知の本文には元の message の header (`Subject:` / `To:` / `Message-ID:`) が同封される。 account 全体を mailer-daemon で検索して、 送った時刻に近い通知を自分の送信の失敗と読むと、 同じ account から並列の session (や人) が同じ頃に送った別のメールの通知を取り違える (実測: 自分の送信の直後に届いた不達の通知が、 別 session が同じ分に送った別のメールのものだった)。 結びつけは thread で絞るか (上の部品の `bounces` は thread を読む)、 通知を `format=raw` で読んで同封の header を自分の送信と突き合わせる。 不達の宛先は本文の `Final-Recipient:` に出る。
 
-<a id="photo-attachment-location-metadata"></a>**スマホで撮った写真を添付する前に、 撮影場所の情報 (EXIF の GPS) を落とす**: 写真の EXIF には撮影場所の緯度経度が入っていることがあり、 回転・縮小 (`sips -r` など) はそれをそのまま残す (実測: 回転しただけの写しを送り、 送信済みの添付に緯度経度が残っていた)。 本人確認書類や自宅で撮った写真では、 撮影場所 = 自宅の位置になる。 送る前に `PIL.Image.open(f).getexif().get_ifd(0x8825)` で GPS の有無を見て、 あれば exif を渡さずに保存し直す (`Image.open(f).rotate(...).save(out)` = 向きは EXIF の Orientation でなく画素で直してから)。 送信 CLI の添付の検査で止める形はまだ無い (未実装)。
+<a id="photo-attachment-location-metadata"></a>**スマホで撮った写真を添付する前に、 撮影場所の情報 (EXIF の GPS) を落とす**: 写真の EXIF には撮影場所の緯度経度が入っていることがあり、 回転・縮小 (`sips -r` など) はそれをそのまま残す (実測: 回転しただけの写しを送り、 送信済みの添付に緯度経度が残っていた)。 本人確認書類や自宅で撮った写真では、 撮影場所 = 自宅の位置になる。 送る前に `PIL.Image.open(f).getexif().get_ifd(0x8825)` で GPS の有無を見て、 あれば exif を渡さずに保存し直す (`Image.open(f).rotate(...).save(out)` = 向きは EXIF の Orientation でなく画素で直してから)。 道具で受け止める形: 写しを作れる送信 CLI は位置情報を消した写し (同じ file 名、 画素と向きはそのまま、 GPS の IFD だけを抜き XMP は書き戻さない) を自動で添付し、 その旨を dry-run に 1 行出す。 写しを作れない経路 (MCP の送信・下書き、 写しの差し替えを持たない CLI) は送る前に止める。 開けない写真の形式 (HEIC など) は確かめられないので止める。
 
 ## <a id="dry-run-truncation"></a>5. dry-run 表示の truncation に注意
 
