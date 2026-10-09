@@ -539,6 +539,14 @@ odakin の標準は **pdf 直接出力 (= pdftex 系)**。tex+dvi+dvipdfmx の 2
 
 いずれも **error も warning も出ず、出力だけが指定と違う**。目視では気づけないので、疑ったら**出力 PDF を測る** ([`scripts/measure-pdf-layout.py`](../scripts/measure-pdf-layout.py))。
 
+### <a id="declare-paper-size"></a>用紙は documentclass の option に明示する (標準 class の既定は letterpaper)
+
+`\documentclass[11pt]{article}` のように用紙の option を書かないと、 標準 class (article / report / book、 revtex も) は **letterpaper** で組む。 build は error も warning も出さず、 頁数も版面も自然に見えるので、 A4 の紙に刷る段 (印刷の preflight が本体のトレイと PDF の寸法を比べる) まで気づかない (実測: 1 つの project の 2 文書が長く Letter のまま組まれていた)。 `a4wide` や `geometry` の余白設定は版面を決めるだけで、 用紙を A4 にはしない (geometry に `a4paper` を渡せば用紙も決まる)。
+
+- **書く**: `\documentclass[11pt,a4paper]{article}` のように、 用紙を source に書く (刷る紙の側に合わせる。 どの機械で組んでも同じ頁になる)。 jsarticle / ltjsarticle 系は既定が A4 (検査も警告を出さない)
+- **確かめる**: `python3 scripts/check-tex-papersize.py FILE.tex` (option に用紙が無い `\documentclass` を列挙、 exit 1) / `--pdf FILE.pdf` (組んだ PDF の 1 頁目の寸法を A4 / Letter で言う)。 pre-commit に `--staged-warn` を繋ぐと、 staged の .tex で用紙の無い `\documentclass` を warn する (commit は止めない)
+- pdflatex / lualatex (pdf mode) では class option だけで PDF の MediaBox まで届く。 dvipdfmx 経路は次の節 (papersize special が要る)
+
 ### <a id="dvipdfmx-papersize"></a>documentclass の用紙指定は、 papersize special が出ないと PDF の用紙に届かない (dvipdfmx)
 
 `\documentclass[a4paper]{...}` の用紙 option は版面の寸法を決めるだけで、 PDF の MediaBox は **papersize special** で決まる。 special を出すのは `hyperref` (driver が dvipdfmx のときの既定)・`geometry`・jsclasses の `papersize` option で、 **どれも無ければ dvipdfmx の既定**になる。 既定は環境依存なので、**同じ tex が機械によって A4 になったり Letter になったりする**。版面は指定どおりの寸法のまま別サイズの紙に載るので、**上下の余白だけが非対称に詰まる**という出方をする。
