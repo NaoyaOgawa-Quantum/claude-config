@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき + 届いたものを Discord のチャンネルに知らせるとき (#discord-webhook-notify) + 運用中の受け口の表に列を足すとき (#add-column-from-endpoint) + フォームがスマホ幅で枠からはみ出すとき (#turnstile-flexible-width)
+when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき + 届いたものを Discord のチャンネルに知らせるとき (#discord-webhook-notify) + 届いたものを CLI のログインの無い機械から読むとき (#read-from-any-machine) + 運用中の受け口の表に列を足すとき (#add-column-from-endpoint) + フォームがスマホ幅で枠からはみ出すとき (#turnstile-flexible-width)
 category: web
 summary: 静的ホスティングは送られた内容を受け取れない。mailto は宛先を公開し、別ドメインのフォームサービスへの送信は結果をページ側で読めない (受け口がエラーでも「届いた」と表示してしまう実測)。同じサイトに関数を置ける Cloudflare Pages + Functions + D1 なら、成否を正しく表示できる。Pages は Workers と違い URL にアカウント名が入らない。GitHub 連携はリポ所有者のブラウザ許可が要り、Direct Upload で作ると後から Git 連携に変えられない。Turnstile は wrangler で作れ (challenge-widgets.write)、受け口は success・action・hostname を必須にして確認できなければ拒否する。自動操作のブラウザは Turnstile を通れないので最終確認は人が送る。GitHub Pages の旧 URL は配信元を転送用ブランチに切り替え、組み直しを依頼する。列は受け口が初回に足せる。付け足しの情報の保存が落ちても投稿は残す。flexible の確認欄は 300px 以上を取るので狭い画面の grid を押し広げる
 -->
@@ -96,6 +96,22 @@ summary: 静的ホスティングは送られた内容を受け取れない。ma
 - 送るのは保存と返事の後（`waitUntil`）。Discord に届かなくても手紙は保存済みにする。Secret が無いあいだは何もしない
 - 最後に本番のフォームから人が 1 通送って、届くことを確かめる（Turnstile があるので機械からは送れない）。試しの 1 通は既読にしておく
 
+## <a id="read-from-any-machine"></a>届いたものをどの機械からも読む（API の鍵）
+
+`wrangler login` のログインは機械ごとで、別の機械には共有されない。定期実行を回す機械など、ログインしていない機械から
+D1 を読む・既読の印を付けるには、Cloudflare の API に鍵（API トークン）で問い合わせる（node も wrangler も要らない）。
+
+- 鍵は画面で作る: プロフィール → API トークン → Custom token、権限 = Account / D1 / Edit、対象 = そのアカウントだけ。
+  値は 1 回しか表示されない。受け渡し = [`secret-handoff.md#agent-side-paste`](secret-handoff.md#agent-side-paste)、
+  置き場所 = 暗号化される secrets repo（どの機械にも配る = [`secret-handoff.md#placement-and-durability`](secret-handoff.md#placement-and-durability)）
+- 鍵が有効かは `GET /client/v4/user/tokens/verify`（`status` が `active`）
+- 問い合わせ = `POST /client/v4/accounts/<アカウント ID>/d1/database/<database_id>/query` に `{"sql": "…"}`、行は `result[0].results`。
+  `database_id` は `wrangler.toml` の D1 の結び付けから読む
+- **最小の権限の鍵からはアカウント ID を引けない**: `GET /client/v4/accounts` が 0 件で返る（アカウントの一覧を読む権限が無い、実測）。
+  アカウント ID は鍵の隣の file に置く。ID は秘密ではなく、管理画面の URL（`dash.cloudflare.com/<アカウント ID>/…`）に出ている
+- 読む道具は「鍵があれば API、無ければその機械の wrangler のログイン」の順にする。どちらでも読めないときは 1 行出して終わる（一覧画面を止めない）
+- wrangler のログインが要るのは Secret・Turnstile・Pages の設定の書き込みだけになる（鍵は D1 に絞ってある）
+
 ## <a id="local-verification"></a>アカウントに触らずに確かめる
 
 `npm i -D wrangler` → `npx wrangler d1 execute <名前> --local --file=schema.sql` → `npx wrangler pages dev`。
@@ -123,4 +139,5 @@ GitHub Pages はサーバー側の転送ができない。
 
 - 初版: 静的サイトから同一オリジンの受け口への引っ越し一式（選択肢の壊れ方・Pages・D1・受け口・Turnstile・転送）を実運用から整理
 - 追記: [届いたら Discord に知らせる](#discord-webhook-notify)（Webhook の URL を値を出さずに Secret へ入れる・再デプロイ・名前とアイコン）
+- 追記: [どの機械からも読む](#read-from-any-machine)（API の鍵、最小の権限ではアカウント ID を引けない）
 - 追記: [列を受け口が足す](#add-column-from-endpoint) / [投稿を失わない](#never-lose-a-submission) / [flexible の確認欄の幅](#turnstile-flexible-width) / テスト用の秘密鍵の返事・wrangler の Node の版・curl の `@` と知らせの試験（手元の確かめ方）
