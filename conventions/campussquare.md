@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center) + 掲示板 (お知らせ) を読むとき・案内された「お知らせ」 の資料が見つからないとき (#bulletin-board)
+when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center) + 掲示板 (お知らせ) を読むとき・案内された「お知らせ」 の資料が見つからないとき (#bulletin-board) + 自分の授業の実施教室・コマを確かめるとき (#teacher-schedule)
 category: web
-summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV・ダウンロードセンターの配布資料) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意) / ダウンロードセンター = 一覧 (flow SDW0001000-flow、 公開期間の窓で絞られる) の各行の fileId を GET (file 名は Content-Disposition の URLEncoder 形 = + が空白)、 zip のパスワードはその行のサマリ欄・中の file 名は UTF-8 flag なしの CP932 (client の dl-list / dl-get --extract) / 掲示板 = flow KJW0001100-flow (最初は未読だけ、 既読込みはジャンルの一覧 dispKeijiListGenre)、 ポータルの Home のお知らせ欄 (portlet) は script から読めない
+summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV・ダウンロードセンターの配布資料) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意) / ダウンロードセンター = 一覧 (flow SDW0001000-flow、 公開期間の窓で絞られる) の各行の fileId を GET (file 名は Content-Disposition の URLEncoder 形 = + が空白)、 zip のパスワードはその行のサマリ欄・中の file 名は UTF-8 flag なしの CP932 (client の dl-list / dl-get --extract) / 掲示板 = flow KJW0001100-flow (最初は未読だけ、 既読込みはジャンルの一覧 dispKeijiListGenre)、 ポータルの Home のお知らせ欄 (portlet) は script から読めない / 自分の時間割と教室 = スケジュール管理 (flow PTW0001200-flow) の月表示、 client の schedule (シラバスに教室が無くてもここにある)
 -->
 # CampusSquare for WEB (教務システム) の自動化
 
@@ -9,7 +9,7 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 
 ## <a id="script-route"></a>読む経路 = browser の session cookie 再利用
 
-- [`scripts/campussquare-client.py`](../scripts/campussquare-client.py): `syllabus-search` (年度・時間割番号・科目名・担当者・語) / `syllabus <時間割番号>` (本文を text で) / `roster-csv --out-dir <dir>` (全担当科目の名簿 CSV = [#roster-csv-download](#roster-csv-download)) / `dl-list [--folder <語>]` と `dl-get <fileId>... --out-dir <dir> [--extract]` (ダウンロードセンターの配布資料 = [#download-center](#download-center)) / `status` / `doctor`。 host は `--base` (env `CAMPUSSQUARE_BASE`) で与え、 個人層の入口 script が注入する ([`script-layer-placement.md`](script-layer-placement.md))
+- [`scripts/campussquare-client.py`](../scripts/campussquare-client.py): `syllabus-search` (年度・時間割番号・科目名・担当者・語) / `syllabus <時間割番号>` (本文を text で) / `roster-csv --out-dir <dir>` (全担当科目の名簿 CSV = [#roster-csv-download](#roster-csv-download)) / `dl-list [--folder <語>]` と `dl-get <fileId>... --out-dir <dir> [--extract]` (ダウンロードセンターの配布資料 = [#download-center](#download-center)) / `schedule [--from YYYY-MM] [--months N]` (自分の時間割と教室 = [#teacher-schedule](#teacher-schedule)) / `status` / `doctor`。 host は `--base` (env `CAMPUSSQUARE_BASE`) で与え、 個人層の入口 script が注入する ([`script-layer-placement.md`](script-layer-placement.md))
 - cookie = host の `JSESSIONID` (CampusSquare) と `_shibsession_*` (SP)。 IdP の cookie は読まない。 CampusSquare 本体の session は短い (30 分程度) が、 IdP のログインが browser に生きていれば、 起動中の browser に裏で開かせて入り直す (= [`garoon.md#garoon-session-recovery`](garoon.md#garoon-session-recovery) と同じ仕組み、 部品 = [`scripts/lib/sso_cookie_session.py`](../scripts/lib/sso_cookie_session.py))
 - 同じ組織の別サイト (groupware 等) が同じ IdP で cookie 再利用に乗っているなら、 CampusSquare もほぼそのまま乗る
 - <a id="auth-error-page"></a>⚠️ **本体の session が切れると、 flow の GET は 302 でなく 200 で「認証エラー」 画面を返すことがある** (title が「認証エラー」、 form `authorizationError` を JavaScript で親画面へ POST し直すだけの画面)。 切れ判定を「302 か login 画面か」 だけにすると、 この画面を普通の画面として読み、 次の form が無いという別のエラーに化ける。 client の `expired()` はこの画面も切れとして扱い、 入り直す (実測)
@@ -68,6 +68,17 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 - 既読も含む一覧 = その画面の link `_eventId=dispKeijiListGenre&keijitype=<区分>&genrecd=<ジャンル>` を、 同じ画面の `_flowExecutionKey` で GET する (ジャンル = 課ごとの「〜からのお知らせ」、 一覧は全件を 1 画面で返した)。 ⚠️ keijitype・genrecd の値は導入先ごとに違う = 値は未読一覧の画面の link から拾う。 key はジャンルを開くたびに変わる = 次のジャンルは直前の画面の key で開く。
 - 本文 = 一覧の各行の link (`_eventId=confirm` / 未読一覧からは `displayMidoku`、 + `seqNo`)。
 - ⚠️ **ポータルの Home の「お知らせ」 欄 (portlet) は script から読めなかった** (実測、 原因は未確認): 画面はこの欄を `campusportal.do?page=main&action=rwf&tabId=home&wfId=<menuId>&rwfHash=<ポータルの HTML の portalConf の値>` で AJAX に読む (menuId は同じ HTML の menus の `information` / `information_s` 〔職員向け〕 など) が、 同じ cookie に `X-Requested-With` と Referer を付けても「SYSTEM ERROR」 の断片が返った。 案内文が「Home のお知らせに掲載」 と言う資料が掲示板の全ジャンルに無いことがある = その時は本人に画面で開いてもらう (内蔵 browser は学内 SSO の cookie を持たない)。
+
+## <a id="teacher-schedule"></a>自分の時間割と教室 (スケジュール管理) を script で読む
+
+授業の実施教室は、 シラバスにも学科の時間割表にも書かれていないことがある (実測)。 教員の「スケジュール管理」 の月表示に、 自分のコマが教室つきで並ぶ。 client = `campussquare-client.py schedule [--from YYYY-MM] [--months N] [--days]` (読むだけ)。
+
+- **画面** = flow `PTW0001200-flow` (ポータルのメニューの「スケジュール管理」)。 最初の画面は今月の月表示。 各日の欄 (`td`) に「予定を足す」 link `addSchedule(YYYYMMDD)` があり、 そこから日付が取れる。 コマは 1 行ずつ `N限:科目名@教室` の文字列で並び、 行を包む要素の class が種別 (開講は `kaiko`、 休講・補講は別の class = 凡例の色分け)。 科目名・教室は全角の英数字で来る = NFKC で半角にする
+- **月を送る** = 同じ画面の form `ScheduleListForm` を `_eventId=setNextMonth` / `setPrevMonth` で POST (画面の「next / prev」 と同じ)。 送った後の見出し (`YYYY年M月`) で着いた月を確かめる
+- 旧課程と新課程で時間割番号が 2 つある授業は、 同じ「N限:科目名@教室」 が 2 行出る (別の科目名で出ることもある) = 日付ごとに重複を落として数える
+- 研究室で行うコマは、 教室の欄が「研究室」 などの語で来る
+- 同じ情報は「休講補講教室変更登録」 (flow `KHW0001000-flow`) の週の一覧にも時間割番号つきで出るが、 そちらは書き込みの画面 = 読むだけなら月表示を使う
+- 既定の表示が週単位に設定されている場合の形は未実測 (月の見出しが見つからなければ client は止まる)
 
 ## <a id="plan-table-xlsx"></a>授業計画表 (xlsx 出力) で自分の登録を照合する
 
