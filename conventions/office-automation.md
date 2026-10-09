@@ -47,6 +47,7 @@ origin: 官製様式の運用で得た知見 (= 様式 1 研究計画調書 xlsx
 | `lp` の前の hook が**「本体の用紙が PDF と合わない」** で止めた | 本体が IPP で報告するトレイの用紙 (本体の設定) が PDF の寸法と違う | 本体の設定と紙を PDF に合わせてから刷り直す。 意図した縮小・拡大なら command の頭に `PRINT_PREFLIGHT_PRINTER=0` → [本体の用紙を IPP で聞く](#printer-media-ipp) |
 | overlay した電話番号・メールが罫線に被る / 隣セルにはみ出す / 数字だけ浮いて見える | ラベル右端基準の配置、 CJK と数字の baseline 差 | 縦罫線 (`get_drawings`) を anchor、 数字は行中心 → [`pdf-overlay-anchoring`](#pdf-overlay-anchoring) |
 | PyMuPDF で追記した日本語/数字が**画面では正常・印刷で文字化け / 位置ずれ** | `japan`/`helv` 組み込み font は glyph 非埋め込み = printer に代替 font が無い | 印刷用は 600dpi **RGB** raster 版を刷る (font 埋め込みでも同 printer で化けた) → [`pymupdf-builtin-font-print-mojibake`](#pymupdf-builtin-font-print-mojibake) |
+| 値を入れた docx 様式の表で、 **長い本文の後半が画面にも PDF にも無い** (頁は増えない・見出しの検査は通る) | 行の高さが固定 (`hRule="exact"`) = 枠を超えた字は描かれない | Word の PDF の文字に書いた値が全部在るかで止める、 行の高さは変えず本文を詰める → [`docx-exact-row-height-clipping`](#docx-exact-row-height-clipping) |
 | 値を入れた docx 様式が **1 頁→2 頁にはみ出す**、 折り返すのは触っていない行 | autofit 表は 1 セルの長い値で grid 列幅を組み替え、 別行のセルが狭まる (`tblLayout fixed` でも直らず) | 可変長値・○・認印は overlay、 溢れる 1 行だけ 9.5pt、 雛形 render と y 座標突合 → [`docx-autofit-grid-overflow`](#docx-autofit-grid-overflow) |
 | Excel がクラッシュ /「作業内容を回復」 dialog | 同 session で osascript の open/save/close/quit を多数 cycle し既存 instance を酷使 | **補正を 1 pass に織り込む単発記入** + round が要る時だけ guard の reset (user の文書があれば quit しない) → [`excel-osascript-cell-write`](#excel-osascript-cell-write) / [`office-app-reset-guard`](#office-app-reset-guard) |
 | osascript が `-1712` (AppleEvent timeout) | Excel が固まり / **background 実行で automation 許可 dialog を出せない** | `office-app-guard.sh state` → `clear` なら reset、 user の文書があれば user に終了を頼む (kill しない) / **初回は foreground で許可 dialog に応答** → [`office-app-reset-guard`](#office-app-reset-guard) / [`xlsx-to-pdf-script`](#xlsx-to-pdf-script) |
@@ -2720,7 +2721,7 @@ origin: ある研究費 docx 申請様式で同一様式に 4 記入ミスを連
 
 ### <a id="template-provenance-check"></a>テンプレの素性確認 (= 「最新様式」 が誰かの記入済み修正版である罠)
 
-**症状**: 「最新様式」 としてリポに保存された xlsx が、 実は**事務が個別案件への修正指示として返した記入済み file** (= 黄色 cell + コメント + 他人の氏名・日付・金額入り) で、 それを base に新規書類を作ると他人のデータ・修正指示 artifact が混入する。 逆 pattern も起きる: 「上書き済」 と doc に書かれたテンプレが**実際は旧版のまま** (= 新様式で追加された行が無い) で、 そこから作った書類が差戻し対象になる。
+**症状**: 「最新様式」 としてリポに保存された xlsx が、 実は**事務が個別案件への修正指示として返した記入済み file** (= 黄色 cell + コメント + 他人の氏名・日付・金額入り) で、 それを base に新規書類を作ると他人のデータ・修正指示 artifact が混入する。 **配る側が対象者ごとに氏名などを入れてから配った様式** (1 人 1 枚の記録用紙など) も同じ形 = 次の回にそれを雛形にすると前の人の値が残り、 しかもそれを diff の基準にすると残骸が見えない (下の盲点)。 逆 pattern も起きる: 「上書き済」 と doc に書かれたテンプレが**実際は旧版のまま** (= 新様式で追加された行が無い) で、 そこから作った書類が差戻し対象になる。
 
 **Why 起きるか (= 考え方)**: 事務はブランクの新様式を配布するとは限らない — **様式更新が「個別案件の修正版」 という形でしか存在しない**ことがある (= 新構造を持つ唯一の file が誰かの記入済み)。 また「テンプレを最新版で上書きした」 という doc 記述は、 実 file の検証なしには信用できない (= doc と file の drift)。
 
@@ -2730,6 +2731,8 @@ origin: ある研究費 docx 申請様式で同一様式に 4 記入ミスを連
 3. **黄色 fill / コメント / 修正指示 artifact** の残存走査 ([`clear-yellow-fill-marks`](#clear-yellow-fill-marks))。
 
 **記入済み file からブランクテンプレを作る手順**: 個人データ cell を特定 (= dump で値 cell を列挙し、 label・記入例 placeholder 〔「〇〇大学」 等〕・全案件共通の定数 〔申請者・予算番号等〕 を除いた残り) → **Excel osascript で空文字に** (= 標題 drawing がある様式で openpyxl は不可 [`openpyxl-destroys-drawings`](#openpyxl-destroys-drawings)) → 黄色 fill 解除 → 検証 (= 再 dump + drawing 数 + 黄色走査) → テンプレとして保存 + **素性 (= どの file からいつ作ったか) を doc に記録**。
+
+**小さい様式 (1〜2 頁を回ごとに数枚) を機械で守る最小の形**: [`form-case-pipeline.md`](form-case-pipeline.md) を入れる規模でないときは、 上の手順で作った白紙の雛形の sha256 を記録を作る道具に固定し、 道具が雛形として受ける file を (a) 固定した雛形と (b) 白紙の検査 (識別子の形が無い・記入欄が空・前の回の出力の dir の外) に通った file だけにする。 道具の外で前の回の file を copy する経路を残さないために、 手順書の記入の段はその道具の 1 行にする。
 
 origin: 実測。 「新版で上書き済」 と記述されたテンプレが実は旧版 (= 新設の交通費起点住所行なし) で、 そこから作った別件書類が旧様式製になった + 真の新様式は個別案件の記入済み修正版にしか存在しなかった (= 上記手順でブランク化して解決)。 diff-form-xlsx をその記入済み file 基準で回しても残骸は不可視だった (= 上記盲点の実例)。
 
@@ -3638,6 +3641,18 @@ origin: 実測 (様式 + 付属表の overlay 文字が紙で化け → OTF 埋�
 4. ⚠️ 変換結果が変わらない時は Word の stale in-memory cache ([`docx-pdf-stale-cache`](#docx-pdf-stale-cache)) を疑い、 staging 経由 (= 毎回ちがう path) で再変換する (`docx-to-pdf.sh` の既定。 Word は kill しない = [`office-app-reset-guard`](#office-app-reset-guard))。
 
 origin: 実測 (autofit 表の docx 様式) — 変換を繰り返して (1)+(2) に収束、 雛形と y 座標一致を確認してから印刷。
+
+## <a id="docx-exact-row-height-clipping"></a>docx 様式の表で行の高さが固定 (`hRule="exact"`) だと、 枠を超えた本文は頁も増えずに黙って消える
+
+**症状**: 記入欄の大きい様式 (記録用紙・報告の欄) に長い本文を入れると、 後半が画面にも PDF にも出ない。 頁数は変わらず、 見出しの上書きの検査 ([`diff-form-docx-detection`](#diff-form-docx-detection)) も通る。 python-docx で読み直すと本文は全部在る = 書いた側の dump では見えない。
+
+**原因**: 行に `<w:trHeight w:hRule="exact" w:val="…"/>` が付いている = 行の高さが固定。 Word は枠を超えた字を描かない (autofit の表が頁を増やす [`docx-autofit-grid-overflow`](#docx-autofit-grid-overflow) と逆の壊れ方)。 切れた字は Word の PDF の文字からも消える。 行の規則は `unzip -p x.docx word/document.xml | grep -o '<w:trHeight[^>]*>'` で見える。
+
+**検出**: Word で PDF にして ([`docx-to-pdf.sh`](#docx-to-pdf-pages))、 書いた値 (空白を除いた形) が PDF の文字に全部在るかを見る。 末尾の十数字が無ければ切れている。 ⚠️ 表の PDF の文字は並びが崩れうる = 全文が見つからず末尾だけ在るなら並びの問題で、 画像で確かめる。 頁数と見出しの検査だけでは捕まらない。
+
+**対処**: 行の高さは様式のまま (窓口が見る形) にして本文を詰める。 目安 = 1 行の字数 × 収まる行数 (欄に刷ってある見出しの行を引く)。 同じ様式を回ごとに作る道具には上の検出を入れ、 切れたら出力を残さない (終了値は違反と「検査が走っていない」 〔Word が無い〕 を分ける)。
+
+origin: 実測。
 
 ## <a id="docx-form-repeat-pipeline"></a>docx 様式を毎回作り直す pipeline の 4 点 — 雛形から作る・値の置き場を分ける・凍結は値と書式の digest・印は語の位置から
 

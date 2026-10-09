@@ -50,7 +50,7 @@ claude-config/
 │   ├── beamer-slides.md                    # Beamer/metropolis または編集可能な PPTX / Keynote で研究スライドを作る・直すとき + 既存デッキの「同じ感じ」を引き継ぐとき + 「最新のデザインでかっこよく」 と頼まれたとき (#design-from-principles)
 │   ├── book-purchase-lookup.md             # 図書館に本の購入を頼む前 (書誌を揃える・その館に所蔵が無いか・新刊で買えるか・いくらか) + 共有された本のリストや著者の著作一覧から購入候補を作るとき + 「この著者の本を全部」「この分野の定番を全部」 と頼まれたとき + 申込メールを候補リストから起こすとき
 │   ├── calendar-conflict-detection.md      # 予定の重なり (ダブルブッキング) を機械で先に警告する仕組みを作る・直すとき + カレンダーに入っていない予定 (授業の時間割・当番表・定例の枠表) を重なりの判定に入れるとき + 重なりの前日・数日前の通知の出し方を決めるとき + 重なりの誤検出が多いとき
-│   ├── campussquare.md                     # 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center)
+│   ├── campussquare.md                     # 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center) + 掲示板 (お知らせ) を読むとき・案内された「お知らせ」 の資料が見つからないとき (#bulletin-board)
 │   ├── chalkboard-close-up-merge.md        # 板書写真 PDF に close-up annotation を統合するとき
 │   ├── chalkboard-photo-archive.md         # 授業の板書をスマホで撮った写真を、 授業ごとの PDF にまとめて置き場所に保管し受講者に見せる仕組みを作る・回すとき + 板書 PDF の「第何回」 がずれた・上書きしてしまったとき
 │   ├── claude-ai-routines.md               # claude.ai routines (RemoteTrigger / cloud cron) を作成・管理するとき

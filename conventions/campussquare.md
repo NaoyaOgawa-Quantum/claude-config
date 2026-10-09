@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center)
+when: 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center) + 掲示板 (お知らせ) を読むとき・案内された「お知らせ」 の資料が見つからないとき (#bulletin-board)
 category: web
-summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV・ダウンロードセンターの配布資料) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意) / ダウンロードセンター = 一覧 (flow SDW0001000-flow、 公開期間の窓で絞られる) の各行の fileId を GET (file 名は Content-Disposition の URLEncoder 形 = + が空白)、 zip のパスワードはその行のサマリ欄・中の file 名は UTF-8 flag なしの CP932 (client の dl-list / dl-get --extract)
+summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再利用で script から読める (scripts/campussquare-client.py、 シラバス検索・本文・履修者名簿 CSV・ダウンロードセンターの配布資料) / 画面は Spring Web Flow = hidden の _flowExecutionKey と _eventId を POST → 302 → GET / 教員でログインするとシラバス検索の担当者欄に本人名が既定で入る / 名簿・成績 CSV は CP932・CRLF・全 field quoted・評語は末尾から 2 列目 / アップロードと「提出」 は別操作 / 授業計画表 xlsx は曜日ごとの 5 列の組が横に並ぶ = 組ごとに読む、 照合 = scripts/campussquare-plan-table.py (旧課程の別名の行・年次の書き方の違いに注意) / ダウンロードセンター = 一覧 (flow SDW0001000-flow、 公開期間の窓で絞られる) の各行の fileId を GET (file 名は Content-Disposition の URLEncoder 形 = + が空白)、 zip のパスワードはその行のサマリ欄・中の file 名は UTF-8 flag なしの CP932 (client の dl-list / dl-get --extract) / 掲示板 = flow KJW0001100-flow (最初は未読だけ、 既読込みはジャンルの一覧 dispKeijiListGenre)、 ポータルの Home のお知らせ欄 (portlet) は script から読めない
 -->
 # CampusSquare for WEB (教務システム) の自動化
 
@@ -61,6 +61,13 @@ summary: CampusSquare は学内 SSO の奥だが browser の session cookie 再�
 - <a id="download-pdf-password"></a>**パスワード付きの PDF も配られる** (議事録など、 zip でなく PDF 1 本にパスワード。 パスワードは同じくサマリ欄)。 `--extract` は PDF なら暗号化を外した写しを作る (PyMuPDF の `authenticate` → `tobytes(encryption=PDF_ENCRYPT_NONE)`)。 手元に置くのは写しの方 = 検索・抽出で毎回パスワードを要らなくする。 置き場所が暗号化されていることを先に確かめる
 - 保存は名簿 CSV と同じ流儀 = 同名で中身が違えば上書きせず別名。 `--extract` は `<dir>/<stem>/` に展開・復号し、 `__MACOSX` と `..` を落とす。 取った資料は学内限定の配布物 = private 層にしか置かない
 - <a id="download-missing-check"></a>**保存漏れは機械で拾う**: 会議の資料を「通知が来たら取りに行く」 だけで回すと、 取りに行く起点が無かった回の資料が保存されないまま残る。 `dl-missing --folder <語> --have <手元の dir> [--match <正規表現>]` = 一覧のファイル行のうち、 手元の名前に一致するものが無い行だけを出す (一致の鍵 = NFKC で全角・半角の括弧を同じに、 拡張子 `.zip` / `.pdf` と空白を無視 = 展開したフォルダ名・置き直した名前とも突き合う)。 無ければ無出力なので、 session 開始の hook や一覧画面に載せて出し続けられる。 読むたびにログインの入り直しが起きうる (browser が裏で開く) ので、 結果を状態 file に持って間隔を空ける
+
+## <a id="bulletin-board"></a>掲示板 (お知らせ) を script で読む
+
+- 掲示板 = flow `KJW0001100-flow` (GET → 302 → title「掲示板」 の画面)。 最初の画面は**未読の一覧**だけ = 一度開いた掲示は出ない (実測)。
+- 既読も含む一覧 = その画面の link `_eventId=dispKeijiListGenre&keijitype=<区分>&genrecd=<ジャンル>` を、 同じ画面の `_flowExecutionKey` で GET する (ジャンル = 課ごとの「〜からのお知らせ」、 一覧は全件を 1 画面で返した)。 ⚠️ keijitype・genrecd の値は導入先ごとに違う = 値は未読一覧の画面の link から拾う。 key はジャンルを開くたびに変わる = 次のジャンルは直前の画面の key で開く。
+- 本文 = 一覧の各行の link (`_eventId=confirm` / 未読一覧からは `displayMidoku`、 + `seqNo`)。
+- ⚠️ **ポータルの Home の「お知らせ」 欄 (portlet) は script から読めなかった** (実測、 原因は未確認): 画面はこの欄を `campusportal.do?page=main&action=rwf&tabId=home&wfId=<menuId>&rwfHash=<ポータルの HTML の portalConf の値>` で AJAX に読む (menuId は同じ HTML の menus の `information` / `information_s` 〔職員向け〕 など) が、 同じ cookie に `X-Requested-With` と Referer を付けても「SYSTEM ERROR」 の断片が返った。 案内文が「Home のお知らせに掲載」 と言う資料が掲示板の全ジャンルに無いことがある = その時は本人に画面で開いてもらう (内蔵 browser は学内 SSO の cookie を持たない)。
 
 ## <a id="plan-table-xlsx"></a>授業計画表 (xlsx 出力) で自分の登録を照合する
 
