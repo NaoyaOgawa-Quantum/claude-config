@@ -53,7 +53,10 @@ EXPLICIT = re.compile(r"""id=["']([^"']+)["']""")
 # A fence may be indented (inside a list item it usually is); GitHub still renders it as code.
 # 2026-09-13: a column-0-only pattern read the example inside an indented fence as a live link.
 FENCE = re.compile(r"^[ \t]*(```|~~~)[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.M | re.S)
-CODE_SPAN = re.compile(r"`[^`\n]*`")
+# A code span opens with a run of N backticks and closes at the next run of exactly N (CommonMark).
+# The old single-backtick form read `` [`x`](/p) `` as an empty span + a span on the label, so the
+# link around the label was taken as live (実測: a syntax example of a link with a code label).
+CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)")
 # GitHub math: `$$...$$`, or `$x$` with no space just inside either dollar and no digit after the
 # closing one (so prose like "$ROOT と $HOME" or "$5 and $10" is NOT masked as math).
 MATH = re.compile(r"\$\$.*?\$\$|\$(?=\S)[^$\n]*?(?<=\S)\$(?!\d)", re.S)
@@ -300,6 +303,8 @@ def selftest() -> int:
             "line ref [c](#L53) and range [d](#L10-L20)\n"
             "placeholder [e](#<slug>)\n"
             "backticked label is still a link [`name`](#really-missing)\n"
+            "double-backtick example `` [`name`](#in-double-span) `` is not a link\n"
+            "an unclosed `` run does not hide [g](#after-unclosed-run)\n"
             "fence heading must not count [f](#not-a-heading)\n", encoding="utf-8")
         broken, _ = scan(base, [])
         keys = {k.split("#", 1)[1] for k in broken}
@@ -315,6 +320,10 @@ def selftest() -> int:
               "really-missing" in keys)
         check("a `# comment` inside a fence does not create an anchor",
               "not-a-heading" in keys)
+        check("a link inside a double-backtick span (with a backticked label) is not checked",
+              "in-double-span" not in keys)
+        check("an unclosed backtick run masks nothing  [foil for over-masking]",
+              "after-unclosed-run" in keys)
     # renderer-faithful resolution (2026-09-13): symlinks, %XX, math, prose with dollars
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
