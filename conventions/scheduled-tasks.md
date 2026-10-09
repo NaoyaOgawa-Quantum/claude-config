@@ -80,6 +80,10 @@ exec "$PY" "<engine>.py" "$@"
 
 `import yaml` の部分は engine の実依存に合わせる (numpy 等)。 Python の shim が `sys.executable` で engine を exec する構造でも、 shim 自身を起動する python がこの選択を通っていれば engine に引き継がれる。 検証は wrapper 経由で `--dry` / `--selftest` を 1 回 (= launchd の exit≠0 監視 〔[headless-context-budget の監視](#headless-context-budget) と同じ層〕 が後段の backstop)。
 
+### <a id="precondition-after-pull"></a>wrapper が pull してから使う file の有無は、 pull の後で見る
+
+無人の wrapper が別の repo を pull し、 その repo の file (engine・設定) を使う形では、 file の有無の確認を pull より前に置かない。 別の機械で足した file がこの機械にまだ届いていないと、 確認が先に走って「file が無い」 で止まり、 届いていれば動いたはずの run が 1 周期 (週 1 の job なら 1 週間) 遅れる (実測)。 順番 = pull (失敗は log に残して続ける) → 有無の確認 → 使う。 確認の失敗の文言は「pull が通らなかったかもしれない、 log を見る」 にする (「pull する」 と書いても、 自分で pull した後の run では打つ手にならない)。
+
 ### <a id="headless-session-persistence"></a>無人 run の session 痕跡 (= 「最近の項目」 noise と `--no-session-persistence`)
 
 定期 routine は **1 run = 1 session** を作る。 これがどの surface に痕跡を残すかは機構で違い、 daily × 複数本を数週間回すと session 一覧 (= desktop app の「最近の項目」) が routine session で埋まる実害になる (2026-07 実測: 3 本/日 × 数週間 ≈ 数十 entry を手で消す羽目)。
