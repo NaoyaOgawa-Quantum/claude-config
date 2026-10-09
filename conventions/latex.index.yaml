@@ -296,3 +296,6 @@ sections:
     legacy: "1"
     level: 2
     title: "1 文字記号の一括改名 (y→x、 r→\\zeta_x の類) の手順 (2026-09)"
+  - id: braket-set-ket
+    level: 2
+    title: "braket.sty の `\\Set{…}` の中で `\\ket` / `\\bra` が壊れる — `\\vert` で再定義する"
