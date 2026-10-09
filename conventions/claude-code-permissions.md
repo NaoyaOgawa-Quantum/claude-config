@@ -351,6 +351,7 @@ compound command は部分ごとに allow rule と照合される (`&&` `;` `|` 
 - **書き方**: Bash tool の作業ディレクトリは次の呼び出しに引き継がれる。 `cd <repo>` を単独の 1 回で打ち、 次の呼び出しで `git add <新規> && git commit … -- <paths>` と `git push` を `cd` も `-C` も付けずに打つ (git 同士を `&&` でつないだ形は、 各部分が rule に当たるのでそのまま通る)
 - **機械**: [`hooks/cd-git-write-guard.py`](../hooks/cd-git-write-guard.py) — PreToolUse(Bash) で、 別の dir への `cd` の後の `git commit` / `git push` と `git -C … commit / push` を deny して、 上の書き方を案内する。 heredoc の本文と quote の中は見ない = commit message に書いた文字では止まらない。 止めるのは書き込みの git だけで、 `git log` などの読み取りは止めない
 - ⚠️ 判定に回ったものは承認しだいで通ることもあるので、 「通った = rule に当たった」 とは読まない。 止められたら形を疑う ([#hook-masks-deny](#hook-masks-deny) の順に読む)
+- ⚠️ **単独の `cd` の行き先は session の folder (作業ルートと追加した dir) の中に置く** — 外の dir (scratchpad・`/tmp` など) へ単独で `cd` すると、 作業ディレクトリが元に戻される (実測 = desktop の Code タブで「Shell cwd was reset」)。 そこでは上の書き方が使えず、 `-C` も使えない。 一時の git worktree で commit するなら作業ルートの下に作る (外に作ったら `git worktree move` で中へ移す)。 作業ルートの下の一時 dir は repo を巡回する処理に拾われうるので、 使い終えたら `git worktree remove` で消す
 
 ## 個人ごとの適用
 
