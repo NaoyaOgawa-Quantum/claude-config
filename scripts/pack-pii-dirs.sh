@@ -12,7 +12,9 @@
 #     # 行と空行は無視
 #
 #   pack    … 畳んで追跡から外し .gitignore に入れる (working tree の file は残す)
-#             **展開して 1 file ずつ byte 比較**し、1 つでも違えば中断する
+#             新しい tar は一時 file に作り、 **展開して 1 file ずつ byte 比較**してから置き換える
+#             (1 つでも違えば中断 = 元の tar はそのまま)。 dir の中身が今の tar と同じなら tar を書き換えない
+#             (tar の bytes は作るたびに変わる = 同じ中身でも差分になり、 暗号化された履歴が毎回まるごと積まれる)
 #   unpack  … tar を展開して手元に戻す (clone 直後 / 別マシン)
 #   check   … tar より新しい file があるか (= 畳み忘れ) を報告
 #
@@ -37,6 +39,19 @@ _entries() { grep -vE '^\s*(#|$)' "$CONF"; }
 _dir()  { printf '%s' "$1" | cut -f1; }
 _tar()  { local t; t=$(printf '%s' "$1" | cut -f2 -s); [ -n "$t" ] && printf '%s' "$t" || printf '%s.tar' "$(_dir "$1")"; }
 _files() { ( cd "$1" && find . -type f ! -name '.DS_Store' | LC_ALL=C sort ); }
+# tar を展開した中身と dir の中身が同じか (file の一覧と bytes)。 違う file はそのつど出す (quiet なら出さない)
+_same_as_tar() {
+  local tarf="$1" dir="$2" quiet="${3:-}" x f ok=0
+  x=$(mktemp -d); tar -xf "$tarf" -C "$x"
+  if [ "$(_files "$x")" != "$(_files "$dir")" ]; then
+    ok=1; [ -z "$quiet" ] && echo "   ✗ file の一覧が違う"
+  else
+    while IFS= read -r f; do
+      cmp -s "$dir/$f" "$x/$f" || { ok=1; [ -z "$quiet" ] && echo "   ✗ 不一致: $f"; }
+    done < <(_files "$dir")
+  fi
+  rm -rf "$x"; return "$ok"
+}
 
 do_pack() {
   _require_conf
@@ -46,14 +61,15 @@ do_pack() {
     n=$(_files "$d" | wc -l | tr -d ' ')
     [ "$n" -eq 0 ] && { echo "skip (file 無し): $d"; continue; }
     echo "── $d → $t  ($n file)"
-    ( cd "$d" && _files . | tar -cf "$REPO/$t" -T - )
-    tmp=$(mktemp -d); tar -xf "$t" -C "$tmp"; bad=0
-    while IFS= read -r f; do
-      cmp -s "$d/$f" "$tmp/$f" || { echo "   ✗ 不一致: $f"; bad=1; }
-    done < <(_files "$d")
-    rm -rf "$tmp"
-    [ "$bad" -ne 0 ] && { echo "   中断: byte 比較に失敗。tar を捨てて何も変更しない。"; rm -f "$t"; exit 1; }
-    echo "   ✓ $n file を byte 比較で照合"
+    if [ -f "$t" ] && _same_as_tar "$t" "$d" quiet; then
+      echo "   = 中身は今の tar と同じ (tar を書き換えない)"
+    else
+      new=$(mktemp "${TMPDIR:-/tmp}/pack-pii.XXXXXX")
+      ( cd "$d" && _files . | tar -cf "$new" -T - )
+      _same_as_tar "$new" "$d" || { echo "   中断: byte 比較に失敗。新しい tar を捨てる (元の tar はそのまま)。"; rm -f "$new"; exit 1; }
+      mv "$new" "$t"
+      echo "   ✓ $n file を byte 比較で照合"
+    fi
     git ls-files --error-unmatch "$d" >/dev/null 2>&1 && git rm -r -q --cached "$d"
     git add "$t"
     grep -qxF "/$d/" .gitignore 2>/dev/null || printf '/%s/\n' "$d" >> .gitignore
