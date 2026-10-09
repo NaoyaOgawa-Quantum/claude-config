@@ -478,6 +478,7 @@ def selftest() -> int:
             "encoded [u](notes/t%20a.md)\n"
             "renamed [r](../notes/2026-01-01-conv.tex)\n"
             "example `[x](DESIGN.md)` stays as written\n"
+            "double-backtick example `` [`d/f.md`](/abs/path) `` is not a link\n"
             "formula $[a,b](2)$ and subject [重要](通知) are not paths\n"
             "a mail subject with a date slash [件名](通知:7/18締切) is not a path either\n"
             "an explicit dir link that is gone [z](old-examples/)\n"
@@ -500,6 +501,8 @@ def selftest() -> int:
               sum(1 for r in rows if r[1] == a and r[2] == "DESIGN.md") == 1)
         check("formula and mail-subject brackets are not paths",
               cls.get((a, "2")) is None and cls.get((a, "通知")) == "not-a-path")
+        check("a link with a backticked label inside a double-backtick span is not a link",
+              cls.get((a, "/abs/path")) is None)
         check("deleted target is 'gone' (reported, not fixed)", cls.get((a, "nowhere/deleted.md")) == "gone")
         check("a date slash in a mail subject does not make it a path  [foil for `/` = path]",
               cls.get((a, "通知:7/18締切")) == "not-a-path")
