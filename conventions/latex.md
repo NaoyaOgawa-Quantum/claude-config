@@ -1075,7 +1075,7 @@ hook に除外機構が無く、 ある repo に arXiv の LaTeX ソースを ve
 ユーザーがコピペして使う LaTeX / 数式片を chat 本文に出すときは **必ず code block（fenced or inline backtick）に入れる**。 markdown は code span の**外**では `_` を強調（italic）マーカーとして消費するため、 `x_{\mu}` のような下付き満載の LaTeX を地の文に書くと **`_` が剥がれてコピペが壊れる**（`^` も環境次第）。 code span 内は markdown 非適用で `_` `^` `\` `{}` が literal 保持される。
 
 - **コピペ用**の LaTeX / コード / `_` を含むパス → **code block**（保全優先）
-- chat 上で**読ませるだけ**の数式（コピペ不要）は別軸 — 環境によって `$...$` が未レンダーなので Unicode 添字・上付きで書く
+- chat 上で**読ませるだけ**の数式（コピペ不要）は別軸 — 書き方は返事を読む画面で決まる (desktop の Code タブ = KaTeX の規則で LaTeX / CLI のターミナル・画面が決まらないとき = Unicode 添字・上付き)。 正本 = [chat-math-rendering.md](chat-math-rendering.md)
 
 ## <a id="md-math-preview"></a>数式入りの Markdown を人に見せるときは HTML にして browser で開く (右パネルは数式を描かない)
 
