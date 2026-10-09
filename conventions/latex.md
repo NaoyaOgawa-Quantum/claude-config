@@ -1486,3 +1486,18 @@ latexdiff old.tex new.tex | sed '1s/^/\\PassOptionsToPackage{normalem}{ulem}\n/'
 7. 旧記号のまま残るもの (日付つきの査読依頼・報告書・作業記録・probe の変数名) は触らない。 commit message に列挙する。
 
 記号の**選び方** (衝突の検査) は [paper-audit.md#symbol-collision-sweep](paper-audit.md#symbol-collision-sweep)。
+
+## <a id="braket-set-ket"></a>braket.sty の `\Set{…}` の中で `\ket` / `\bra` が壊れる — `\vert` で再定義する
+
+**症状:** `\Set{\ket\psi\in\mathcal H | …}` が `Extra }` / `Missing }` で止まる。 小文字の `\set{…}` は通るが、 その `|` は `\mid` の間隔になる。
+
+**原因:** braket.sty の `\ket` は `\mathinner{|{#1}\rangle}` で、 文字の `|` を含む。 `\Set` は引数の中の `|` を `\SetVert` (= `\egroup\;\middle|\;\bgroup`) に差し替えるので、 `\ket` の中の `|` まで乗っ取られて group が崩れる。 `\protect` は効かず、 `\noexpand` は通るが ket が消える。
+
+**直し方:** preamble で `\usepackage{braket}` の後に、 文字の `|` を control sequence の `\vert` に替えた定義を置く (字形は同じ、 `\Set` / `\set` / 単独 / `\Braket` との併用で正しく出る):
+
+```latex
+\renewcommand{\ket}[1]{\mathinner{\vert{#1}\rangle}}
+\renewcommand{\bra}[1]{\mathinner{\langle{#1}\vert}}
+```
+
+`\Ket` / `\Bra` は `\left| … \right|` なので元から安全。 ⚠️ 既存原稿で `\ket` を多数使っていても、 字形が変わらないので一括の書き換えは要らない (build して `\Set` の箇所が通ることだけ確かめる)。
