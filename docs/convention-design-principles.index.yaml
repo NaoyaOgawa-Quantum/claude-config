@@ -913,6 +913,10 @@ sections:
     legacy: "8.81"
     level: 3
     title: "8.81 残してほしいものは、 それが生まれる前に頼む — 事後の回収手順は、 書き出されなかったものを回収できない"
+  - id: recognizer-inputs-are-protected
+    legacy: "8.82"
+    level: 3
+    title: "8.82 形で見分ける guard は、 見分けの元 (定義) の変化も止める — でないと 2 段の編集で抜かれる"
   - id: environment-literal-placement
     legacy: "24"
     level: 2
