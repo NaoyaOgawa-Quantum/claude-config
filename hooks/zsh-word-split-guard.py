@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""zsh-word-split-guard.py — zsh で未 quote の複数語変数を for / set -- / -- / git の引数・command の位置に渡す Bash を実行前に止める (conventions/shell-env.md#claude-issued-shell-commands)。
+"""zsh-word-split-guard.py — zsh で未 quote の複数語変数を for / set -- / -- / git の引数・command の位置に渡す Bash と、 先頭が `=` の未 quote の語 (equals 展開で同じ行の残りが走らない) を含む Bash を実行前に止める (conventions/shell-env.md#claude-issued-shell-commands / #equals-word-expansion)。
 
 PreToolUse(Bash)。 zsh は未 quote の `$var` を単語分割しない (bash と逆) ので、
     v="a b"; for x in $v      → 1 回だけ回る ("a b")
@@ -21,6 +21,15 @@ PreToolUse(Bash)。 zsh は未 quote の `$var` を単語分割しない (bash �
   配列代入 V=( … ) が在れば止めない。 代入が見えない (= env 由来) なら止めない。
   command に bash -c / sh -c / bash <<  が居れば (中は bash の意味論) 何もしない。
 
+2 つめの述語 (equals 展開、 shell-env.md#equals-word-expansion): zsh は未 quote の語の先頭の `=` を command の
+path に展開し、 見つからないと `not found` で rc=1 になって同じ行の残りの command を走らせない
+(`echo ===; B` は B が走らず、 出力には前半だけが出る = 失敗に見えない)。 区切りの見出しで再発を重ねたので機械化した。
+  止める = 単独の語の先頭が `=` で、 次の文字がある (`===` / `==X` / `[ a == b ]` の `==` / `=SECTION`)
+  見ない = quote / heredoc の中・[[ … ]] と (( … )) の中・語の途中の `=` (a==b / --opt==x)・`=` 1 文字だけ・`=(…)` (process 置換)
+  (zsh 5.9 で実測: `echo ===` と `[ a == a ]` は not found で後続が走らない、 [[ ]] と (( )) と a==b と `=` 単独は通る)
+  較正 (実測): 既存の会話記録の Bash に当てると、 発火した command のほぼ全部が実際に `not found` で止まっていた
+  (誤検出は quote の対応の取り違えによる 1 件)。
+
 発火: 実行 shell が zsh のとき (CLAUDE_CODE_SHELL か SHELL)。 opt-out = CLAUDE_ZSH_SPLIT_GUARD=0 (=1 で shell 判定を飛ばす、 test 用)。
 出力: permissionDecision=deny + 直し方。 誤検出のコストは書き直し 1 回。 fail-open (読めない入力は黙って通す)。
 """
@@ -40,6 +49,13 @@ SEP = re.compile(r";|&&|\|\||\||\n")
 LEADING_KW = re.compile(r"^(?:(?:do|then|else|elif|if|while|until|\{|\(|!|time)\s+)+")
 BASH_INNER = re.compile(r"\b(?:ba)?sh\s+(?:-\w*c\b|<<)")
 SPECIAL = {"argv"}
+# 単独の語の先頭の `=` (次に 1 文字以上、 `=(` は process 置換なので除く)
+EQ_WORD = re.compile(r"(?<![^\s;|&])=(?!\()[^\s;|&)]+")
+# [[ … ]] と (( … )) の中は equals 展開されない
+COND = re.compile(r"\[\[.*?\]\]|\(\(.*?\)\)", re.S)
+EQ_FIX = ("直し方: 区切りの見出しは `echo -----` (`-` で始める) か quote (`echo '==='`) / "
+          "比較は `[ a = b ]` か `[[ a == b ]]` / `=cmd` (command の path) を意図したなら `$(command -v cmd)`。 "
+          "正本 = claude-config/conventions/shell-env.md#equals-word-expansion")
 
 FIX = ("直し方: 出力を行ごとに回す → `cmd | while read -r x; do …; done` / 空白で割る → `${=V}` / "
        "複数の path・引数 → 配列 `F=(a b c); git commit -- $F` か literal に並べる / "
@@ -120,6 +136,20 @@ def find_issues(cmd: str) -> list[tuple[str, str, str]]:
     return out
 
 
+def equals_issues(cmd: str) -> list[str]:
+    """先頭が `=` の未 quote の語 (zsh の equals 展開に掛かるもの) の list。 空なら問題なし。"""
+    if not cmd:
+        return []
+    masked = COND.sub(_blank, _masked(cmd))
+    return sorted({m.group(0) for m in EQ_WORD.finditer(masked)})
+
+
+def equals_reason_text(words: list[str]) -> str:
+    items = " / ".join(f"`{w}`" for w in words)
+    return ("zsh は未 quote の語の先頭の `=` を command の path に展開し、 見つからないと `not found` で止まって "
+            "同じ行の残りの command を走らせない (出力には前半だけが出て、 失敗に見えない): " + items + "。 " + EQ_FIX)
+
+
 def reason_text(issues: list[tuple[str, str, str]]) -> str:
     items = " / ".join(f"`{ctx}` の `${v}` (根拠: {why})" for v, ctx, why in issues)
     return ("zsh は未 quote の変数を単語分割しない (bash と逆) ので、 この command は 1 語として渡して黙って別物を処理する: "
@@ -141,12 +171,14 @@ def main() -> int:
         return 0
     cmd = (data.get("tool_input") or {}).get("command") or ""
     issues = find_issues(cmd)
-    if not issues:
+    eq_words = equals_issues(cmd)
+    if not issues and not eq_words:
         return 0
+    reasons = ([reason_text(issues)] if issues else []) + ([equals_reason_text(eq_words)] if eq_words else [])
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": "deny",
-        "permissionDecisionReason": reason_text(issues),
+        "permissionDecisionReason": " / ".join(reasons),
     }}, ensure_ascii=False))
     return 0
 
@@ -194,6 +226,27 @@ def selftest() -> int:
     check("P=/usr/bin/python3; $P x.py", None, "command の位置でも空白の無い値は止めない")
     check("c=$(command -v python3); $c x.py", None, "command の位置の $(…) の 1 語の値は止めない")
     check('EDITOR="code -w"; echo ok', None, "代入だけで参照が無い")
+
+    # equals 展開 (実例と同形: 調査の chain の区切り `echo ===` で後続が走らなかった)
+    def eq(cmd: str, want: bool, label: str) -> None:
+        nonlocal fails
+        got = equals_issues(cmd)
+        ok = bool(got) == want
+        print(("  ok   " if ok else "  FAIL ") + label + ("" if ok else f"  (got {got})"))
+        fails += 0 if ok else 1
+
+    eq("a; echo ===; b", True, "区切りの echo ===")
+    eq("ls && echo ====SECTION && ls", True, "見出しの echo ====SECTION")
+    eq('[ "$a" == b ] && echo y', True, "[ ] の中の ==")
+    eq('echo "x" ==y', True, "語の先頭の ==")
+    eq("echo '==='; echo \"=== X ===\"", False, "quote 済み")
+    eq('[[ "$a" == b ]] && echo y', False, "[[ ]] の中")
+    eq("(( n == 1 )) && echo y; echo $(( 1 == 1 ))", False, "(( )) の中")
+    eq("echo a==b; git log --format==%H", False, "語の途中の =")
+    eq("echo =; echo -----", False, "= 1 文字と - の区切り")
+    eq("diff <(ls) =(ls)", False, "=(…) の process 置換")
+    eq("python3 - <<'EOF'\nprint('==')\n==\nEOF", False, "heredoc の本文")
+    eq("A= cmd; B=x cmd", False, "代入")
     print("selftest:", "PASS" if not fails else f"{fails} FAIL")
     return 1 if fails else 0
 
