@@ -346,6 +346,24 @@ Intel の Mac から移行アシスタントで移すと、 Intel 版の Mathema
 
 ---
 
+## <a id="headless-notebook-evaluate"></a>7. 隠れた front end で notebook を「再評価して保存」 しない — 止まると file が壊れ、 kernel が license の席を食う
+
+### 問題
+
+`wolframscript -code 'UsingFrontEnd[nb = NotebookOpen[...]; NotebookEvaluate[nb, InsertResults -> True]; NotebookSave[nb]]'` で、 入力セルを書き換えた notebook の出力セルを揃えようとした (実測)。 起きたこと:
+
+- 評価が 10 分を超えて終わらず (重い `FullSimplify` か、 隠れた front end の dialog かは見えない)、 呼び元を止めたあとに **notebook が 1/6 の大きさに書き換わっていた** (出力セルの途中までの状態で保存された)。
+- 止めても `WolframKernel -mathlink …` と `MathematicaServer -mathlink -server …` が残り、 次の `wolframscript` が **`No valid password found` / `Connection closed by WolframKernel`** で起動しなくなった (= 残った kernel が license の席を取っている。 GUI の kernel とは別の、 後から生まれた pid)。
+
+### 対処
+
+1. notebook の入力セルを機械で直すときは **text として patch する** (`Cell[BoxData[RowBox[{…}]]]` の box 構文、 `"-", "2"` のような token 列を書き換える) = front end を起動しない。 出力セルは古いまま残し、 その旨を Text cell に書いて、 再評価は GUI で人がする。
+2. 触る前に **必ず別の場所に写しを取る** (`cp` で別の dir へ)。 Dropbox の版履歴は保険であって手順ではない。
+3. 残った kernel は `pgrep -fl 'WolframKernel|MathematicaServer'` で GUI の分 (古い pid) と見分けて止める (`kill -9`)。 `No valid password found` が出たらまずこれを疑う (license の切れではない)。
+4. 図を出すだけの `UsingFrontEnd[Export[…]]` は短時間で終わり、 壊れたことはない (実測)。 壊れるのは notebook の評価と保存。
+
+---
+
 ## 関連
 
 - 数値計算の scale-dependent default 等 numerical silent failure: [`scientific-computing.md`](scientific-computing.md)
