@@ -21,6 +21,8 @@ Usage:
   python3 discord-post.py --token-file ... --channel <ID> --check    # read-only probe
   python3 discord-post.py --token-file ... --channel <ID> --recent 10  # read-only: last N messages
   python3 discord-post.py ... --attach path/to/file [--attach ...]   # attach file(s)
+  python3 discord-post.py --token-file ... --member-probe <USER_ID> [--member-probe ...]
+                                         # read-only: is that user/bot in each guild of this bot?
   python3 discord-post.py --selftest
 
 On success prints:  sent message_id=<id> channel_id=<id>
@@ -37,12 +39,21 @@ channel, its parent for threads, the guild roles and the bot's own member) and s
 by --check and by a dry run whose text has @everyone/@here — so "can this bot ping
 everyone here?" is answered before the post, without an ad-hoc API script
 (conventions/discord-bot.md #mass-mention-precheck).
+
+--member-probe answers "is this (third-party) bot or user in any server my bot is in?"
+- the first check when a third-party bot is reported compromised. The member list
+endpoint needs the privileged Server Members intent (403 / code 50001 without it), but
+fetching one member by id does not. Only 404 / code 10007 (Unknown Member) counts as
+absent; the bot itself is probed in every guild as a control, and a guild where the
+control is not "present" makes the run exit 4 (its "absent" cannot be trusted)
+(conventions/discord-bot.md #third-party-bot-breach-triage).
 """
 import argparse
 import json
 import mimetypes
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -138,6 +149,56 @@ def _format_messages(msgs):
         tail = f" [attachments: {', '.join(atts)}]" if atts else ""
         lines.append(f"{ts} | {m.get('id', '')} | {author} | {text}{tail}")
     return lines
+
+
+def _get_retry(url, token, tries=4):
+    """GET with rate-limit retry (429 -> sleep retry_after). Used by loops over many guilds."""
+    resp, err = None, None
+    for _ in range(tries):
+        resp, err = _request(url, token)
+        if not err or err[0] != 429:
+            return resp, err
+        try:
+            wait = float(json.loads(err[1]).get("retry_after", 1))
+        except ValueError:
+            wait = 1.0
+        time.sleep(min(wait, 10) + 0.2)
+    return resp, err
+
+
+def _member_state(err):
+    """GET /guilds/{g}/members/{user} の結果 (err 側) を present / absent / error に分ける。
+    404 + code 10007 (Unknown Member) だけが「居ない」。 それ以外の失敗を「居ない」 と読まない。"""
+    if err is None:
+        return "present"
+    code, body = err
+    if code == 404 and "10007" in body:
+        return "absent"
+    return f"error HTTP {code}"
+
+
+def _probe_members(token, user_ids):
+    """bot が入っている guild ごとに、 各 user が member かを 1 人ずつ引く (read-only)。
+    bot 自身を対照に引き、 対照が present でない guild の数を返す (0 以外 = 結果を信用しない)。"""
+    me, err = _get_retry(f"{API}/users/@me", token)
+    if err:
+        print(_explain(*err), file=sys.stderr)
+        return None
+    guilds, err = _get_retry(f"{API}/users/@me/guilds", token)
+    if err:
+        print(_explain(*err), file=sys.stderr)
+        return None
+    bad = 0
+    for g in guilds:
+        base = f"{API}/guilds/{g['id']}/members/"
+        ctrl = _member_state(_get_retry(base + me["id"], token)[1])
+        cells = [f"control {me.get('username', me['id'])}={ctrl}"]
+        for uid in user_ids:
+            cells.append(f"{uid}={_member_state(_get_retry(base + uid, token)[1])}")
+        print(f"{g.get('name', '?')} ({g['id']}): " + " / ".join(cells))
+        bad += ctrl != "present"
+    print(f"guilds={len(guilds)} (the bot sees only the servers it is in)")
+    return bad
 
 
 def _wants_mass_mention(body):
@@ -248,6 +309,9 @@ def main(argv=None):
     p.add_argument("--recent", type=int, metavar="N",
                    help="read-only: print the last N messages of the channel, oldest first "
                         "(1-100). Use this instead of ad-hoc API reads")
+    p.add_argument("--member-probe", action="append", default=[], metavar="USER_ID",
+                   help="read-only: for every guild this bot is in, is USER_ID a member? "
+                        "(repeat for several; the bot itself is probed as a control)")
     p.add_argument("--selftest", action="store_true")
     a = p.parse_args(argv)
 
@@ -255,12 +319,22 @@ def main(argv=None):
         return selftest()
     if not a.token_file:
         p.error("--token-file is required")
-    if not a.channel and not a.dm_user:
-        p.error("--channel or --dm-user is required")
+    if not a.channel and not a.dm_user and not a.member_probe:
+        p.error("--channel, --dm-user or --member-probe is required")
     token = open(a.token_file, encoding="utf-8", errors="replace").read().strip()
     if not token or "\x00" in token:
         print("token file looks empty/binary (git-crypt locked?)", file=sys.stderr)
         return 2
+
+    if a.member_probe:
+        bad = _probe_members(token, a.member_probe)
+        if bad is None:
+            return 1
+        if bad:
+            print(f"warning: the control (this bot) was not found in {bad} guild(s); "
+                  "'absent' there proves nothing", file=sys.stderr)
+            return 4
+        return 0
 
     if a.check:
         target = a.channel
@@ -411,6 +485,19 @@ def selftest():
     check("precheck: administrator ignores overwrites",
           _can_mention_everyone(G, BOT, [R], {G: 0, R: ADM},
                                 [{"id": G, "allow": "0", "deny": str(ME)}]))
+    check("precheck: bot-role overwrite deny beats an @everyone-role grant",
+          not _can_mention_everyone(G, BOT, [R], {G: ME, R: 0},
+                                    [{"id": R, "allow": "0", "deny": str(ME)}]))
+    check("precheck: @everyone-role grant reaches the bot without overwrites",
+          _can_mention_everyone(G, BOT, [R], {G: ME, R: 0}, []))
+    # --member-probe: only 404 + Unknown Member (10007) means absent
+    check("member probe: success -> present", _member_state(None) == "present")
+    check("member probe: 404/10007 -> absent",
+          _member_state((404, '{"message": "Unknown Member", "code": 10007}')) == "absent")
+    check("member probe: 404 other code -> error, not absent",
+          _member_state((404, '{"message": "Unknown Guild", "code": 10004}')).startswith("error"))
+    check("member probe: 403 -> error, not absent",
+          _member_state((403, '{"code": 50001}')).startswith("error"))
     check("precheck line: denied says nobody is pinged",
           "nobody" in _mass_mention_line(False, "x"))
     # mass mention: flagged when the text asks for it but the response did not apply it

@@ -68,7 +68,7 @@ claude-config/
 │   ├── consumer-review-posting.md          # 宿・店・サービスの口コミ (レビュー) を本人の代わりに起草して投稿先を選ぶとき + 「予約サイトに書けない」 と分かった時 + 写真のキャプションや投稿後のアンケートを埋める時
 │   ├── data-pipeline-automation.md         # 下流自動化 (build / mirror / template render) を伴うデータ管理をするとき
 │   ├── debugging-discipline.md             # bug fix を提案する前・audit verdict を出す前 (検証規律) + CI が red のとき (= red streak の起点と原因 commit を探す・手元で Linux CI を再現する、 §17) + 外部 GUI app / daemon / browser の復旧で start・open・restart・retry を提案または実行する前 (= #recovery-state-dispatch)
-│   ├── discord-bot.md                      # Discord Bot を運用・実装するとき
+│   ├── discord-bot.md                      # Discord Bot を運用・実装するとき + 第三者の bot・連携 service が侵害されたと報じられ、 自分の server・bot への影響を確かめるとき (#third-party-bot-breach-triage)
 │   ├── dropbox-api-access.md               # Dropbox をプログラムから操作したいとき (共有リンク発行・metadata・upload)
 │   ├── dropbox-placeholder-diagnosis.md    # Dropbox 配下の file が 0 byte に見えたとき
 │   ├── dropbox-refs.md                     # 共同 PDF を Dropbox に置いてリポから symlink 参照するとき
