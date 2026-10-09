@@ -82,6 +82,8 @@ for p in full["payload"].get("parts", []):
 
 <a id="oversize-silent-failure"></a>**送信済みに残っても届いたとは限らない — 25 MB を超えるメール**: Gmail は encode 後のメール全体が 25 MB を超えると配達しないが、 API の `messages.send` は messageId を返し、 送信済みの message も読み直せる (上の MIME 検証も通る)。 失敗は同じ thread に届く mailer-daemon の「メッセージは送信されませんでした」 1 通だけで、 理由は書かれていない (実測: 600 dpi の raster を無圧縮で埋めた 1 頁の PDF が 35 MB)。 ∴ 送信 script は**送る前に** `len(msg.as_bytes())` を測って上限超えを止め (dry-run でも)、 **送った後に**数秒待って thread を読み直し、 送った時刻以降の mailer-daemon / postmaster の通知があれば失敗として扱う (宛先の誤り・受け手の拒否も同じ形で返る)。 部品 = [`scripts/lib/mail_delivery.py`](../scripts/lib/mail_delivery.py) (`oversize` / `bounces` / 待ちの秒数 `wait_sec`)。 MIME を自分で組まない経路 (MCP server が組んで送る send・下書き) は script を直せないので hook で同じことをする: 送る前は添付の file の大きさから encode 後を見積もり (`estimate_encoded_bytes`、 base64 で約 4/3 倍) 上限超えを止め、 送った後は tool の結果の messageId から message を引いて threadId と送った時刻を得てから thread を読み直す (server の結果に threadId が無いことがある)。 raster の PDF をメールで渡すなら 300 dpi・圧縮 (PNG の stream + `deflate`) で作る (1 頁で数百 KB)。
 
+<a id="photo-attachment-location-metadata"></a>**スマホで撮った写真を添付する前に、 撮影場所の情報 (EXIF の GPS) を落とす**: 写真の EXIF には撮影場所の緯度経度が入っていることがあり、 回転・縮小 (`sips -r` など) はそれをそのまま残す (実測: 回転しただけの写しを送り、 送信済みの添付に緯度経度が残っていた)。 本人確認書類や自宅で撮った写真では、 撮影場所 = 自宅の位置になる。 送る前に `PIL.Image.open(f).getexif().get_ifd(0x8825)` で GPS の有無を見て、 あれば exif を渡さずに保存し直す (`Image.open(f).rotate(...).save(out)` = 向きは EXIF の Orientation でなく画素で直してから)。 送信 CLI の添付の検査で止める形はまだ無い (未実装)。
+
 ## <a id="dry-run-truncation"></a>5. dry-run 表示の truncation に注意
 
 dry-run が `msg.as_string()[:N]` のような先頭 truncate だと、base64 本文の後ろにある**添付 part の header が表示されず**、「添付が入っていない」ようにしか見えない。truncate された MIME dump から「無い」を結論しない (= 不在主張は表示仕様を確認してから)。dry-run 実装は「header 全部 + part 構造 + 本文 decode」の構造表示にする。
