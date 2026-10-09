@@ -145,6 +145,14 @@ if ! check_personal_global_agents; then
     "$CONFIG_ROOT/codex/HOME-AGENTS.md" \
     "$CODEX_USER_DIR/AGENTS.md" || true
 fi
+SELECTED_PERSONAL_LAYER="$(personal_source_from_global_agents 2>/dev/null || true)"
+if [ -n "$SELECTED_PERSONAL_LAYER" ]; then
+  if python3 "$SCRIPT_DIR/codex_personal_skills.py" --personal-layer "$SELECTED_PERSONAL_LAYER" --user-dir "$CODEX_USER_DIR" --check; then
+    echo "OK: declared personal skills"
+  else
+    ISSUES=$((ISSUES + 1))
+  fi
+fi
 check_link "local Codex-workspace AGENTS.md entry point" \
   "$CONFIG_ROOT/codex/AGENTS.md" \
   "$CODEX_WORKSPACE_ROOT/AGENTS.md" || true
@@ -196,9 +204,13 @@ assert invokes("PreToolUse", "session_touch.py", "apply_patch")
 assert invokes("Stop", "session_touch.py")
 assert '"decision": "block"' in source
 assert '"ls-remote"' in source
+for event in ('UserPromptSubmit','SubagentStart','SubagentStop','Stop'):
+    assert invokes(event,'worker_record_context.py')
+assert invokes('PreToolUse','worker_record_context.py')
 PY
 then
   echo "OK: Codex completion Git gate (PreToolUse baseline + blocking Stop + live remote head)"
+  echo "OK: Codex worker record context wiring"
 else
   echo "MISSING: Codex completion Git gate wiring or implementation" >&2
   ISSUES=$((ISSUES + 1))
@@ -332,6 +344,12 @@ else:
   fi
 else
   echo "NOT CHECKED: runtime trust (use --runtime); actual tool rejection needs a separate live probe."
+fi
+
+if [ "$CHECK_RUNTIME" -eq 1 ]; then
+  if ! python3 "$SCRIPT_DIR/audit-codex-hook-runtime.py" --codex "$RUNTIME_CODEX" --cwd "$CONFIG_ROOT" --worker-records; then
+    ISSUES=$((ISSUES + 1))
+  fi
 fi
 
 if [ "$ISSUES" -gt 0 ]; then

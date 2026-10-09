@@ -26,6 +26,9 @@ Use the `claude-config-conventions` skill for this Codex integration and treat
 
 ## Delivery and handoff
 
+Before delegating to a subagent, headless worker, or another session, read and apply `conventions/multi-session-coordination.md#worker-record-clause`; include the record contract in the initial assignment and keep the report route. This does not authorize delegation or a new task by itself.
+
+
 Before a Codex-origin commit, read and apply
 `codex/PARITY.md#git-session-provenance`; the commit must carry
 `Agent-Session`, `Agent-Model`, and `Agent-Effort`, preserving literal

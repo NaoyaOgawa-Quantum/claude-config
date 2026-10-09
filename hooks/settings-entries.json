@@ -76,6 +76,15 @@
           "command": "~/.claude/hooks/first-prompt-stamp.py"
         }
       ]
+    },
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/codex-parent-worker-record-nudge.py",
+          "timeout": 5
+        }
+      ]
     }
   ],
   "PreToolUse": [
@@ -382,6 +391,37 @@
         {
           "type": "command",
           "command": "~/.claude/hooks/turn-complete-sound-nudge.sh"
+        }
+      ]
+    },
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/codex-parent-worker-record-nudge.py",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "SubagentStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/codex-parent-worker-record-nudge.py",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "SubagentStop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/codex-parent-worker-record-nudge.py",
+          "timeout": 5
         }
       ]
     }

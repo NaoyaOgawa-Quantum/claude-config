@@ -121,6 +121,60 @@ runs there); updating the source alone does not refresh an already rendered
 composite. The local audit verifies installation, not that another
 running session has reread instructions or that a client delivered a hook.
 
+### <a id="wrap-workflow-integration"></a>Selected wrap workflow and worker reports
+
+An explicitly selected personal layer may declare `codex/skills.json` with
+`{"version":1,"skills":{"wrap":"skill/wrap"}}`. The installer links that existing
+folder into the user skill directory; it does not copy the procedure or require
+public users to have a private layer. Personal pull refresh and SessionStart
+restore missing managed links. Conflicting user files and invalid/escaping source
+paths are reported. The integration audit checks the declaration and derived links.
+Enabled skills appear in the app's slash selector; `$wrap` and the selected
+personal entry-point's natural-language trigger reach the same source.
+
+`codex-wrap-inventory.py` reads only the addressed thread and verified descendants
+through app-server `thread/read`. It collects visible messages, tool inputs/results,
+recorded file changes and native/hosted subagent links. Worker observations bind
+headless reports to turn IDs, observed Claude transcript ranges or exact Stop
+report hashes. The exposed `reasoning.summary` field is retained separately from
+final reports; absent or malformed summaries are labeled. Raw `content` and
+encrypted reasoning are omitted. Unknown formats, ephemeral history,
+missing reports and external-session routes remain explicit rather than becoming
+zero workers. Board role aliases and token routes are read from actual commands;
+the owning workflow performs their synchronized receipt operations.
+
+`worker_record_context.py` supplies the shared record contract at SubagentStart
+and at a Codex-origin headless worker's UserPromptSubmit. The worker recognizes
+the inherited `CODEX_THREAD_ID`; a normal session with no distinct parent is left
+alone. The parent Bash input is never rewritten or authorized by this adapter.
+A narrowly matched app task-creation call without the report contract is returned
+to the caller for correction; this does not authorize a task or send a message.
+Hosted tool paths may bypass native hooks, so the initial-assignment instruction
+remains required and the inventory keeps hosted agent activity visible.
+
+The Claude-side adapter is conditional on the same Codex-origin environment and
+records only the corresponding worker's lifecycle. It is an explicitly reviewed
+cross-vendor integration, not a way to configure Codex by changing Claude settings.
+Missing environment inheritance, disabled/custom hook sources and unsupported
+remote history remain coverage limits. `--runtime` also checks worker-hook trust;
+source tests or an installed link are not proof of trusted live dispatch. Native
+trust review stays with the user. Metadata acknowledged after wrap can expire after
+30 days; unread/uncollected observations are retained.
+
+Reusable opt-in probes: `scripts/probe-codex-worker-context.py --run` checks
+worker-side context and negative controls with actual CLIs and localhost fixed
+responses. `scripts/probe-codex-wrap.py --run --personal-layer <selected-layer>
+--board-engine <board.py>` uses a new native session, the canonical typed skill
+entry, a native child, report collection, scoped fixture approvals, a Git commit
+and push to a local bare remote, and board declaration/release. It passes the
+clause in the initial assignment. It tests neither slash-menu rendering nor real
+model judgment; automatic hook dispatch is the separate worker-context probe.
+Both use synthetic inputs and no external model inference.
+`scripts/probe-codex-command-permissions.py --run` separately compares a fixture
+prefix deny before and after identical-input, wrapper and environment-assignment
+hook responses. It preserves production permissions and reports the observed
+version behavior.
+
 ### <a id="completion-git-gate-hook"></a>Completion Git gate and Stop forcing function
 
 The product-neutral semantic rule is
@@ -753,7 +807,8 @@ The managed hook-code inventory is
 [`first_prompt_stamp.py`](hooks/first_prompt_stamp.py),
 [`first_turn_stamp_check.py`](hooks/first_turn_stamp_check.py),
 [`manuscript_claim_guard.py`](hooks/manuscript_claim_guard.py), and
-[`session_touch.py`](hooks/session_touch.py); its regression suite is
+[`session_touch.py`](hooks/session_touch.py), and
+[`worker_record_context.py`](hooks/worker_record_context.py); its regression suite is
 [`codex-hooks.test.sh`](hooks/codex-hooks.test.sh).
 
 ## <a id="machine-local-provenance"></a>Machine-local provenance

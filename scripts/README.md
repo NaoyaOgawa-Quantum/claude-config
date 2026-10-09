@@ -115,7 +115,9 @@
 - **[clip-copy.sh](clip-copy.sh)** — 貼り付け用の文面をクリップボードに入れ、読み戻して一致を確かめる (macOS。 日本語などの非 ASCII も通す)
 - **[clipboard-cleaner.py](clipboard-cleaner.py)** — クリップボード一発整形 CLI（PDF コピーの段落内改行除去 + pbcopy 書き戻しで RTF 書式除去、明示発火のみ・常駐なし、--selftest 内蔵、hammerspoon ⌃⌥⌘V から呼ばれる、conventions/clipboard-cleaner.md）
 - **[close-pdf-form-boxes.py](close-pdf-form-boxes.py)** — Excel→PDF 出力で落ちたフォームの枠罫線を検出して閉じる。
+- **[codex-wrap-inventory.py](codex-wrap-inventory.py)** — Codexの指定sessionの会話・道具・委譲先をread-onlyで集める。--selftest。
 - **[codex_mail_install.py](codex_mail_install.py)** — Install/audit only the owner-selected Codex mail skill and narrow prompt rule.
+- **[codex_personal_skills.py](codex_personal_skills.py)** — explicitly selected personal skills: install derived links, audit, and restore missing links (--selftest).
 - **[commit-from-origin-worktree.py](commit-from-origin-worktree.py)** — 自分の変更を origin/<branch> から切った使い捨て worktree で commit・push する (live checkout の未 commit 変更・未 push commit・index に一切触れず、 相手の未 push commit を巻き込んで公開しない)。 git-crypt repo も復号済みで扱い、 push 直前の再 fetch + rebase、 衝突時は push せず worktree を残す。--selftest 内蔵。
 - **[commit-hunk-anchors.py](commit-hunk-anchors.py)** — Where did each hunk of a commit land? file, new-side line and the nearest section anchor (Markdown <a id>) or Python def/class, without printing any changed text, so a cleanup or leak ledger can cite locations only; --selftest
 - **[commit-msg-leak-guard-runner.sh](commit-msg-leak-guard-runner.sh)** — git commit-msg hook（BLOCK mode）: 全 repo = 学生の識別子 (2026-09-29) / 公開 repo = leak 検出 (2026-05-26 追加。 shared matcher library を source。 claude-code 2.1.x harness invoke bug の修復 option B）
@@ -246,6 +248,9 @@
 - **[prepare-commit-msg-session.sh](prepare-commit-msg-session.sh)** — commit に発生元 agent/session/model/effort の trailer block を付ける (並列 session の事後追跡)
 - **[prepare-commit-msg-session.test.sh](prepare-commit-msg-session.test.sh)** — prepare-commit-msg-session.sh の selftest
 - **[preview-md-math.sh](preview-md-math.sh)** — 数式入りの Markdown を MathJax つき HTML にして browser で開く。
+- **[probe-codex-command-permissions.py](probe-codex-command-permissions.py)** — 固定応答と偽workerで入力変更後のprefix denyを比較する。--run。
+- **[probe-codex-worker-context.py](probe-codex-worker-context.py)** — 実CLIとlocalhost固定応答でworker側記録条項を比較する。--run。
+- **[probe-codex-wrap.py](probe-codex-wrap.py)** — 新規native sessionでwrap入口・収集・commit・掲示板を合成検証する。--run。
 - **[probe-headless-record-clause.py](probe-headless-record-clause.py)** — 実 CLI の送信内容と hook 発火を loopback の模擬応答で検証する手動 probe。
 - **[probe-python-nonascii-line.py](probe-python-nonascii-line.py)** — python が非 ASCII を含む長い 1 行を coding cookie 無しで読めなくなる境界 (file 実行と stdin = heredoc 実行の両方) を二分探索で測り、 cookie を置けば通るかも確かめる。 python を更新したら再測定する道具。--selftest 内蔵。
 - **[pty-leak-watch.sh](pty-leak-watch.sh)** — macOS Claude.app pty leak watchdog（LaunchAgent、枯渇前に macOS 通知、conventions/macos-claude-app-pty-leak.md）
@@ -294,6 +299,7 @@
 - **[sync-permission-rules.py](sync-permission-rules.py)** — settings.json の permission rule を spec (JSON) の宣言どおりに揃える (冪等)
 - **[sync-protected-dirs.py](sync-protected-dirs.py)** — 「触る前に確認を出す dir」 の宣言を machine-local の一覧 file に配る (冪等)
 - **[test_codex_mail_install.py](test_codex_mail_install.py)** — Installer tests run only below temporary directories, never real Codex home.
+- **[test_codex_worker_contract.py](test_codex_worker_contract.py)** — record-context boundaries and scoped observations (--selftest, --against OLD_HOOK).
 - **[test_reviewed_mail.py](test_reviewed_mail.py)** — Network-free adversarial checks of the reviewed-reply transaction.
 - **[test_reviewed_mail_cli.py](test_reviewed_mail_cli.py)** — Offline checks: CLI authorization shape, pagination, full source extraction.
 - **[tex-first-use.py](tex-first-use.py)** — Is a notation explained where the reader first meets it? Lists the first body uses of a regex with line and section, checks the first one against the line of the defining \label (a reference to that label near the use counts as a pointer), and lists \cref-type references to equations that are printed further down.
@@ -358,13 +364,16 @@
 - **[lib/classroom-courses.mjs](lib/classroom-courses.mjs)** — Google Classroom course engine: create / update, invite (parallel), announcements, roster match by address, coursework list, short answers without names; takes a googleapis classroom client, no imports.
 - **[lib/classroom-courses.test.mjs](lib/classroom-courses.test.mjs)** — Hermetic self-test for classroom-courses.mjs; uses a fake Classroom client and needs no network or googleapis.
 - **[lib/claude_config_dirs.py](lib/claude_config_dirs.py)** — every Claude Code config dir on this machine, so readers of per-session state see all of them.
+- **[lib/codex_thread_reader.py](lib/codex_thread_reader.py)** — Read explicitly addressed Codex threads through app-server; never list history.
 - **[lib/codex_threads.py](lib/codex_threads.py)** — Codex threads on this machine: which are live, their cwd / title / model, and the command that hands one a message.
+- **[lib/codex_worker_contract.py](lib/codex_worker_contract.py)** — Worker-side record contract for Codex-origin delegation. No command rewrites.
 - **[lib/commit-msg-leak-matcher.sh](lib/commit-msg-leak-matcher.sh)** — commit message leak matcher (= sensitive-terms.txt + repos.md private list - 10 allowlist の (a)(b)(c) check + 審査中の申請を識別する種目語×評価語の共起 (d))、 claude-code hook + git-side runner の両方が source する DRY 実装
 - **[lib/config_dir_auth.py](lib/config_dir_auth.py)** — Claude Code の設定フォルダ (CLAUDE_CONFIG_DIR) の認証が切れているかを、 `claude` を呼ばずに読む共有判定。
 - **[lib/find-personal-layer.sh](lib/find-personal-layer.sh)** — `.claude-personal-layer` marker 検出 (setup.sh Step 5a と sync、 foreign user は空を返す)
 - **[lib/git_blob.py](lib/git_blob.py)** — git の blob を worktree に出したときの中身で読む helper (git-crypt で暗号化される path も平文で)。
 - **[lib/git_rewrite_follow.py](lib/git_rewrite_follow.py)** — 書き換えられた (force-push された) 履歴に手元の clone を **中身で** 揃え、 古い世代の commit / blob の push を止める共有部品。
 - **[lib/gmail_read.py](lib/gmail_read.py)** — Gmail を**読むだけ**の最小 helper (service の組み立て / thread の message 列 / 本文の取り出し)。
+- **[lib/headless_record_clause.py](lib/headless_record_clause.py)** — 共通のheadless記録条項runner・shell解析・実行記録。--selftest。
 - **[lib/hook-exec-probe.bash](lib/hook-exec-probe.bash)** — lib/hook-exec-probe.bash — hook の exec 検査で BASH_ENV に渡す file (bash が $BASH_ENV として読む。 直接は実行も source もしない)
 - **[lib/hook-stub.sh](lib/hook-stub.sh)** — lib/hook-stub.sh — hook stub installer 共通の「既存 stub の扱い」 (source して使う、 単体実行しない)
 - **[lib/ja_deadline_dates.py](lib/ja_deadline_dates.py)** — 日本語の文から「期限らしい日付」 を取る共通部品（散文 = task 記録・メモの次の期限 / メール本文 = 入力・提出・申請の〆切。 締切語の隣接・行動語・行動窓の範囲の終端・月の無い日付と相対表現と英文の日付・日付が読めないときの急ぎの語・引用除去・述語の指紋。 docs/convention-design-principles.md#single-deadline-field-many-legs / #elapsed-time-urgency-inversion / #unclassified-defaults-to-loud、 --selftest）
@@ -410,3 +419,5 @@
 - **[lib/todo_thread_links.py](lib/todo_thread_links.py)** — 台帳の項目 (TODO) と mail thread を結ぶ link の読み方 (単一 home)。
 - **[lib/transcript_turns.py](lib/transcript_turns.py)** — Claude Code の transcript (jsonl) を turn に分けて最終 assistant 発話を取り出す共通部品（Stop hook の「今の turn の最終発話」 と、 過去 transcript で句を校正する calibrate-final-message-pattern.py が同じ境界で読む。 引用の中かの判定 inside_quote と、 match を含む 1 文を返す sentence_around も持つ）
 - **[lib/web_driver.py](lib/web_driver.py)** — 「値の正本 → 画面に打つ操作列」 を決定的に生成する site 非依存 harness
+- **[lib/worker_observations.py](lib/worker_observations.py)** — Machine-local worker observations for a Codex parent; metadata, not authority.
+- **[lib/worker_record_clause.py](lib/worker_record_clause.py)** — Shared report contract text for vendor-specific delegation adapters.

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 
@@ -23,6 +24,11 @@ def main() -> int:
     if not isinstance(event, dict) or event.get("hook_event_name") != "SessionStart":
         return 0
     source = str(event.get("source", "startup"))
+    try:
+        from codex_personal_skills import session_check
+        personal_context = session_check(Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"))
+    except Exception as exc:
+        personal_context = "Personal skill wiring check unavailable (" + type(exc).__name__ + ")."
     host = worker_host()
     session_id = str(event.get("session_id", ""))
     metadata = resolve_codex_metadata(session_id, event)
@@ -73,7 +79,8 @@ def main() -> int:
                 "and direct pointers to owning records; no durable records or separate closure report. "
                 "Follow CONVENTIONS.md#auto-update-protocol before finishing. "
                 "Keep durable facts in their source-of-truth files, perform ordinary "
-                "safe local work autonomously, and do not request step-by-step confirmation."
+                "safe local work autonomously, and do not request step-by-step confirmation. "
+                f"{personal_context}"
             ),
         }
     }

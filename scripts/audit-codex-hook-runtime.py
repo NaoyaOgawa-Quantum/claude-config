@@ -136,7 +136,7 @@ def result_code(report):
     return 3
 
 
-def assess(data: dict, needle: str) -> tuple[dict, int]:
+def assess(data: dict, needle: str, worker_records=False) -> tuple[dict, int]:
     if not isinstance(data, dict):
         raise ValueError("unexpected hooks/list response")
     rows = data.get("data")
@@ -159,10 +159,13 @@ def assess(data: dict, needle: str) -> tuple[dict, int]:
         if needle in h["command"]:
             hooks.append(h)
     states = [{k: h.get(k) for k in ("eventName", "matcher", "enabled", "trustStatus", "source")} for h in hooks]
-    expected = {"Bash", "apply_patch", "stop"}
+    expected = {"userPromptSubmit", "subagentStart", "subagentStop", "stop", "Bash", "mcp__codex_app__create_thread"} if worker_records else {"Bash", "apply_patch", "stop"}
     active = set()
     for hook in hooks:
         if hook.get("enabled") is not True or hook.get("trustStatus") not in ("trusted", "managed"):
+            continue
+        if worker_records and hook.get("eventName") in ("userPromptSubmit","subagentStart","subagentStop","stop"):
+            active.add(hook['eventName'])
             continue
         if hook.get("eventName") == "stop":
             if re.search(r"(?:^|\s)--stop(?:\s|$)", hook.get("command", "")):
@@ -177,7 +180,7 @@ def assess(data: dict, needle: str) -> tuple[dict, int]:
             re.compile(matcher)
         except re.error as exc:
             raise ValueError("invalid hook matcher") from exc
-        for name in ("Bash", "apply_patch"):
+        for name in (("Bash", "mcp__codex_app__create_thread") if worker_records else ("Bash", "apply_patch")):
             aliases = (name, "Edit", "Write") if name == "apply_patch" else (name,)
             if matcher in ("", "*") or any(re.search(matcher, alias) for alias in aliases):
                 active.add(name)
@@ -364,11 +367,27 @@ def selftest() -> int:
     return 0 if all(ok for _, ok in checks) else 1
 
 
+def worker_selftest():
+    events=('userPromptSubmit','subagentStart','subagentStop','stop','preToolUse')
+    hooks=[{'handlerType':'command','command':'python3 worker_record_context.py','eventName':e,
+            'matcher':'Bash|mcp__codex_app__create_thread' if e=='preToolUse' else None,
+            'enabled':True,'trustStatus':'trusted','source':'user'} for e in events]
+    data={'data':[{'hooks':hooks}]}
+    assert assess(data,'worker_record_context.py',True)[1]==0
+    hooks[1]['trustStatus']='untrusted'
+    assert 'subagentStart' in assess(data,'worker_record_context.py',True)[0]['missing']
+    hooks[1]['trustStatus']='trusted';hooks.pop()
+    assert set(assess(data,'worker_record_context.py',True)[0]['missing'])=={'Bash','mcp__codex_app__create_thread'}
+    print('PASS: worker runtime audit exposes untrusted and missing entrypoints')
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--codex", default="auto", help="auto: running app, known bundles, then PATH; or an explicit executable")
     parser.add_argument("--cwd", default=str(Path.cwd()))
     parser.add_argument("--command-substring", default="manuscript_claim_guard.py")
+    parser.add_argument("--worker-records", action="store_true", help="audit worker record context coverage and trust")
     parser.add_argument("--timeout", type=float, default=15)
     parser.add_argument("--selftest", action="store_true")
     parser.add_argument("--cache", nargs="?", const=str(default_cache()), help="write the observation to this machine-local cache")
@@ -376,7 +395,8 @@ def main() -> int:
     parser.add_argument("--surface", action="store_true", help="print one diagnostic line; a fresh ready app configuration is silent")
     args = parser.parse_args()
     if args.selftest:
-        return selftest()
+        first=selftest()
+        return first or worker_selftest()
     if args.read_cache:
         report = read_cache(args.cache or default_cache())
         output = surface_line(report) if args.surface else json.dumps(report, ensure_ascii=False, indent=2)
@@ -392,7 +412,7 @@ def main() -> int:
         report["binary_version"] = one_line(version.stdout.strip() or "unknown", 160)
         if source == "PATH":
             report["binary_warning"] = "PATH の codex、app とは別物かもしれない"
-        observation, _ = assess(read_hooks(binary, str(Path(args.cwd).resolve()), args.timeout), args.command_substring)
+        observation, _ = assess(read_hooks(binary, str(Path(args.cwd).resolve()), args.timeout), "worker_record_context.py" if args.worker_records else args.command_substring, args.worker_records)
         report.update(observation)
     except (OSError, RuntimeError, ValueError, TimeoutError, subprocess.SubprocessError) as exc:
         report.update(configuration="inspection_unavailable", error_type=type(exc).__name__)

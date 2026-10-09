@@ -33,6 +33,16 @@
             "timeout": 8
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/claude-config-hooks/worker_record_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Passing the worker record contract"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -78,6 +88,17 @@
             "timeout": 3
           }
         ]
+      },
+      {
+        "matcher": "Bash|mcp__codex_app__create_thread|mcp__codex_app\\.create_thread",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/claude-config-hooks/worker_record_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Passing the worker record contract"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -109,6 +130,40 @@
             "type": "command",
             "command": "python3 \"$HOME/.codex/claude-config-hooks/manuscript_claim_guard.py\" --stop",
             "timeout": 12
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/claude-config-hooks/worker_record_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Passing the worker record contract"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/claude-config-hooks/worker_record_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Passing the worker record contract"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$HOME/.codex/claude-config-hooks/worker_record_context.py\"",
+            "timeout": 5,
+            "statusMessage": "Passing the worker record contract"
           }
         ]
       }
