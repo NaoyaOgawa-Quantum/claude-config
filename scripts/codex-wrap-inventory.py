@@ -33,7 +33,7 @@ import headless_record_clause as headless
 import worker_observations as observations
 
 HINT = re.compile(r'\b(?:claude\b[^\n]*?\s(?:-p|--print)\b|codex\s+(?:exec|e)\b)')
-KNOWN_PASSIVE = {'contextCompaction', 'plan', 'webSearch', 'imageView',
+KNOWN_PASSIVE = {'sleep', 'contextCompaction', 'plan', 'webSearch', 'imageView',
                  'imageGeneration', 'enteredReviewMode', 'exitedReviewMode', 'hookPrompt'}
 
 
@@ -376,6 +376,7 @@ def selftest():
     assert [x['route'] for x in result['threads'][0]['routes']]==['board','other_session']
     print('OK: own messages, actual commands/results, all resumed reports, file paths and explicit handoff routes')
     controls=thread(parent,None,[
+        {'type':'sleep','id':'wait-passive','durationMs':30000},
         {'type':'mcpToolCall','id':'archive','tool':'set_thread_archived','arguments':{'threadId':child},'status':'completed'},
         {'type':'mcpToolCall','id':'archive-qualified','tool':'mcp__codex_app__set_thread_archived','arguments':{},'status':'completed'},
         {'type':'dynamicToolCall','id':'wait','tool':'wait_threads','arguments':{},'status':'completed'},
