@@ -335,6 +335,26 @@
           "command": "~/.claude/hooks/spawn-dedupe-guard.sh"
         }
       ]
+    },
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/known-error-nudge.py"
+        }
+      ]
+    }
+  ],
+  "PostToolUseFailure": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "~/.claude/hooks/known-error-nudge.py"
+        }
+      ]
     }
   ],
   "Stop": [

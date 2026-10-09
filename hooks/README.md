@@ -33,6 +33,9 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[guard-cli-form-guard.test.sh](guard-cli-form-guard.test.sh)** — guard-cli-form-guard.py の self-test (配信対象外)
 - **[headless-record-clause-nudge.py](headless-record-clause-nudge.py)** — Claude Bash の記録条項注入の入口。共通実装と検査は scripts/lib/headless_record_clause.py。--selftest。
 - **[headless-record-clause-nudge.test.sh](headless-record-clause-nudge.test.sh)** — 自動検査から headless 起動の注入・誤爆・stdin 保持の selftest を実行する
+- **[known-error-nudge.py](known-error-nudge.py)** — PostToolUse / PostToolUseFailure(Bash): 出力・エラー文に既知の壊れ方のエラー文が出たら、 その壊れ方を書いた規約の節を Claude に知らせる (台帳 = hooks/known-errors.json)
+- **[known-error-nudge.test.sh](known-error-nudge.test.sh)** — known-error-nudge.py の検査 (鳴る / 黙る / 1 session 1 回 / 台帳の点検)
+- **[known-errors.json](known-errors.json)** — 既知の壊れ方のエラー文 → その壊れ方を書いた規約の節。
 - **[long-bash-command-guard.sh](long-bash-command-guard.sh)** — 長すぎる Bash command を block — PreToolUse(Bash): 閾値超は分割 / file 経由に誘導
 - **[long-bash-command-guard.test.sh](long-bash-command-guard.test.sh)** — long-bash-command-guard.sh の self-test (配信対象外)
 - **[manuscript-claim-guard.py](manuscript-claim-guard.py)** — PreToolUse(Edit|Write|MultiEdit|Bash): 原稿の保護領域 (表題・概要・序論・結論・数式) と agent の権限規約を、著者の項目ごとの承認なしに書き換える編集・commit を deny (engine = scripts/manuscript-claim-guard.py、 正本 = conventions/manuscript-claim-ownership.md)

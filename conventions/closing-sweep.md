@@ -16,7 +16,9 @@ session の終わりに「全ての知見・手順・script をなるべく上�
 - 対象 = **この session で起きたこと** (変えた file、 user の訂正、 分かった壊れ方、 その場で書いた一回きりの command・script、
   研究の知見、 設計の考え方 = 返事にしか無いものを含む。 文脈圧縮より前の分も含む = 0.3) **+ この session から委ねた先で得られたもの** (0.5)。
   それ以外の session の作業・未着手の案件には手を出さない。
-- 事故の 3 条件 (文脈圧縮の直後・session の終わり・同じ file への並列作業) に当たるなら、 上げる量を絞り、 残りは plan か TODO に積んで次の session に回す。
+- 事故の 3 条件 (文脈圧縮の直後・session の終わり・同じ file への並列作業) は、 公開層に owner や第三者の事実・未公表の結果が漏れやすい条件 (実測)。
+  当たるなら、 **公開層に上げる文のうち事実を含みうるもの**を絞り、 残りは plan か TODO に積んで次の session に回す。
+  これは漏洩の対策であって作業量の上限ではない = 技術の仕組み (道具・hook・検査) や手順の一般形を作ることは、 この条件でも絞らない。
   同じ時間帯に走っている他の締めとは、 1.5 の宣言で書く file を分ける。
 
 ## <a id="collect-from-transcript"></a>0.3 会話の全体から集める (文脈圧縮の前も)
@@ -98,7 +100,7 @@ session の終わりに「全ての知見・手順・script をなるべく上�
 
 | 見つけたもの | 置き場所 |
 |---|---|
-| 誰にでも効く手順・道具の壊れ方・一般則 | 層1 `conventions/` (AI 協働の検証系は `ai-collaboration/`) |
+| 誰にでも効く手順・道具の壊れ方・一般則 | 層1 `conventions/` (AI 協働の検証系は `ai-collaboration/`)。 壊れ方のエラー文が決まっているなら、 その文を [`hooks/known-errors.json`](../hooks/known-errors.json) にも 1 件足す (次に同じエラーが出た瞬間に節が出る = [`debugging-discipline.md#known-error-lookup`](debugging-discipline.md#known-error-lookup)) |
 | 規約・仕組みの設計の考え方 (なぜその形にしたか、 効かなかった形とその理由) | 層1 [`../docs/convention-design-principles.md`](../docs/convention-design-principles.md) (節を足したら同じ dir の `convention-design-principles.index.yaml` に slug)。 個人の作業の規律は個人層 |
 | 個人の流儀・個人の事実・machine 別の差 | 個人層 (該当の規約 file)。 user が述べた考え方・好み (研究の趣味・文体を含む) も該当の規約 file に言葉のまま |
 | その project の決定・手順 | その repo の DESIGN / CLAUDE / docs (判断の理由と捨てた案も = 返事にしか無い比較を残す) |
