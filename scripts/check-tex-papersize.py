@@ -6,7 +6,9 @@ carries no paper option and the standard classes default to letterpaper.  Nothin
 no warning, the page count is plausible, the margins look fine on screen.  It surfaced only when the print preflight
 compared the PDF with the printer's A4 tray.  The paper size belongs in the source, where every machine that builds
 the file gets the same page, so the gate reads the source: a `\\documentclass[...]{...}` whose options name no paper
-(a4paper / a5paper / b5paper / letterpaper / legalpaper / executivepaper, or a `paper=` key) is reported.  jsclasses
+(a4paper / a5paper / b5paper / letterpaper / legalpaper / executivepaper, or a `paper=` key), and no geometry call
+that names one (`\\usepackage[a4paper,...]{geometry}` / `\\geometry{a4paper,...}`; margins alone do not set the paper),
+is reported.  jsclasses
 and ltjs* default to A4 and are not reported.  The `--pdf` mode measures the MediaBox of a built file (A4 / Letter /
 other) for the cases where the class option does not reach the PDF (dvipdfmx without a papersize special =
 claude-config conventions/latex.md#dvipdfmx-papersize).
@@ -27,14 +29,26 @@ from pathlib import Path
 
 DOCCLASS = re.compile(r'^\s*\\documentclass\s*(?:\[(?P<opts>[^\]]*)\])?\s*\{(?P<cls>[^}]+)\}', re.M)
 PAPER_OPT = re.compile(r'(?i)\b(?:a[0-6]|b[0-6]|letter|legal|executive)paper\b|\bpaper\s*=|\bpapersize\b')
+# geometry also sets the paper when given a size: \usepackage[a4paper,...]{geometry} / \geometry{a4paper,...}
+GEOMETRY_PAPER = re.compile(r'^[^%\n]*\\(?:usepackage\s*\[(?P<uo>[^\]]*)\]\s*\{geometry\}|geometry\s*\{(?P<go>[^}]*)\})', re.M)
 A4_DEFAULT_CLASSES = re.compile(r'^(?:lt)?js(?:article|book|report)$|^ltj[st]?(?:article|book|report)$|^(?:u)?jsarticle$')
 # ISO/ANSI sizes in points (72 pt = 1 in), with a tolerance of 3 pt
 PAPER_SIZES = {'A4': (595.28, 841.89), 'Letter': (612.0, 792.0), 'A5': (419.53, 595.28), 'B5': (498.9, 708.66), 'Legal': (612.0, 1008.0)}
 
 
+def geometry_paper(text: str) -> str | None:
+    for m in GEOMETRY_PAPER.finditer(text):
+        opts = m.group('uo') if m.group('uo') is not None else m.group('go')
+        pm = PAPER_OPT.search(opts or '')
+        if pm:
+            return 'geometry:' + pm.group(0)
+    return None
+
+
 def scan_text(text: str) -> list[dict]:
     """One record per \\documentclass found: {'line', 'cls', 'opts', 'paper': str|None, 'reported': bool}."""
     out = []
+    geo = geometry_paper(text)
     for m in DOCCLASS.finditer(text):
         # ignore commented-out lines
         line_start = text.rfind('\n', 0, m.start()) + 1
@@ -43,7 +57,7 @@ def scan_text(text: str) -> list[dict]:
         opts = m.group('opts') or ''
         cls = m.group('cls').strip()
         pm = PAPER_OPT.search(opts)
-        paper = pm.group(0) if pm else None
+        paper = pm.group(0) if pm else geo
         reported = paper is None and not A4_DEFAULT_CLASSES.match(cls)
         out.append({'line': text.count('\n', 0, m.start()) + 1, 'cls': cls, 'opts': opts, 'paper': paper, 'reported': reported})
     return out
@@ -118,6 +132,11 @@ def _selftest() -> int:
     assert scan_text('% \\documentclass[11pt]{article}\n\\documentclass[a4paper]{article}\n') == \
         [dict(line=2, cls='article', opts='a4paper', paper='a4paper', reported=False)]
     assert scan_text('\\documentclass{revtex4-2}')[0]['reported'], 'no options at all = default paper'
+    geo = '\\documentclass[12pt]{article}\n\\usepackage[a4paper, top=2cm]{geometry}\n'
+    assert scan_text(geo)[0]['paper'] == 'geometry:a4paper' and not scan_text(geo)[0]['reported'], 'geometry with a size sets the paper'
+    assert scan_text('\\documentclass{article}\n\\usepackage[margin=1in]{geometry}\n')[0]['reported'], 'margins alone do not'
+    assert not scan_text('\\documentclass{article}\n\\usepackage{geometry}\n\\geometry{a4paper,margin=2cm}\n')[0]['reported']
+    assert scan_text('\\documentclass{article}\n% \\usepackage[a4paper]{geometry}\n')[0]['reported'], 'commented-out geometry'
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -127,7 +146,7 @@ def _selftest() -> int:
         assert staged_warn(repo) == 0, 'warn only'
         assert staged_warn(repo / 'nope') == 3
         assert main(['x', str(repo / 'a.tex')]) == 1 and main(['x', str(repo / 'b.tex')]) == 0
-    print('selftest OK (12 checks)')
+    print('selftest OK (16 checks)')
     return 0
 
 
