@@ -225,6 +225,7 @@
 - **[overlay-seal-pdf.py](overlay-seal-pdf.py)** — Overlay a seal / signature image onto a generated PDF — keeping its color.
 - **[overleaf-push-file.sh](overleaf-push-file.sh)** — GitHub 側で commit 済みの file を、 指定した分だけ Overleaf に載せる。
 - **[pack-pii-dirs.sh](pack-pii-dirs.sh)** — 個人情報が file 名に出る dir を、1 個の暗号化 tar に畳む (汎用)。
+- **[page-screenshot.py](page-screenshot.py)** — web ページ全体を、 スマホや PC の画面幅で 1 枚 (か縦に分けた数枚) の PNG に撮る。 --selftest 内蔵。
 - **[pdf-cleaner.html](pdf-cleaner.html)** — clipboard-cleaner.py のブラウザ版 fallback（非 macOS / pbcopy なし環境用、整形ロジックの正本は clipboard-cleaner.py で両実装を同期）
 - **[pdf-grayscale-copy.py](pdf-grayscale-copy.py)** — PDF の頁を「複写機で写したもの」 相当の白黒の写しにする (raster・圧縮・紙専用の印を引き継ぐ)。
 - **[pdf-print-preflight.mutants.json](pdf-print-preflight.mutants.json)** — pdf-print-preflight.py の「様式の案件の出力の受け入れ」 (7 段目) と派生物の origin の selftest に歯があることを、 判定の一部を外した mutant 4 本で確かめる spec (check-foil-teeth.py が読み、 run-all-checks が毎回回す)。

@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき + 届いたものを Discord のチャンネルに知らせるとき (#discord-webhook-notify)
+when: 静的サイト (GitHub Pages 等) に投稿フォーム・お便り欄・問い合わせ欄を置くとき + Cloudflare Pages へ引っ越す / Pages Functions・D1・Turnstile を CLI で組むとき + GitHub Pages の旧 URL から新しい URL へ転送するとき + 届いたものを Discord のチャンネルに知らせるとき (#discord-webhook-notify) + 運用中の受け口の表に列を足すとき (#add-column-from-endpoint) + フォームがスマホ幅で枠からはみ出すとき (#turnstile-flexible-width)
 category: web
-summary: 静的ホスティングは送られた内容を受け取れない。mailto は宛先を公開し、別ドメインのフォームサービスへの送信は結果をページ側で読めない (受け口がエラーでも「届いた」と表示してしまう実測)。同じサイトに関数を置ける Cloudflare Pages + Functions + D1 なら、成否を正しく表示できる。Pages は Workers と違い URL にアカウント名が入らない。GitHub 連携はリポ所有者のブラウザ許可が要り、Direct Upload で作ると後から Git 連携に変えられない。Turnstile は wrangler で作れ (challenge-widgets.write)、受け口は success・action・hostname を必須にして確認できなければ拒否する。自動操作のブラウザは Turnstile を通れないので最終確認は人が送る。GitHub Pages の旧 URL は配信元を転送用ブランチに切り替え、組み直しを依頼する
+summary: 静的ホスティングは送られた内容を受け取れない。mailto は宛先を公開し、別ドメインのフォームサービスへの送信は結果をページ側で読めない (受け口がエラーでも「届いた」と表示してしまう実測)。同じサイトに関数を置ける Cloudflare Pages + Functions + D1 なら、成否を正しく表示できる。Pages は Workers と違い URL にアカウント名が入らない。GitHub 連携はリポ所有者のブラウザ許可が要り、Direct Upload で作ると後から Git 連携に変えられない。Turnstile は wrangler で作れ (challenge-widgets.write)、受け口は success・action・hostname を必須にして確認できなければ拒否する。自動操作のブラウザは Turnstile を通れないので最終確認は人が送る。GitHub Pages の旧 URL は配信元を転送用ブランチに切り替え、組み直しを依頼する。列は受け口が初回に足せる。付け足しの情報の保存が落ちても投稿は残す。flexible の確認欄は 300px 以上を取るので狭い画面の grid を押し広げる
 -->
 # 静的サイトにフォームの受け口を置く
 
@@ -45,8 +45,17 @@ summary: 静的ホスティングは送られた内容を受け取れない。ma
 - `fetch` からは JSON、JavaScript の無い普通のフォーム送信（`Accept` に `application/json` が無い）には
   ページへの 303 転送を返す（生の JSON 画面を見せない）
 - 送り主を特定する情報（IP・メールアドレス）は保存しない。未読／既読は日時の列で持ち、消さない
+- <a id="add-column-from-endpoint"></a>**運用中の表に列を足すのは受け口に任せられる**: 新しい列つきの INSERT が
+  `no column named <列>` で落ちたら、受け口が `ALTER TABLE … ADD COLUMN` してから入れ直す（同時に 2 通来て片方が先に足しても、
+  もう片方は `duplicate column` で落ちるだけなので、それは無視して入れ直す）。列を足す作業が CLI のログインのある機械に依らない。
+  `schema.sql` にも列を足し、読む道具は `SELECT *` で列の有無どちらでも読めるようにする（手元の wrangler と古い表で確かめた、実測）
+- <a id="never-lose-a-submission"></a>**付け足しの情報の保存に失敗しても、投稿そのものは保存する**: 付け足しの情報（どの回への投稿か など）を
+  入れる処理がどんな理由で落ちても、最後の手段としてその情報を本文の頭に書き、付け足し無しで入れる（log に 1 行）。
+  これが無いと想定外の失敗で送り主に「送れませんでした」と出て、投稿は消える（実測: その列に必ず失敗する表を手元に作り、
+  直す前 = HTTP 500 で消える / 直した後 = 残る、を確かめた）
 - メール通知は、Cloudflare からの送信に**独自ドメインの登録が要る**（Email Service のエラー
-  `E_SENDER_DOMAIN_NOT_AVAILABLE`）。ドメインが無ければ、溜まった分を読みに行く道具を作り、日常の確認面（ダッシュボード等）に未読件数を出す
+  `E_SENDER_DOMAIN_NOT_AVAILABLE`）。ドメインが無ければ、届いた時に Webhook でチャットへ知らせる（[下](#discord-webhook-notify)）。
+  溜まった分を読みに行く道具も作り、日常の確認面（ダッシュボード等）に未読件数を出す
 
 ## <a id="turnstile"></a>Turnstile（ロボット判定）
 
@@ -63,7 +72,14 @@ summary: 静的ホスティングは送られた内容を受け取れない。ma
   （`refresh-expired`）は既定で有効
 - **自動操作のブラウザは Turnstile を通れない**（トークンが発行されない、実測）。**判定を突破しようとしない**。
   本物の確認を通った送信の最終確認は、人に自分のブラウザから 1 通送ってもらい、保存を確かめる
-- ローカルでは Cloudflare のテスト用の鍵（必ず通る／必ず落ちる）と `.dev.vars` で試す
+- <a id="turnstile-flexible-width"></a>**`size: "flexible"` の確認欄は幅 300px 以上を取る**: フォームを grid で組んでいると、
+  幅 375〜390px の画面では確認欄が列ごと押し広げ、入力欄がフォームの枠からはみ出す（実測）。grid に
+  `grid-template-columns: minmax(0, 1fr)` を付け、狭い画面は余白を詰め、描くときに置き場所の幅を測って 300 未満なら
+  `size: "compact"` で描く。画面幅を変えて、フォームの中身の幅が外枠を超えないこと（`scrollWidth` ≤ `clientWidth`）を確かめる
+- ローカルでは Cloudflare のテスト用の鍵（必ず通る／必ず落ちる）と `.dev.vars` で試す。⚠️ 必ず通る秘密鍵の siteverify の返事は
+  `action` を持たず、`hostname` は `example.com`（実測）= 上の 3 条件で照合する受け口は手元の試験で必ず落ちる。
+  本番の受け口に試験用の抜け道を足さず、`.dev.vars` の許可ホストに `example.com` を入れ、`action` の照合だけを手元の写しで外して試し、
+  終わったら元に戻ったことを grep で確かめてから commit する
 
 ## <a id="discord-webhook-notify"></a>届いたら Discord に知らせる（Webhook）
 
@@ -86,6 +102,11 @@ summary: 静的ホスティングは送られた内容を受け取れない。ma
 受け口に正常・空・長すぎ・別オリジン・罠の欄入り・上限ちょうど／1 字超過を投げ、表を読んで保存を確かめる。
 上限の境目は、BMP 外の文字（絵文字）で数え方がずれないかも見る（JS の `length` は UTF-16 の単位）。
 
+- wrangler 4 は Node 22 以上が要る（古い Node では起動時に止まる、実測）
+- curl の `-F 'body=@…'` は `@` で始まる値をファイル名として読む = `@everyone` のような本文の試験は `--form-string` で送る（実測）
+- 知らせ（Webhook）の試験は、手元に POST を受けて中身を書き出すだけの受け取り役を立て、`.dev.vars` の Webhook の URL をそこに向ける。
+  受け取り役を止めた状態でも 1 通送り、投稿が保存されて送り主に成功が返ることを確かめる
+
 ## <a id="github-pages-redirect"></a>GitHub Pages の旧 URL から新しい URL へ転送する
 
 GitHub Pages はサーバー側の転送ができない。
@@ -102,3 +123,4 @@ GitHub Pages はサーバー側の転送ができない。
 
 - 初版: 静的サイトから同一オリジンの受け口への引っ越し一式（選択肢の壊れ方・Pages・D1・受け口・Turnstile・転送）を実運用から整理
 - 追記: [届いたら Discord に知らせる](#discord-webhook-notify)（Webhook の URL を値を出さずに Secret へ入れる・再デプロイ・名前とアイコン）
+- 追記: [列を受け口が足す](#add-column-from-endpoint) / [投稿を失わない](#never-lose-a-submission) / [flexible の確認欄の幅](#turnstile-flexible-width) / テスト用の秘密鍵の返事・wrangler の Node の版・curl の `@` と知らせの試験（手元の確かめ方）
