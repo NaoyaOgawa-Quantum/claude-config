@@ -737,7 +737,7 @@ worker の「できた」で閉じると、確認していない成果が完了�
 | claim → submit | 担当 session が成果物の所在と未解決点を提出。確認側の inbox に残す |
 | submit → accept | 指定された確認 session が完了条件と成果を照合し、確認根拠を記録して閉じる |
 | submit → revise → submit | 確認 session が不足を返し、担当 session が修正して再提出 |
-| claim → blocker → 回答 | 担当 session が障害を示し、確認 session の回答後に再開 |
+| claim → blocker → 回答 | 担当 session が障害を示し、確認 session の回答 (`update --reply-to <開いた blocker>`。 `note` は回答にならず依頼は blocked のまま = [`CONTRACT.md#note-never-answers`](../../ai-collaboration/board/CONTRACT.md#note-never-answers)) 後に再開 |
 | claim → release | 未提出の担当を返す。完了扱いにはしない |
 
 遷移は依頼 ID だけでなく、どの claim / submission に対する応答かを指定する。
