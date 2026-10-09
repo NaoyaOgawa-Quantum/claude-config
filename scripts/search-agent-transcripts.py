@@ -29,8 +29,10 @@ repo に無くても、 会話そのものから発言者と時刻を確かめ�
 既定の挙動:
   - 役割は user だけ (--role any で全部)。 harness が差し込んだ user 側の文
     (system-reminder・command 表示・AGENTS.md 指示・文脈圧縮の要約。 INJECTED_PREFIXES) は除く (--include-injected で含める)
-  - 同じ agent・役割・本文の重複は 1 回だけ出す (Codex の記録は同じ発言を複数回持つことがある)
-  - 行を JSON として読む前に、 素の行に対して文字列の有無を先に見る (大きな記録でも速い)
+  - 同じ agent・役割・時刻・本文の重複は 1 回だけ出す (Codex の記録は同じ発言を複数回持つことがある)。
+    時刻が違えば同じ文面でも別の発言として全部出す (「送って」 を 2 回打てば 2 行)
+  - 行を JSON として読む前に、 素の行に対して文字列の有無を先に見る (大きな記録でも速い)。
+    行頭・行末に錨を置いた regex (^…$) はこの先読みをせず、 本文だけで照合する
   - 一致が別 session に貼られた会話の抜粋 (`[12] user: …` の形) の中なら、 役割の欄に「(写し)」 を付ける。
     その行の時刻と session は写した側のもので、 発言した側ではない (元の発言は --role any で探し直すか、
     写しの無い行を見る)
@@ -76,6 +78,8 @@ except Exception:  # pragma: no cover - 古い配置
 INJECTED_PREFIXES = ("<", "# AGENTS.md", "This session is being continued from a previous conversation")
 # 別 session に貼られた会話の抜粋で、 一致の直前に来る話者ラベル (`[12] user: `)
 QUOTED_SPEAKER_RE = re.compile(r"\[\d+\]\s*(?:user|assistant)\s*:\s*$")
+# 行頭・行末の錨 (^ / $ / \A / \Z / \z)。 [^…] の ^ にも当たるが、 その時は先読みを止めるだけ (結果は同じ)
+_ANCHOR_RE = re.compile(r"(?<!\\)[\^$]|\\[AZz]")
 DEFAULT_CODEX_DIRS = ("~/.codex/sessions", "~/.codex/archived_sessions")
 
 
@@ -178,6 +182,9 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
            claude_dir, codex_dir, limit: int) -> list[tuple]:
     rx = re.compile(pattern) if regex else None
     raw_probe = None if regex else pattern
+    # 生の JSON 行での先読みは、 行頭・行末に錨を置いた regex (^…$ / \A / \Z) では本文に当たっても行で外れる
+    # (行は {"type": … で始まる) = 錨のある regex は先読みせず、 本文だけで照合する (遅いが落とさない)
+    line_rx = rx if rx is not None and not _ANCHOR_RE.search(pattern) else None
     seen: set = set()
     hits: list[tuple] = []
     for ag, f, label in iter_files(agent, claude_dir, codex_dir):
@@ -192,7 +199,7 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
             for line in fh:
                 if raw_probe is not None and raw_probe not in line:
                     continue
-                if rx is not None and not rx.search(line):
+                if line_rx is not None and not line_rx.search(line):
                     # 本文の改行は JSON では \n なので、 行単位の先読みで落ちる match はない
                     # (改行をまたぐ regex は対象外)
                     continue
@@ -218,7 +225,9 @@ def search(pattern: str, *, regex: bool, role: str, agent: str, since: str | Non
                     i = m.start() if m is not None else tx.find(pattern)
                     if i < 0:
                         continue
-                    key = (ag, r, tx)
+                    # 同じ record の写し (同じ file の重複行・複数の記録の dir) だけをまとめる。 時刻を鍵に入れないと、
+                    # 同じ文面を別の時刻に打った発言 (「送って」「はい」) が最初の 1 回に潰れ、 2 回目の承認が記録に無いように見える (実測)
+                    key = (ag, r, ts, tx)
                     if key in seen:
                         continue
                     seen.add(key)
@@ -321,6 +330,7 @@ def selftest() -> int:
             {"type": "user", "timestamp": "2099-01-01T00:00:01Z", "message": {"content": "<system-reminder>りんご</system-reminder>"}},
             {"type": "assistant", "timestamp": "2099-01-01T00:00:02Z", "message": {"content": [{"type": "text", "text": "りんごは赤で記録します"}]}},
             {"type": "user", "timestamp": "2099-01-03T00:00:00Z", "message": {"content": "みかんの話"}},
+            {"type": "user", "timestamp": "2099-01-03T00:05:00Z", "message": {"content": "みかんの話"}},
         ]) + "\n", encoding="utf-8")
         sa = cl / "aaaaaaaa-1111" / "subagents"
         sa.mkdir(parents=True)
@@ -360,6 +370,11 @@ def selftest() -> int:
                   [(x[2], x[3]) for x in search("メロン", **{**base, "role": "assistant", "session": "aaaa"})] == [("aaaaaaaa", "assistant(agent)")]),
             check("親が agent に渡した指示は --role user に入らない (role = parent)",
                   search("メロン", **base) == [] and [x[3] for x in search("メロン", **{**base, "role": "parent"})] == ["parent"]),
+            check("同じ文面を別の時刻に打った発言は 2 件とも出る (最初の 1 回に潰さない)",
+                  [x[0] for x in search("みかんの話", **{**base, "agent": "claude"})]
+                  == ["2099-01-03T00:00:00Z", "2099-01-03T00:05:00Z"]),
+            check("行頭・行末に錨を置いた --regex も本文に当たる",
+                  len(search("^みかんの話$", **{**base, "agent": "claude", "regex": True})) == 2),
         ]
         # アーカイブされた Codex session (平置き) と、 別 session に貼られた会話の抜粋
         arch = Path(td) / "codex-archived"
