@@ -12,7 +12,7 @@
 #   fire = session の frontend が右パネルを持つ (transcript の entrypoint が claude-desktop / claude-desktop-3p / claude-vscode)
 #        ∧ 最終発話の markdown link の href か、 app が link として描く形の inline code (app の式を写したもの) が
 #          (a) 「基準フォルダに連結すると無い (か、 フォルダの外に出る)」
-#              ∧ 「transcript に出た cwd か基準フォルダ直下の dir に連結すると在る」
+#              ∧ 「transcript に出た cwd か基準フォルダ直下の dir か session の追加フォルダに連結すると在る」
 #          (b) 「基準フォルダに連結すると file が在るが、 直近の cwd (≠ 基準) にも同じ相対 path の別の file が在る」
 #              (= 意図と違う file が開く。 例: 親フォルダと repo の両方に在る CLAUDE.md を repo の中で書いた)
 #   除外 = URL / anchor だけの href / 絶対 path / ~/ / fenced code block の中 (list・引用の中の fence を含む) /

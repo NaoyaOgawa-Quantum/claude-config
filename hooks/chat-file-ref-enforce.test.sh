@@ -35,6 +35,7 @@ ROOT="$TMP/root"
 mkdir -p "$ROOT/book/drafts" "$ROOT/book/notes" "$ROOT/tools/scripts" "$TMP/extra"
 : > "$ROOT/book/drafts/intro.md"; : > "$ROOT/book/notes/design.md"; : > "$ROOT/tools/scripts/run.py"
 : > "$ROOT/CLAUDE.md"; : > "$TMP/extra/memo.md"; : > "$ROOT/book/SESSION.md"
+mkdir -p "$TMP/extra/docs"; : > "$TMP/extra/docs/memo2.pdf"   # A11/A12: 追加フォルダを起点にした path
 echo "book の指示書" > "$ROOT/book/CLAUDE.md"          # A10: 基準フォルダの CLAUDE.md とは別の file
 : > "$ROOT/book/LINKED.md"; ln -s "$ROOT/book/LINKED.md" "$ROOT/LINKED.md"   # B15: 同じ実体
 mkdir -p "$ROOT/book/pkg/@scope"; : > "$ROOT/book/pkg/@scope/index.js"       # B16
@@ -132,6 +133,13 @@ case_ "A9: 行頭の inline な 3 連 backtick は fence ではない = 後ろ�
 本物: [x](drafts/intro.md)" "book/drafts/intro.md"
 case_ "A10: 基準フォルダの同名の別 file が開く (repo の中で [CLAUDE.md](CLAUDE.md)) = fire" 1 \
   "[CLAUDE.md](CLAUDE.md)" "同名の別 file"
+
+case_ "A11: 追加フォルダを起点にした inline code = fire + 追加フォルダの中の絶対 path" 1 \
+  "理由書は ${BT}docs/memo2.pdf${BT} です。" "$TMP/extra/docs/memo2.pdf" "claude-desktop" "$ROOT" "[\"$TMP/extra\"]"
+case_ "A12: 追加フォルダを起点にした link = fire" 1 \
+  "[memo2](docs/memo2.pdf)" "$TMP/extra/docs/memo2.pdf" "claude-desktop" "$ROOT" "[\"$TMP/extra\"]"
+case_ "B17: 追加フォルダの中の絶対 path = silent" 0 \
+  "[memo2]($TMP/extra/docs/memo2.pdf)" "" "claude-desktop" "$ROOT" "[\"$TMP/extra\"]"
 
 echo "=== §D 基準フォルダが git repo (app は path の末尾一致で探す) ==="
 if command -v git >/dev/null 2>&1; then
