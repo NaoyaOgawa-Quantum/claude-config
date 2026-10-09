@@ -107,11 +107,11 @@ open(path, "w", encoding="utf-8").write(txt)
 
 ### <a id="system-python-long-multibyte-line"></a>8. macOS 付属の python は、 長い多バイト行を source として読めない (2026-09-17)
 
-**症状**: 置換 script の中に日本語の長い文字列を 1 行で書いて `/usr/bin/python3` (Xcode 付属の 3.9.6) で走らせると、 `SyntaxError: Non-UTF-8 code starting with '\xe3' in file …, but no encoding declared` で落ちる。 file は正しい UTF-8 で、 encoding 宣言を足しても直らない。 heredoc (`python3 - <<'EOF'`) に書いても同じ。 同じ file を新しい python (Homebrew の 3.14) で走らせると通る。
+**症状**: 置換 script の中に日本語の長い文字列を 1 行で書いて `/usr/bin/python3` (Xcode 付属の 3.9.6) で直接走らせる (`python3 file.py`) と、 `SyntaxError: Non-UTF-8 code starting with '\xe3' in file …, but no encoding declared` で落ちる。 file は正しい UTF-8。 heredoc (`python3 - <<'EOF'` = 標準入力) に書いても同じ。 同じ file でも `import` するか `exec(open(path, encoding='utf-8').read())` で読むと通り、 新しい python (Homebrew の 3.14) で走らせても通る。 CPython の既知の不具合 (bpo-14811 / bpo-34979)。
 
-**なぜ起きるか**: この版は source を 1023 byte ずつ読み、 区切りが多バイト文字の途中に落ちると、 残りの断片を不正な UTF-8 として拒否する。 実測: `x = "` の後に 3 byte の文字を並べた 1 行は、 300 字 (906 byte) では通り、 341 字 (1028 byte) では落ちた。 行頭を 5 → 6 → 7 byte と変えると、 落ちる・通る・落ちると入れ替わった (1023 byte 目が文字の境界に当たるかどうかで決まる)。 1 行が 1023 byte 以下なら起きない。
+**なぜ起きるか**: encoding 宣言の無い source を file か標準入力から読むとき、 この版は 1 行を 1023 byte ずつ読み、 区切りが多バイト文字の途中に落ちると、 残りの断片を不正な UTF-8 として拒否する。 実測: `x = "` の後に 3 byte の文字を並べた 1 行は、 300 字 (906 byte) では通り、 341 字 (1028 byte) では落ちた。 行頭を 5 → 6 → 7 byte と変えると、 落ちる・通る・落ちると入れ替わった (1023 byte 目が文字の境界に当たるかどうかで決まる = 同じ行の手前を 1 字直すだけで、 通っていた script が落ちるようになる)。 1 行が 1023 byte 以下なら起きない。
 
-**対処**: 長い非 ASCII の文字列を Python の source に直接書かない。 (1) 文面は別の text file に置き、 script は `io.open(path, encoding='utf-8')` で読む (pair 列なら 1 件 1 file か、 tab 区切りの 1 行 1 件)。 (2) source に書くなら、 隣り合う文字列 literal に割って 1 行を短く保つ。 (3) 走らせる python を固定できるなら新しい版にする ([shell-env.md#bound-command-runtime](shell-env.md#bound-command-runtime))。 error 文は encoding 宣言の不足を疑わせるが、 宣言を足しても直らないのが見分け方になる。
+**対処**: (0) **一番安いのは encoding 宣言** — 1 行目か 2 行目に `# -*- coding: utf-8 -*-` を書く (`# coding: utf-8` の形も同じく効く)。 宣言があると source を別の読み方 (codec 経由) で読むので起きない。 実測: 宣言なしは切れ目 6 通り中 4 通りで落ち、 1・2 行目の宣言ありは書き方・行の長さ (1.2〜4.5 KB)・標準入力に依らず 0。 ⚠️ **3 行目以降の宣言は効かない** (Python の規則で宣言を読むのは 1・2 行目だけ = shebang と docstring の後に書くと落ちたまま)。 その場で書く使い捨ての script に長い日本語を入れるなら、 先頭に宣言を書いておく。 (1) 文面は別の text file に置き、 script は `io.open(path, encoding='utf-8')` で読む (pair 列なら 1 件 1 file か、 tab 区切りの 1 行 1 件)。 (2) source に書くなら、 隣り合う文字列 literal に割って 1 行を短く保つ。 (3) 走らせる python を固定できるなら新しい版にする ([shell-env.md#bound-command-runtime](shell-env.md#bound-command-runtime))。 見分け方: error 文は file が UTF-8 でないように読めるが、 `open(path, 'rb').read().decode('utf-8')` が通るのに落ちるならこれ。
 
 ### <a id="computed-old-empty"></a>9. 計算で作った old は空になりうる — `replace('', new)` は全文字の間に挿入する (2026-09-22)
 
