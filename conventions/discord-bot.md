@@ -1,7 +1,7 @@
 <!-- doc-meta
-when: Discord Bot を運用・実装するとき
+when: Discord Bot を運用・実装するとき + 第三者の bot・連携 service が侵害されたと報じられ、 自分の server・bot への影響を確かめるとき (#third-party-bot-breach-triage)
 category: infra
-summary: Discord Bot 運用 (権限ポリシー・private channel 加入・per-channel error non-fatal な fetcher・Token 取扱・組織 NW での API ブロック・グループへの呼びかけの個別 mention と user ID の根拠つき引き方)
+summary: Discord Bot 運用 (権限ポリシー・private channel 加入・per-channel error non-fatal な fetcher・Token 取扱・組織 NW での API ブロック・グループへの呼びかけの個別 mention と user ID の根拠つき引き方・第三者の bot の侵害時の点検と token 漏洩時の @everyone の絞り方)
 -->
 # discord-bot: Discord Bot を運用するときの規律
 
@@ -208,6 +208,16 @@ Discord は投稿を受け付けたうえで**通知だけを落とす** (HTTP 2
 - **足りなかったとき**: server の管理者が bot の role か channel の overwrite に Mention Everyone を足す。 足せないなら別の経路 (メール等) で知らせる
 - <a id="mass-mention-inherited"></a>**bot の role に付けていなくても効くことがある**: server の `@everyone` role 自体が Mention Everyone を持つ server では、 overwrite の無い channel で bot もそれを継ぐ。 上の権限表の「付けない」 は bot の role の話で、 その channel で効くかは計算で決まる。 運用の台帳に「中立」「付けていない」 とあっても「bot は @everyone を飛ばせない」 と読まず、 下の道具の 1 行で確かめる (実測: 台帳の「中立」 を「権限が無い」 と読み違え、 不要な権限付与を提案しかけた)
 - <a id="mass-mention-precheck"></a>**道具**: 上の事前の計算は [`discord-post.py`](../scripts/discord-post.py) が行う。 `--check` と、 本文に `@everyone` / `@here` がある dry-run が、 読むだけの API (channel / thread なら親 channel / guild の role / bot 本人の member) から `mass mention: ALLOWED` / `DENIED` を出す。 使い捨ての API script を書かずにこの 1 行を読む。 送信後の `mention_everyone` の確認 (exit 3) も残す (= 事前の計算は権限の読み違い、 事後の確認は Discord 側の実際を見る)
+- <a id="mass-mention-deny-for-leak"></a>**token が漏れたときに @everyone を飛ばさせないなら、 bot の role から外すだけでは足りない**: role の権限は足し算なので、 `@everyone` role が Mention Everyone を持つ server では bot の role から外しても残る。 止めるのは channel の overwrite で bot の role に deny を置く形 (overwrite の deny は `@everyone` role から来た分にも効く。 channel ごとに置くが、 category に置いて同期すれば配下の channel に効く) か、 `@everyone` role から外して必要な人の role にだけ付ける形。 置いた後は `--check` の 1 行が `DENIED` になるかで確かめる (実測: 被害の見積もりの返事で「bot の role から外せば」 と書いた = 足し算を忘れた形)
+
+## <a id="third-party-bot-breach-triage"></a>第三者の bot・連携 service が侵害されたと報じられたとき
+
+自分の server・自分の bot に影響があるかを、 次の順に確かめる。
+
+1. **何が破られたかを分ける** — platform 本体 / 第三者の bot・連携 service の運営側 / platform のサポート委託先。 見出しは「Discord で漏洩」 とまとめがちなので、 運営の報告・platform の声明・漏洩 DB の登録で主体を確かめる。 第三者の bot の侵害なら、 影響はその bot が入っている server と、 その bot の認証ページを通った利用者に絞られる
+2. **その bot が自分の server に居るか** — `discord-post.py --token-file <自分の bot の token> --member-probe <その bot の user id>` (読むだけ。 user id は bot の掲載ページや招待 URL の `client_id`)。 member の一覧は Server Members intent が無いと 403 / code 50001 で読めないが、 1 人を引く GET は通る。 404 / code 10007 だけを「居ない」 と読み、 道具は bot 自身を対照に引く (対照が present でない guild があれば exit 4)。 居ると分かっている他の member (別の bot・本人) も一度並べて present と出るのを見ると、 「居ない」 に重みが出る。 ⚠️ 見えるのは自分の bot が入っている server だけ = 本人が個人で入っている他の server は見えない
+3. **利用者の側** — 認証ページを通った人の ID・IP などは自分の bot からは分からない。 本人の account の登録アドレスに platform・運営からの通知が来ているかと、 漏洩 DB の照会 (Have I Been Pwned など。 1 アドレスの照会 API は有料の鍵が要ることが多いので、 本人が web で引く) で確かめる
+4. **自分の token への波及** — 他の bot の token が盗まれても自分の token は無関係。 一方「盗まれた token で入っている server に宣伝を流す」 は自分の bot にも起こる形 = 上の権限ポリシーと [#mass-mention-deny-for-leak](#mass-mention-deny-for-leak) で被害を絞る
 
 ## Cloudflare 1010 error の鑑別: User-Agent vs 組織 NW egress filter
 
