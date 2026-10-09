@@ -93,6 +93,12 @@ launchctl kickstart -k gui/$(id -u)/<RC server の label>
   無限スピナーになる。残骸は削除し、新規作成で入り直す。
 - 並列セッションは同じ cwd を共有する (same-dir) ので、同一ファイルの同時編集は衝突し得る。
 - **ultraplan を起動すると Remote Control が切断される** (= 両者が claude.ai/code を占有、公式 docs)。
+- <a id="log-growth"></a>**server の log は増え続ける**: server は端末向けの再接続の表示 (制御文字つきの
+  spinner の枠) を launchd の `StandardOutPath` にそのまま書き続け、 install script は log を回さない
+  (実測: 1 本で数百 MB)。 `--status` は末尾の 5 行しか読まないので気づきにくい = 大きさは
+  `du -h ~/Library/Logs/com.claude-config.remote-control-server*.log` で見る。 切り詰めの仕組みは未実装。
+  ⚠️ log を grep して異常語を数えると、 再起動より前の行まで数える = 異常語の行番号を最後の
+  `Reconnected` の行番号と比べて、 今も起きているかを決める。
 - ⚠️ **`--sandbox`/`--no-sandbox` の食い違い**: 公式 docs は server mode の flag に filesystem/network 隔離の `--sandbox` を挙げるが、v2.1.165 の `claude remote-control --help` には**無い** (= 自版で要確認、版依存)。常時公開サーバーで隔離を効かせたい場合は自分の `--help` で実在を確認してから付ける (= docs だけ見て plist に焼くと unknown-flag で永久 cycling し得る)。
 
 ## <a id="troubleshooting"></a>Troubleshooting
@@ -200,7 +206,7 @@ zsh -l -c 'echo $PATH' | tr ':' '\n' | head -5
 
 ⚠️ **推奨構成 = pinned per-account (全 server を suffix label + アカウント固定の config dir で立て、 既定 `~/.claude/` には載せない)**。 既定 dir の account は desktop / CLI の都合でいつでも切替わる**変数**なので、 そこに server を載せると account 切替のたびにそのマシンの mobile coverage が壊れる (実測: 既定 dir の account 切替で片方のセルが silent 消失)。 pinned dir 方式なら interactive OAuth は「マシン × アカウントごとに 1 回だけ」 で永続 — 以後は既定 dir の account をいくら切替えても coverage 不変 (再 auth が要るのは token 失効時のみ)。 base label (flag 無し install) は単一アカウント運用でのみ使う。
 
-- `install-remote-control-server.sh --config-dir DIR --label-suffix SUF` で 2 本目以降を別 config dir + 別 launchd label で常駐 (= 既定サーバーと衝突しない)。 既定 (flag 無し) が 1 本目。 outbound polling なので 2 本同時起動でポート/ロック衝突なし。
+- `install-remote-control-server.sh --config-dir DIR --label-suffix SUF` で 2 本目以降を別 config dir + 別 launchd label で常駐 (= 既定サーバーと衝突しない)。 既定 (flag 無し) が 1 本目。 outbound polling なので 2 本同時起動でポート/ロック衝突なし。 ⚠️ `--status` / `--uninstall` も同じ `--label-suffix` で叩く — 素の `--status` は既定 label だけを見るので、 pinned per-account 構成では server が動いていても「not installed」 と出る (その下に、 ほかの label で入っている server を 1 行で並べる)。
 - ⚠️ **`CLAUDE_CONFIG_DIR` は `~/.claude/` を丸ごと別 dir に分離する** (認証・`settings.json`・hooks・MCP・projects すべて)。 何もしないと 2 本目の名義 session は leak-guard 等の hooks を失う。 → 2 本目の config dir に `settings.json` を symlink で持ち込む (hook の command は `~/.claude/hooks/...` の絶対パスなので実体は共有先に解決される)。 MCP server は `.claude.json` 側で分離され別名義には付かない (= 安全性でなく機能差、 要れば別途その config dir で `claude mcp add`)。
 - <a id="oauth-grabs-browser-account"></a>⚠️⚠️ **OAuth はブラウザの現在 claude.ai アカウントを掴む** (= config dir を分けても、 `claude auth login` の認可が別アカウントでサインイン済だとそっちで認可されてしまう。 **account 選択画面は出ない** — cookie の account で無言で通り、 `--email` flag も入力欄の事前入力のみで cookie session があると効かない、 2026-08-28 実測)。 2 本目を**別アカウントで認証するときは、 認可をその別アカウントのブラウザ文脈で行う**: (a) claude.ai のアカウントメニューで切替 / サインアウトして選び直す、 または (b) **プライベート窓で claude.ai に目的アカウントでログインしておき、 `claude auth login` が自動で開くタブは承認せず閉じて、 terminal に出る URL をプライベート窓に貼って承認** (= どの窓から承認しても通る。 常用ブラウザのログインを動かさずに済む)。 ⚠️ terminal に出る手動用の URL は、 承認後に **code を画面に出して terminal に貼らせる方式**のことがある (実測: redirect 先が platform の callback で、 terminal は `Paste code here if prompted >` で待つ) = 出た code を**その terminal** に貼って完了。 認可後はブラウザを戻してよい (= 資格は config dir に保存される)。 必ず `CLAUDE_CONFIG_DIR=DIR claude auth status` で email を確認してから本番化する — 掴み違いは **ラベルどおりの顔で別名義が動く silent な破れ**になる ([multi-account-machine-surface.md](multi-account-machine-surface.md) §典型的な破れかた「pinned config dir の alias と実 auth の乖離」、 2026-08-28 実測)。 取り違えたまま動いている config dir は、 fleet の reader ([`scripts/check-fleet-status.py`](../scripts/check-fleet-status.py) の `--expect-account`) が 🔴 で出す。
 - スマホ側は **アプリのアカウント = 見える environment 群のスイッチ** (= odakin でサインインすると odakin 名義サーバーの environment が、 別名義でサインインすると別名義の environment が候補に出る)。
