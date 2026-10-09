@@ -21,9 +21,10 @@
 ## Open items（forward-looking）
 
 
-- [ ] **claude-app-account-mirror の実 app での初回の実走** — 常駐は本人が 2 台に入れた。 実測済み = ③ 表示中の account の dir には書かない (`--status` の待ちの数) / app が写しの record を読み込む (切替の後の app の log に読み込みの失敗なし)。 未観察 = ① 写しが一覧に**見える形で**出る (元をアーカイブした session の写しはアーカイブ済みに入る = 元の isArchived を引き継ぐ。 扱いの裁定待ち) ② 写しを開くと「インポートしたセッションを再開しますか？」 が出て、 会話記録が `projects/<slug>/<新しい cli id>.jsonl` に移る ④ launchd の log が変化の無い回は無音
+- [ ] **claude-app-account-mirror の実 app での初回の実走** — 常駐は本人が 2 台に入れた。 実測済み = ③ 表示中の account の dir には書かない (`--status` の待ちの数) / app が写しの record を読み込む (切替の後の app の log に読み込みの失敗なし)。 未観察 = ① 写しが一覧に**見える形で**出る (元をアーカイブした session の写しはアーカイブ済みに入る = 元の isArchived を引き継ぐ。 扱いは今のまま = 推奨・異論なし。 探すときはアーカイブ済みの一覧も見る) ② 写しを開くと「インポートしたセッションを再開しますか？」 が出て、 会話記録が `projects/<slug>/<新しい cli id>.jsonl` に移る ④ launchd の log が変化の無い回は無音
 
 - [ ] **collaborator-check の未実走の面** — Claude Code の project hook は headless で発火を確認、 共同編集者の実機・Windows (Git Bash)・Codex (hook なし = CLAUDE.md の「1 回実行」 頼み) は未確認。 共同編集者の最初の session の報告で確かめる
+- [ ] **`cd-git-write-guard.py` が subagent に効かない案内を出す** — 子は cwd が呼び出しごとに戻るので「cd を単独で」 の案内が成り立たず、 複数の agent が同じ所で止まった ([conventions/claude-code-permissions.md#subagent-commit-route](conventions/claude-code-permissions.md#subagent-commit-route) に文は置いた)。 仕組みにするなら hook の入力の agent の印で子を見分け、 `commit-from-origin-worktree.py` を案内する。 hook は規則保護 = 候補を作って owner の裁定
 - [ ] **規則保護 gate の `apply` は対象と候補が同じだと何もしない** — installer が先に file を書き、 commit の gate で止まった場合に当たる。 実測では `approve --candidate <写し> --region …` で記録して通した。 `apply` が記録だけは行うようにするかは owner 判断
 - [ ] **新しい hook 2 つ (書き換えられた履歴への追従 / 検査を切る操作) と commit 時の識別子の検査の、 他の machine での初回の実走** — 配線は各 machine の次の session 開始で入る。 最初の session で、 追従が沈黙するか・解除の command が止まるか・commit が 0.3 秒程度で通るかを見る。
 - [ ] **SSO の入り直しの、 IdP が切れた状態からの実走** (exit 75 → `--wait-login`、 [DESIGN#sso-recovery-server-acceptance](DESIGN.md#sso-recovery-server-acceptance)) — 次に学内ログインが切れた状態で client を使う時、 `--trace` を付けて 1 回見る (selftest の偽の tab と時計でだけ通している)
