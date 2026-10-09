@@ -53,6 +53,7 @@ claude-config/
 │   ├── campussquare.md                     # 大学の教務システム CampusSquare for WEB (シラバス・履修者名簿・成績登録) を読む・扱うとき + 名簿 CSV を科目別に分けるとき + 成績を CSV で一括登録するとき + 内蔵 browser でログイン画面が出て「読めない」 と言いそうになったとき + 配られた授業計画表の xlsx で自分の登録 (開講期・曜時) を照合するとき (#plan-table-xlsx) + ダウンロードセンターの配布資料 (会議資料・手引き・様式) を一覧・取得・展開するとき (#download-center) + 掲示板 (お知らせ) を読むとき・案内された「お知らせ」 の資料が見つからないとき (#bulletin-board) + 自分の授業の実施教室・コマを確かめるとき (#teacher-schedule)
 │   ├── chalkboard-close-up-merge.md        # 板書写真 PDF に close-up annotation を統合するとき
 │   ├── chalkboard-photo-archive.md         # 授業の板書をスマホで撮った写真を、 授業ごとの PDF にまとめて置き場所に保管し受講者に見せる仕組みを作る・回すとき + 板書 PDF の「第何回」 がずれた・上書きしてしまったとき
+│   ├── chat-math-rendering.md              # チャットの返事に数式を書くとき (読ませる数式・コピペ用の LaTeX の両方) + 返事の数式が生の TeX のまま表示されたとき + 数式の書き方の規則を CLAUDE.md や template に置くとき
 │   ├── claude-ai-routines.md               # claude.ai routines (RemoteTrigger / cloud cron) を作成・管理するとき
 │   ├── claude-app-bundle-reading.md        # Claude desktop app (Code タブ等) の画面の挙動・文言の原因を、 docs や推測でなく app 本体で確かめたいとき + hook や規約が desktop の挙動を前提にする前 + 読んだ結論を user の画面で裏付ける実験を頼むとき
 │   ├── claude-app-cwd-pin.md               # Claude.app の folder picker 起点固定 (launchd) を設定・解除するとき
