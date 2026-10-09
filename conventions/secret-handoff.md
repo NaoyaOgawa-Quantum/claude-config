@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: secret を user から受け取る・別マシンへ運ぶとき + **token を rotate するとき** (= 分業と主体照合、 #rotation-labor-split) + **暗号化 backup を作る/パスフレーズを失ったとき** (#backup-round-trip / #passphrase-loss-is-recoverable)
 category: infra
-summary: Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避、 配置先と cross-machine 耐久性、 mode 衛生 〔cp -p / git / open() は 0600 を運ばず dir 755 も露出面 = 生成側で冪等矯正、 #mode-hygiene〕、 shell rc に複製しない 〔perm 644 + 全 audit の射程外 + os.environ 優先で正本を上書きし rotate が silent に効かなくなる、 #no-shell-rc-copies〕、 backup は往復検証してから差し替える 〔#backup-round-trip〕、 パスフレーズ喪失は平文が 1 台に残っていれば全件再暗号化で復旧 〔#passphrase-loss-is-recoverable〕、 rotate の分業 = 人間は再発行のみ・残りは script で値を AI context に載せない + 主体照合必須 〔#rotation-labor-split〕)
+summary: Secret を clipboard 経由で安全に運ぶ手順 (chat に literal を貼らせない原則と clipboard 1 個競合の回避、 agent が同じ機械の clipboard を自分で読む形 = 形を確かめてから clipboard を消す 〔#agent-side-paste〕、 配置先と cross-machine 耐久性、 mode 衛生 〔cp -p / git / open() は 0600 を運ばず dir 755 も露出面 = 生成側で冪等矯正、 #mode-hygiene〕、 shell rc に複製しない 〔perm 644 + 全 audit の射程外 + os.environ 優先で正本を上書きし rotate が silent に効かなくなる、 #no-shell-rc-copies〕、 backup は往復検証してから差し替える 〔#backup-round-trip〕、 パスフレーズ喪失は平文が 1 台に残っていれば全件再暗号化で復旧 〔#passphrase-loss-is-recoverable〕、 rotate の分業 = 人間は再発行のみ・残りは script で値を AI context に載せない + 主体照合必須 〔#rotation-labor-split〕)
 -->
 # secret-handoff: Secret をユーザーの clipboard 経由で安全に運ぶ手順
 
@@ -58,6 +58,25 @@ wc -c ~/.secrets/<name>
 ```
 
 これは **必ず別ブロックで提示する**。書き込みコマンドと `&&` で連結すると、ユーザーがその 1 行を clipboard コピーした時点で secret が消える同じ罠を踏ませる。
+
+## <a id="agent-side-paste"></a>Agent が自分で clipboard を読めるとき: user にコマンドを貼らせない
+
+agent の shell が user と同じ機械の同じ login session で動いている (Claude Code の Bash tool など) なら、 agent が自分の tool call で clipboard を読み、 user にはコマンドを貼らせない。
+user は secret をコピーして「コピーした」 と言うだけ。
+agent の tool call は clipboard を通らないので、 上の罠は起きない (実測)。
+
+1. user: 発行画面で secret をコピーし、 chat には「コピーした」 とだけ書く (値は貼らない)
+2. agent: 自分の tool call で `(umask 077; pbpaste | tr -d '\r\n ' > <置き場所>)` と書き込み、 値を出さずに形だけ確かめる
+   (長さ・prefix・正規表現の一致を 1 行で出す)。 API の token なら、 発行元の確認用 endpoint を 1 回叩いて有効かを見る
+3. **確かめが通ってから** clipboard を空にする (`pbcopy < /dev/null`)。 通らなかったら空にせず user に聞く
+   (clipboard に値が残っていれば、 読み方を直して取り直せる)
+   - ⚠️ 確かめと消去を同じ command に並べない。 形が合わなかったとき、 値は file にも clipboard にも残らず、 user にもう一度コピーしてもらうしかなくなる
+     (実測: 秘密でない ID の受け渡しで、 形の検査と消去を 1 つの command に入れて値を失った)
+4. 置き場所は下の §配置先と耐久性 のとおり、 暗号化される secrets repo の canonical にする
+
+- 使えない環境 = agent が別の機械や cloud で動く / sandbox で pasteboard に届かない
+  (pbcopy が user session の pasteboard に書けない環境の実測 = [`substack.md`](substack.md))。 そのときは上の stdin 待ちの手順
+- 値の形が決まっているなら検査に使う (例: Discord の webhook URL の正規表現 = [`static-site-form-backend.md#discord-webhook-notify`](static-site-form-backend.md#discord-webhook-notify))
 
 ## <a id="placement-and-durability"></a>配置先と耐久性: handoff は「配置」 の半分でしかない
 
@@ -127,21 +146,23 @@ secret の保管 doc に「canonical / backup / 登録済」 と書く前に **�
 ## <a id="anti-pattern"></a>Anti-pattern (使ってはいけない)
 
 ```bash
-pbpaste > ~/.secrets/<name>             # 罠: Claude のこの行をコピーした瞬間に secret が消える
+pbpaste > ~/.secrets/<name>             # 罠: user が Claude のこの行をコピーした瞬間に secret が消える
 echo "$(pbpaste)" > ~/.secrets/<name>   # 同上
 some_cmd "$(pbpaste)"                   # 同上、clipboard を読む全コマンドが該当
 ```
 
-`pbpaste` (macOS) / `xclip -o` / `wl-paste` (Linux) を **secret 取り込みに使う案を Claude が出した時点で誤り**。Claude のコマンド文字列で clipboard が確実に上書きされている。
+`pbpaste` (macOS) / `xclip -o` / `wl-paste` (Linux) を **user に実行させるコマンドに入れて secret を取り込む案を Claude が出した時点で誤り**。user がそのコマンドをコピーした時点で、clipboard は Claude のコマンド文字列で上書きされている。
+agent が自分の tool call で clipboard を読む形 ([#agent-side-paste](#agent-side-paste)) は別 = コマンドが clipboard を通らない。
 
 ## <a id="how-to-apply"></a>Claude への指示 (How to apply)
 
-Secret を `~/.secrets/<name>` 系に運ぶ手順を提示する時は **必ず stdin-wait 先行 pattern** を使う:
+agent が user と同じ機械の clipboard を自分の tool call で読めるなら、 [#agent-side-paste](#agent-side-paste) の手順 (確かめてから clipboard を消す) を使う。
+Secret を `~/.secrets/<name>` 系に運ぶコマンドを **user に実行させる**時は **必ず stdin-wait 先行 pattern** を使う:
 
 1. 最初に `cat > file` または `read -rs ... < /dev/tty ...` を提示 (= ターミナルを入力待ちに)
 2. その上で「ブラウザで secret コピー → Cmd+V → Enter → Ctrl+D」 の順序を文章で明示
 3. 検証 (`wc -c`) と permission (`chmod 600`) は **必ず別ブロック**で並べる
-4. `pbpaste` を使うコマンド案が頭をよぎったら、それは clipboard 競合の罠 — 即破棄
+4. user に実行させるコマンドに `pbpaste` を入れる案が頭をよぎったら、それは clipboard 競合の罠 — 即破棄
 
 ## <a id="why-recurs"></a>なぜ繰り返すのか (構造的バイアス)
 

@@ -104,7 +104,7 @@ GitHub Actions の workflow 側で **後続 step に `if: always()`** を付け�
 - リポ内 backup を持つ場合は **git-crypt 暗号化必須**。平文 commit は禁止
 - chat / public リポ / メール本文への literal 貼付は禁止
 - GitHub Actions では `${{ secrets.<NAME> }}` 経由で env var に注入し、log で `***` mask されることを確認 (`echo $TOKEN` のような直接出力をしない)
-- **Token を初回 `~/.secrets/<bot>-token` に配置する手順は [`secret-handoff.md`](secret-handoff.md) を参照** — `pbpaste` 系で書き込む案は clipboard 上書きの罠で確実に破綻するため厳禁。stdin-wait 先行 pattern (`cat > file` または `read -rs`) が canonical
+- **Token を初回 `~/.secrets/<bot>-token` に配置する手順は [`secret-handoff.md`](secret-handoff.md) を参照** — user に実行させるコマンドに `pbpaste` 系を入れる案は clipboard 上書きの罠で確実に破綻するため厳禁。user に実行させるなら stdin-wait 先行 pattern (`cat > file` または `read -rs`)、agent が同じ機械の clipboard を自分で読めるなら [`secret-handoff.md#agent-side-paste`](secret-handoff.md#agent-side-paste)
 
 ## <a id="token-sharing-protocol"></a>Token 共有プロトコル: owner 単独運用 vs. collaborator 共有
 

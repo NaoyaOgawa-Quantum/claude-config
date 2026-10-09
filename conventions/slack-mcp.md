@@ -105,7 +105,7 @@ head -c 8 ~/.secrets/slack-<alias>-xoxc.txt && echo
 `xoxc-…` / `xoxd-…` の先頭 8 文字だけ verify (= それ以上は transcript に残さない)。
 
 ⚠️ **2026-09-02 訂正 — 旧 recipe は `(umask 077; pbpaste > …)` だった**: これは
-[`secret-handoff.md`](secret-handoff.md) が **literal で禁じている形** (= 「`pbpaste` を secret 取り込みに使う案を Claude が出した時点で誤り」)。 旧 recipe は「command を手で直打ちすれば clipboard は上書きされない」 という**人間の運用に依存した回避**で、 実際には *chat から command を copy した瞬間に token が消える* trap が実発生していた (= 旧版の ⚠️ 注記自身がそれを記録していた)。 上の stdin 待ち先行なら **貼り付けるのは token の方**なので、 衝突が構造的に起きない。
+[`secret-handoff.md`](secret-handoff.md) が **literal で禁じている形** (= 「`pbpaste` を user に実行させるコマンドに入れて secret を取り込む案を Claude が出した時点で誤り」)。 旧 recipe は「command を手で直打ちすれば clipboard は上書きされない」 という**人間の運用に依存した回避**で、 実際には *chat から command を copy した瞬間に token が消える* trap が実発生していた (= 旧版の ⚠️ 注記自身がそれを記録していた)。 上の stdin 待ち先行なら **貼り付けるのは token の方**なので、 衝突が構造的に起きない。
 
 ⚠️ **file 名取り違え trap (実発生)**: xoxc を保存した command を up-arrow で recall して xoxd 用に流用する時、 **file 名の `xoxc`→`xoxd` 書換えを忘れると xoxc file が xoxd で上書きされる**。 各保存後に `head -c 8` で中身の prefix (`xoxc-` vs `xoxd-`) を必ず確認。
 
