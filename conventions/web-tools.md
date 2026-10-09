@@ -1,5 +1,5 @@
 <!-- doc-meta
-when: WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check)
+when: WebSearch / WebFetch / browser 自動化の信頼性を判断するとき + ある図書館が本を所蔵しているかを API で確かめるとき (#cinii-library-holdings) + 生成した HTML を内蔵 Browser pane で開いて tool で確かめるとき (#browser-pane-local-file-snapshot) + 内蔵 Browser pane でサイトにログインしているかを判定するとき (#login-state-check) + 手元の preview を見られない相手にページを画像で見せるとき (#headless-page-screenshot)
 category: web
 summary: #javascript-tool-gotchas (async IIFE → `{}` / 出力 filter = 文字 whitelist / 戻り値は約 3KB で切れる / 内部 endpoint 直叩き) + Claude in Chrome の permission 障害は再インストール前に `list_connected_browsers` (再ログイン後の stale 接続) + WebSearch / WebFetch の信頼性 caveat (summary hallucination、 事実値は source 直接確認) + CSR SPA は fetch に空シェル (200≠実在、 実ブラウザ描画で検証) + booking.com の宿への連絡は確認メールに返信しても届かない = web のメッセージ画面を pane で開きログインは本人 (#booking-property-messaging) + **claude.ai share ページは in-app Browser pane が素通し / page 内 same-origin fetch は snapshot API も 200 (= headless / curl は全滅、 #claude-share-page-access)** + **browser cookie replay は OAuth-token SPA を認証しない (= Box `/f/` 等 member 限定クラウドフォルダは無人 upload 不可、 session API 401 / shared-item 404 で spike 1 回で確定)** + Claude in Chrome MCP の 2 層 permission モデル + bug 53630 (sites/docs.google.com domain silent block) + **内蔵 Browser pane で frameset / popup / 連動 select の古い web app を JS で読み書き (#browser-pane-frameset-popups、 拡張が prompt 無しで拒否する domain の逃げ道)**
 -->
@@ -399,3 +399,22 @@ frameset の app では空文字と ref 無しが返る。 読み書きは `java
   `location.reload()` を使う
 - **ロボット判定（Turnstile 等）は自動操作では通れない**（トークンが発行されない、実測）。**突破しようとしない**。
   判定を通った送信の確認は人に頼む（[`static-site-form-backend.md#turnstile`](static-site-form-backend.md#turnstile)）
+
+## <a id="headless-page-screenshot"></a>相手が preview を見られないときは、ページ全体を画像に撮って送る
+
+内蔵 Browser pane の preview はその機械の app でしか見えない（スマホから会話している相手には届かない）。
+「見えない」 と言われたら、ページ全体を PNG に撮って添付で送る。道具 = [`../scripts/page-screenshot.py`](../scripts/page-screenshot.py)
+（スマホ幅 = `--width 390 --mobile`、PC = `--width 1280`。`file://` の生成物も server なしで撮れる。`--selftest` あり）。
+
+headless Chrome の `--screenshot` をそのまま使うと 3 つの罠に当たる（どれも実測）:
+
+- **`--window-size` の幅には下限がある**: `--headless=new --window-size=390,…` はもっと広い画面で描かれ、右が切れた絵になる。
+  端末の幅は DevTools の口（CDP）の `Emulation.setDeviceMetricsOverride` で指定する
+- **別オリジンの iframe（埋め込みプレーヤー・ロボット判定）があるページで、書いた後に Chrome が終わらないことがある** = 自分で起動するなら打ち切りの時間を付ける
+- **`captureBeyondViewport` でページ全体を撮ると、別オリジンの iframe が白く写る** = 画面の高さをページ全体に広げてから普通に撮る
+
+送る前に:
+
+- **縦に極端に長い画像は添付で届かないことがある**（780×12400 px は送れず、780×5000 px は届いた）= `--split <高さ>` で縦に分ける
+- 撮った絵を 1 枚は自分で読む（右端の切れ・白い枠・エラー表示）。`file://` で開いたページではロボット判定の欄がエラー表示になる = 本番の不具合と取り違えない
+- 開けなかったページ（file が無い等）は道具が失敗で返す（Chrome のエラー画面を撮って成功にしない）
