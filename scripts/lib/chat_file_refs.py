@@ -95,7 +95,8 @@ def _inside(path: str, root: str) -> bool:
 
 
 def candidate_dirs(root: str, seen_cwds: list[str] | None = None) -> list[str]:
-    """別の基準の候補。 transcript に出た cwd (呼び出し側が新しい順に渡す) → root 直下の dir。 重複は除く。"""
+    """別の基準の候補。 transcript に出た cwd (呼び出し側が新しい順に渡す) → root 直下の dir。 重複は除く。
+    session の追加フォルダは呼び出し側 (find_broken) が最後に足す。"""
     out: list[str] = []
     for d in (seen_cwds or []):
         if d and os.path.isdir(d) and os.path.normpath(d) != os.path.normpath(root):
@@ -179,7 +180,10 @@ def find_broken(text: str, root: str, seen_cwds: list[str] | None = None, limit:
         else:
             reason = "missing"
         if dirs is None:
+            # 追加フォルダも候補に入れる: そこを起点に書いた path (例 = 同期フォルダを追加した session の `<sub>/…/x.pdf`) は
+            # 基準フォルダにも cwd にも無く、 入れないと「どこにも無い例示の path」 として素通りする (実測)
             dirs = candidate_dirs(root, seen_cwds)
+            dirs += [d for d in extras if os.path.isdir(d) and d not in dirs]
         # 基準の外に出た先が実在するなら、 それ自体が正しい相手 (絶対 path で示す)
         cands: list[str] = [target] if reason == "outside" and os.path.exists(target) else []
         for d in dirs:
