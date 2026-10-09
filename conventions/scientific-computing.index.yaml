@@ -124,3 +124,6 @@ sections:
   - id: research-script-homes
     level: 2
     title: "研究スクリプトと知見の配置・全数索引"
+  - id: observable-state-generator-audit
+    level: 2
+    title: "観測量・状態・生成子を別々に固定して検算する"
