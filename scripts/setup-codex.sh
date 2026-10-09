@@ -214,6 +214,12 @@ preflight_session_hook() {
   fi
 }
 
+personal_skills() {
+  [ -n "$PERSONAL_LAYER" ] || return 0
+  python3 "$SCRIPT_DIR/codex_personal_skills.py" \
+    --personal-layer "$PERSONAL_LAYER" --user-dir "$CODEX_USER_DIR" "$@"
+}
+
 configure_personal_layer() {
   local personal_agents_bytes
   [ -n "$PERSONAL_LAYER" ] || return 0
@@ -417,8 +423,10 @@ if [ "$REFRESH_PERSONAL_LAYER" -eq 1 ]; then
     echo "SKIP: managed Codex global instructions no longer select this personal layer."
     exit 0
   fi
+  personal_skills --preflight
   render_personal_global_agents
-  echo "Refreshed: managed local global AGENTS.md composite"
+  personal_skills
+  echo "Refreshed: managed local global AGENTS.md composite and declared skill links"
   exit 0
 fi
 
@@ -519,6 +527,7 @@ path.write_text(text, encoding="utf-8")
 PY
 }
 
+personal_skills --preflight
 preflight_global_agents
 preflight_link "$CONFIG_ROOT/codex/AGENTS.md" "$CODEX_WORKSPACE_ROOT/AGENTS.md"
 preflight_link \
@@ -575,6 +584,7 @@ if [ -n "$EFFORT" ] || [ "$CONFIGURE_SAFE_LOCAL" -eq 1 ]; then
 fi
 
 if [ -n "$PERSONAL_LAYER" ]; then
+  personal_skills
   install_personal_refresh_hook
 fi
 

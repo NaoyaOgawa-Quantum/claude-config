@@ -135,7 +135,12 @@ EOF
 chmod +x "$PERSONAL_LAYER/.git/hooks/post-merge"
 PERSONAL_LAYER="$(cd "$PERSONAL_LAYER" && pwd -P)"
 
+mkdir -p "$PERSONAL_LAYER/skill/finish"
+printf '%s\n' '---' 'name: finish' 'description: Synthetic finishing fixture' '---' 'Use this canonical fixture.' > "$PERSONAL_LAYER/skill/finish/SKILL.md"
+printf '%s\n' '{"version":1,"skills":{"finish":"skill/finish"}}' > "$PERSONAL_LAYER/codex/skills.json"
 run_setup --personal-layer "$PERSONAL_LAYER"
+[ -L "$TEST_CODEX_DIR/skills/finish" ]
+[ "$(readlink "$TEST_CODEX_DIR/skills/finish")" = "$PERSONAL_LAYER/skill/finish" ]
 
 [ ! -L "$TEST_CODEX_DIR/AGENTS.md" ]
 grep -qx '<!-- claude-config-codex: global-personal-composite -->' "$TEST_CODEX_DIR/AGENTS.md"
@@ -151,6 +156,9 @@ grep -qF -- '--refresh-personal-layer' "$PERSONAL_REFRESH"
 printf '%s\n' 'UPDATED_PERSONAL_OVERLAY' >> "$PERSONAL_LAYER/codex/AGENTS.md"
 "$PERSONAL_LAYER/.git/hooks/post-merge" 0 0 0 >/dev/null
 grep -qx 'UPDATED_PERSONAL_OVERLAY' "$TEST_CODEX_DIR/AGENTS.md"
+rm "$TEST_CODEX_DIR/skills/finish"
+"$PERSONAL_LAYER/.git/hooks/post-merge" 0 0 0 >/dev/null
+[ -L "$TEST_CODEX_DIR/skills/finish" ]
 
 OVERSIZED_LAYER="$TEMP_ROOT/oversized-personal-layer"
 OVERSIZED_HOME="$TEMP_ROOT/oversized-home"

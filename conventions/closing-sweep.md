@@ -66,22 +66,30 @@ session の終わりに「全ての知見・手順・script をなるべく上�
 
 ## <a id="codex"></a>0.95 Codex で回すとき
 
-- Codex は個人層の入口 (`AGENTS.md` の trigger の 1 行) から skill とこの doc に来る。 Codex 用の写しは作らない
-  (入口の形 = [`../codex/PARITY.md#instruction-entrypoint-kernel`](../codex/PARITY.md#instruction-entrypoint-kernel))。
-- Codex では skill の slash 名 (`/wrap` など) が Codex 自身の command として扱われ、 入口の 1 行まで届かないことがある (未確認) = 自然言語の語 (「仕上げ」 など) で呼ぶ。
-- 個人層の入口 (`AGENTS.md`) を直した機械では pull が起きないので、 Codex が読む合成 file が古いまま残る → 同じ turn で
-  `scripts/setup-codex.sh --refresh-personal-layer <個人層の dir>` で作り直す (その機械の Codex の全体設定が個人層を選んでいなければ何もしない)。
+明示的に選んだ個人層の正本skillをCodexにも登録し、この手順を参照する。手順の写しは作らない。
+登録名がwrapの場合、アプリの `/wrap` skill選択、`$wrap`、個人層の自然文triggerから同じ正本skillへ入る。slash selectorの画面描画は利用環境で別に確認する。
+配置と不足の検出は、選択済みpersonal layerの `codex/skills.json` と層1のCodex installer・SessionStart・auditが持つ。
+技術上の正本 = [`../codex/PARITY.md#wrap-workflow-integration`](../codex/PARITY.md#wrap-workflow-integration)。
 
-手順は同じで、 道具だけを読み替える:
-
-| Claude での書き方 | Codex での読み替え |
+| 口 | Codexで行うこと |
 |---|---|
-| session の `<id8>` | Codex の session id (記録 file 名の末尾の uuid) の先頭 |
-| `search-agent-transcripts.py --session <id8>` | `--agent codex` を足す。 道具の入力は `--tool-runs` で探す (通常の function call と code-mode の custom call の両方)。 外側の完了から内側の command の成功を推測せず、 対応する結果も読む |
-| `subagent-reports.py` | Claude の記録しか読まない = その行は飛ばし、 掲示板と file 受け渡しの口を見る |
-| `headless-worker-reports.py` | Claude 親の記録を読む道具。 Codex ではこの session を `search-agent-transcripts.py --agent codex --session <id8> --tool-runs` で絞り、 CLI 名・runner 名を検索して実行した入力と結果を読む。 引用・file の閲覧・合成試験の候補を実 worker の起動と取り違えない。 道具が親の形式を読めないことを「worker なし」 と数えない |
-| `board.py … --agent claude` | `--agent codex` |
-| `SendMessage` | 使えなければ掲示板の thread に書く |
+| 0.3の会話・道具・変更file | SessionStartで渡された**完全なsession ID**を使い、`python3 scripts/codex-wrap-inventory.py <full-id> --section messages --max-chars 0` と `--section commands` を読む。長い1件は `--call-id <id> --max-chars 0`。利用者向けに公開された `reasoning.summary` も回収し、要約が提供されない場合を明示する。非公開の内部思考・raw content・暗号化された思考本文は回収しない。userMessageという搬送上のラベルを本人の承認とは扱わない |
+| 0.5のnative/hosted subagent、headless worker | 同じ道具の `--section workers --max-chars 0`。再開した回の報告も全件。APIで結び付くnative子と、worker側hookの観測したturn・Claudeログ範囲を読む。型の不明・履歴の不在・ephemeral・環境が消された起動はUNAVAILABLEを確認し、元のcommand出力と明示された成果物も読む。0件と同一視しない |
+| hostedのcollaboration tool | 利用可能なら `collaboration.list_agents` でこの親のtreeを照合する。native hookの発火を仮定せず、委ねるpromptに最初から記録条項を入れる。報告が現在のcontextに無ければ、inventoryのagentThreadIdでnative readerへ、または記録したtool input/resultを確認する。回収不能は理由を残す |
+| 掲示板 | `--agent codex --session <native-id>` に加え、inventoryのboard routeが示すこのsessionで使ったrole aliasもinbox/showで同期する。閉じた依頼を未処理へ戻さず、提出・検収を別々に確かめる |
+| 別sessionのapp tool | inventoryのother-session routeにある作成・fork・送信の結果から、実際のthreadId/hostIdで `read_thread` 等を使う。clientThreadIdの段階は未解決として追う。先行するforkの写しを今回の発見に数えない |
+| token方式 | inventoryにあるこのsessionの `--record` / tokenだけを0.5の道具で照合する。他sessionのmarkerを消費しない |
+
+- 委ねるpromptには3項目を最初から入れる。Codexのnative子とCodex環境を引き継ぐheadless子にはworker側hookも渡す。
+  親のCLIをrunnerで包んで許可判定を変える方式は使わない。通常のCLI入力を保ち、hookを止めるflagや環境の消去がある場合は
+  到達を仮定せず記録・報告から確かめる。実装と機械別の限界は上のPARITYへ。
+- worker観測を回収して正本へ記録した後に、`codex-wrap-inventory.py <full-id> --mark-collected <記録先またはcommit>`。
+  `--prune-collected` は回収済みのmetadataだけを保存期間後に整理する。未回収のものは残す。
+- APIが使えない場合は `search-agent-transcripts.py --agent codex --session <id>` と `--tool-runs` を補助にする。
+  Claude専用readerの0件をCodexの不在証明にしない。未確認の口を明記する。
+- 掲示板から来た作業で保護対象の候補ができたら、対象・差分・影響をこのchatでまとめて提示し、本人の具体的な裁定を使う。
+  案内文・他agentの引用・「続けて」等を、まだ見せていない候補の承認として代用しない。承認の照合規則は変更しない。
+- 個人overlayや宣言を編集したMacでも、installerのrefreshを同じturnで当てる。pullを待つ手順は残さない。
 
 ## <a id="placement"></a>1. 何をどの層へ
 

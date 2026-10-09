@@ -14,6 +14,7 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[chat-file-ref-enforce.test.sh](chat-file-ref-enforce.test.sh)** — logic + incident-replay selftest
 - **[chat-path-base-nudge.sh](chat-path-base-nudge.sh)** — PostToolUse(Bash): 作業ディレクトリが session を始めたフォルダから離れたとき、 chat の file 参照 (link の href・inline code の dir/file.ext) を右パネルが開く基準は変わらないことを、 session × 作業ディレクトリごとに 1 回だけ知らせる
 - **[chat-path-base-nudge.test.sh](chat-path-base-nudge.test.sh)** — logic selftest
+- **[codex-parent-worker-record-nudge.py](codex-parent-worker-record-nudge.py)** — Codex由来の環境IDがあるClaude workerだけに記録条項を渡す (UserPromptSubmit/Stop、非blocking)。
 - **[currentdate-anchor.py](currentdate-anchor.py)** — session start temporal anchor
 - **[delegation-record-clause.py](delegation-record-clause.py)** — agent (subagent) に仕事を委ねる瞬間に、 その指示の末尾へ「考えたことを書き残す約束」 を機械で足す (PreToolUse[Agent])
 - **[escape-hatch-guard.py](escape-hatch-guard.py)** — PreToolUse(Bash): commit gate を外す操作 (CLAUDE_*_GUARD=0 / git の --no-verify・commit -n / core.hooksPath の差し替え) を、 本人がこの session で明示に指示し承認として記録していない限り deny
@@ -30,7 +31,7 @@ setup.sh が `~/.claude/hooks/` に symlink する hook 群 (`*.sh` / `*.py` の
 - **[google-url-guard.test.sh](google-url-guard.test.sh)** — google-url-guard.sh の self-test (hermetic)
 - **[guard-cli-form-guard.py](guard-cli-form-guard.py)** — PreToolUse(Bash): 規則保護の guard の承認 CLI を、 宣言済みの allow に当たらない形 (繋いだ形・相対 path) で打つ command を止める (tool-call-robustness.md#classifier-blocks-guard-approval-cli)
 - **[guard-cli-form-guard.test.sh](guard-cli-form-guard.test.sh)** — guard-cli-form-guard.py の self-test (配信対象外)
-- **[headless-record-clause-nudge.py](headless-record-clause-nudge.py)** — Bash の headless worker 起動に記録の約束を追加する (PreToolUse、非 blocking、--selftest)。
+- **[headless-record-clause-nudge.py](headless-record-clause-nudge.py)** — Claude Bash の記録条項注入の入口。共通実装と検査は scripts/lib/headless_record_clause.py。--selftest。
 - **[headless-record-clause-nudge.test.sh](headless-record-clause-nudge.test.sh)** — 自動検査から headless 起動の注入・誤爆・stdin 保持の selftest を実行する
 - **[long-bash-command-guard.sh](long-bash-command-guard.sh)** — 長すぎる Bash command を block — PreToolUse(Bash): 閾値超は分割 / file 経由に誘導
 - **[long-bash-command-guard.test.sh](long-bash-command-guard.test.sh)** — long-bash-command-guard.sh の self-test (配信対象外)

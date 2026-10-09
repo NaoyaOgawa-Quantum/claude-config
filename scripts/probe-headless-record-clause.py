@@ -64,7 +64,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         pass
 
 
-def probe_argv(repo):
+def probe_argv(repo, codex_path=None):
     with tempfile.TemporaryDirectory(prefix='headless-cli-probe-') as td:
         server = ThreadingHTTPServer(('127.0.0.1', 0), RequestHandler)
         server.captured = captured = []
@@ -78,7 +78,7 @@ def probe_argv(repo):
             claude = [require_cli('claude'), '--bare', '--print', '--no-session-persistence',
                       '--model', 'claude-sonnet-4-5', '--append-system-prompt', 'ORIGINAL_SYSTEM_SENTINEL',
                       'ORIGINAL_TASK_SENTINEL']
-            codex = [require_cli('codex'), 'exec', '--ignore-user-config', '--ignore-rules',
+            codex = [codex_path or require_cli('codex'), 'exec', '--ignore-user-config', '--ignore-rules',
                      '--ephemeral', '--skip-git-repo-check',
                      '-c', 'model="synthetic-model"',
                      '-c', 'model_provider="record_probe"',
@@ -112,6 +112,11 @@ def probe_argv(repo):
                 assert verdict['request_received'] and verdict['clause'] and verdict['original_task'], verdict
                 assert verdict['original_system'] == preserve_system, verdict
                 assert not stdin or verdict['original_stdin'], verdict
+            for name,stdin,want_request in [('codex-empty-stdin','',False),('codex-clause-only-stdin','記録の約束: discarded / noticed / unverified',True)]:
+                captured.clear()
+                p=subprocess.run(codex+['-'],cwd=td,env=env,input=stdin,text=True,capture_output=True,timeout=35)
+                print(json.dumps({'probe':name,'request_received':bool(captured),'exit':p.returncode},ensure_ascii=False),flush=True)
+                assert bool(captured)==want_request, name
         finally:
             server.shutdown()
             server.server_close()
@@ -208,6 +213,7 @@ def probe_harness(repo):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--run', action='store_true', help='run the local CLI probes explicitly')
+    ap.add_argument('--codex', help='explicit Codex binary for argv probes')
     ap.add_argument('--mode', choices=('argv','harness','all'), default='all')
     ap.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[1])
     args = ap.parse_args()
@@ -220,7 +226,7 @@ def main():
             ap.error('missing source: '+str(repo/path))
     try:
         if args.mode in ('argv','all'):
-            probe_argv(repo)
+            probe_argv(repo,args.codex)
         if args.mode in ('harness','all'):
             probe_harness(repo)
     except (AssertionError, OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
