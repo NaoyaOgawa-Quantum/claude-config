@@ -1,7 +1,7 @@
 <!-- doc-meta
 when: Google Forms の自動化・prefill・回答提出を扱うとき
 category: web
-summary: Google Forms の `FB_PUBLIC_LOAD_DATA_` HTML scrape で entry id 抽出 (= Forms API は entry id を返さない)、 prefill URL は単 section form のみ動作 (多 section で section navigation 後に prefill 失効)、 完全自動化は Selenium/Playwright + cookie 経由、 + 回答者側の提出制約 (= file-upload form の domain 縛り account / 回答回数制限 = 再回答不可・訂正は別経路 / **提出前にリポへ snapshot 保存** / 「回答を編集」 link は設定依存、 #respondent-side-constraints)
+summary: Google Forms の `FB_PUBLIC_LOAD_DATA_` HTML scrape で entry id 抽出 (= Forms API は entry id を返さない)、 prefill URL は単 section form のみ動作 (多 section で section navigation 後に prefill 失効)、 完全自動化は Selenium/Playwright + cookie 経由、 + 回答者側の提出制約 (= file-upload form の domain 縛り account / 回答回数制限 = 再回答不可・訂正は別経路 / **提出前にリポへ snapshot 保存** / 「回答を編集」 link は設定依存、 #respondent-side-constraints)、 + 内蔵ブラウザで回答者として答えるときの 3 つの壊れ方 (選択肢は form_input が効かず座標 click はスクロール後に外れる = ref で click して画像で確かめる / 案内ページが新しいタブで開くフォームは止められる = callback の応答から URL / 別アカウントでログイン中は下書きがそのアカウントに残る、 #builtin-browser-respondent)
 -->
 # Google Forms の構造解析と prefill 自動化の限界
 
@@ -178,6 +178,17 @@ form を「作る・解析する」 側でなく「**提出する**」 側の制
 - [ ] 提出後、 受領 mail と「回答を編集」 link の有無を記録したか
 
 origin: institutional compliance form (= 誓約チェック + 計画書 xlsx 添付) で 4 点を 1 事例で全部観測 — domain 縛りで通常メール account と別 account 提出 / 回答回数制限により追加提出は「担当者宛メールで」 の指示 / 提出版 xlsx はリポ保存済で控え確保。
+
+## <a id="builtin-browser-respondent"></a>内蔵ブラウザで回答者として答えるとき (Claude desktop の Browser pane)
+
+本人の代わりにフォームを埋めるときの壊れ方 3 つ (実測)。 送信は本人か、 本人に回答の一覧を見せて OK を得てから。 送信時に画像認証 (reCAPTCHA) が出たら本人に渡す。
+
+1. **選択肢 (radio / checkbox) は `form_input` が効かない** (「fillable でない」 で落ちる)。 座標で click しても、 スクロールした後だと外れて選ばれないことがある (エラーは出ない)。
+   → `find` で選択肢の ref を取り、 `scroll_to` → ref で click。 ページを「次へ」 で進める前に、 そのページの全問を画面の切り抜き (zoom) で見て、 印が付いたかを確かめる。
+2. **案内ページからフォームが新しいタブで開く形は、 Browser pane が新しいタブを止める** (所属組織を選ぶ Apps Script の web app など。 ページ側からの新しいタブは本人の click でしか開かない)。
+   ボタンは sandbox の iframe の中で `find` に出ないことがある。 → 案内ページの callback の応答 (`read_network_requests` で requestId を指定) にフォームの URL が出るので、 それを `navigate` で開く。
+3. **Browser pane が別の Google アカウントでログインしていると**、 フォームはそのアカウント名を出し、 入力途中の下書きをそのアカウントに保存する。
+   メール欄が手入力 (回答者の入力) なら回答はアカウントに結ばれない見込みだが、 下書きは残る。 → 回答する本人に、 どのアカウントで開いているかを伝える。 気になるなら本人のアカウントで答えてもらう (Claude はサインアウトもアカウントの切り替えもしない)。
 
 ## 関連
 
