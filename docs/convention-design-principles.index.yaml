@@ -205,6 +205,10 @@ sections:
     legacy: "8.12f"
     level: 3
     title: "8.12f 正本を変えてから追従を別便で配ると、 届く前の複製は「する事が無い」 と区別がつかない"
+  - id: self-provisioning-prerequisites
+    legacy: "8.12g"
+    level: 3
+    title: "8.12g 前提は、 それを使う人の入口で機械が満たす — 自動配線の作り方"
   - id: conditional-firing-visibility
     legacy: "8.13"
     level: 3

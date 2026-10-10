@@ -793,7 +793,7 @@ origin: 長い変更 task で既存の commit/push 規則と dirty nudge が在�
 
 0. **今この turn で自分でやれるなら、 やる** (= 手順にしない。 [`concise-output.md#user-facing-steps`](../conventions/concise-output.md#user-facing-steps) の 4)
 1. **既配線の自動適用に載っていないか確かめる** — 例: git pull 後の session 開始で冪等に再走する installer。 載っていれば手順は書かず「次の session 開始で自動」 とだけ言う (= 確かめずに手順を書くと、 不要な作業と覚える負担だけを渡す)
-2. **載っていなければ自動適用に足す** (冪等・fail-open・完了で沈黙)
+2. **載っていなければ自動適用に足す** (冪等・fail-open・完了で沈黙)。 入口の選び方・判断の要らない作業は点検でなく実行・他人の機械では依存する側が配線を持ち込む、 の作り方 = [§8.12g](#self-provisioning-prerequisites)
 3. **人手が本当に要る** (認証・物理操作・人の判断・外部への送信) なら、 **条件付きで出続ける carrier** に載せる: 期限つき TODO、 または特定マシン・特定状態でだけ session 開始時に出る発火 ([`multi-machine-state.md#machine-gated-pending-action`](../conventions/multi-machine-state.md#machine-gated-pending-action))。 完了を機械的に判定して自然に止める
 4. chat に書く手順は carrier の**中身の写し**として添え、 その carrier を名指しする。 chat だけで渡さない
 
@@ -897,6 +897,20 @@ origin: macOS の外部 browser adapter が、既に live な singleton に対�
 見分け方: 手順に「その後、 各 machine で X を 1 回」 が出てきたら、 X が済む前の machine で普通の操作をすると何が起きるかを問う。 「まだ効かないだけ」 なら可用性の遅れ ([`#wired-is-not-yet-firing`](#wired-is-not-yet-firing))。 「正本が壊れる・消したものが戻る」 ならこの節。 人の記憶を自動の一度きりの段に替えただけでは ([`#human-memory-not-a-carrier`](#human-memory-not-a-carrier))、 段の配布が同じ遅れを持つ。
 
 先例: 走る時点で正本の台帳を fetch して読む排他の gate (`scripts/routine-host-gate.py`) は 1 と 2 の形。 実例と機構 = [`../conventions/multi-machine-state.md#rewrite-follow-without-notice`](../conventions/multi-machine-state.md#rewrite-follow-without-notice)。
+
+### <a id="self-provisioning-prerequisites"></a>8.12g 前提は、 それを使う人の入口で機械が満たす — 自動配線の作り方
+
+ある仕組みが「手元に X がある」 を前提にするとき (隣に clone した repo・入れた道具・置いた設定)、 その前提を README・招待の連絡・説明書きで人に頼むと、 [§8.12d](#human-memory-not-a-carrier) の (i) になる。 頼まれた人が読み落とすか後回しにした時点で、 最初の session がそこで止まり、 誰も気付かない。 前提を満たす配線は次の形で作る:
+
+1. **入口を選ぶ = 前提を使う人が必ず通る所** — 所有者の機械なら所有者の setup (自分の repo を全部 clone する段など)。 共同編集者の機械なら、 その人が開く repo 自身の session 開始の hook。 共同編集者は所有者の setup を持たないので、 **配線は依存する側 (repo) が持ち込む** (点検の script も repo に写しを置き、 repo 単体で動かす)
+2. **判断の要らない作業は、 点検せずに済ませる** — 公開の repo の clone、 fast-forward の更新のように、 資格情報も人の判断も要らない作業は ❌ で知らせて待たず、 その場でやって 1 回だけ知らせる。 「無い」 と出すだけの点検は、 読んだ人が手で打つまで止まる。 揃うまで毎回出し続ける側に回すのは、 資格情報・物理操作・人の判断が要るもの (個人の token など)
+3. **入口を壊さない性質** — 冪等 (2 回目は何もしない)・fail-open (失敗しても session を止めず、 直し方を出す)・揃えば沈黙・network の操作は間隔を置く (毎回 fetch しない)・**手元の変更に触れない** (作業中の変更や分岐があれば更新しない = fast-forward のみ)・人ごとに置き場所を変えられ、 要らない人は止められる (環境変数に path / `none`)・取得元は資格情報を使わない形 (https など)
+4. **依存を作る道具が、 配線の command を出す** — 前提を生む操作 (共同編集者と共有する仕組みを新しく作る等) の出力に、 その前提を満たす配線を入れる command を並べる。 配線を作り手の記憶に頼ると、 次の instance で抜ける
+5. **hook を持たない agent には 1 行** — 入口の hook を読まない agent (別 vendor の CLI など) のために、 repo の agent 向けの指示に「session 開始時に 1 回、 点検の script を実行」 を書く。 network の無い sandbox で動く agent では、 user の terminal で 1 回打つことになるので、 それを直し方に書く
+
+見分け方: 招待の連絡・README・説明書きに「隣に clone して」「先に◯◯を入れて」 と書きかけたら、 それが入口の配線に載っているかを問う。 載っていなければ、 その文は配線の代わりにならない (載っているなら「session 開始で自動」 とだけ書く)。
+
+[§8.12d](#human-memory-not-a-carrier) の 1〜2 (既配線の自動適用に載せる・足す) を、 他人の機械で成立させる形が本節。 正本が変わった後の追従を各複製に届ける側の話は [§8.12f](#hub-first-follow-by-courier)。 先例 = 共有リポが別の公開 repo の道具を隣に置く前提で使う場合 ([`conventions/shared-repo.md#sibling-repo-auto-clone`](../conventions/shared-repo.md#sibling-repo-auto-clone)、 実装 = collaborator-check の `repo` 行と、 共有の仕組みを作る道具が install の command を出す形)。
 
 ### <a id="conditional-firing-visibility"></a>8.13 条件付き発火の mechanism は「自分が非活性」 を可視信号にしないと、 沈黙が解釈不能になる
 
@@ -3706,6 +3720,7 @@ origin: 実測 (検出には掛かっていた依頼が、 開始時の一覧で
 
 | 日付 | 変更 | 動機 |
 |------|------|------|
+| 2026-10-10 | §8.12g 新設「前提は、 それを使う人の入口で機械が満たす — 自動配線の作り方」 (#self-provisioning-prerequisites)、 §8.12d の 2 から参照 | 共有リポが別の公開 repo の道具を「隣に clone してある」 前提で使い、 その clone を説明書きで共同編集者に頼む形だった (点検の script も「無い」 と出すだけ)。 判断の要らない取得は入口でその場で済ませ、 配線は依存する側が持ち込み、 依存を作る道具が配線の command を出す形に一般化 |
 | 2026-10-09 | §8.82 新設「形で見分ける guard は、 見分けの元 (定義) の変化も止める — でないと 2 段の編集で抜かれる」 (#recognizer-inputs-are-protected) | 利用者定義の macro で包んだ式を guard が見ていなかった穴を塞ぐ実装で、 別 context の検品が 2 段の編集・範囲の汚染・解決漏れを順に見つけた (実測) |
 | 2026-10-03 | §8.79 新設「受付に担当がいない待ち行列 — 表示をどれだけ磨いても、 読む主体と刻限が無ければ『読まないと急ぎと分からない依頼』 は残る」 (#unstaffed-intake-queue / #unclassified-defaults-to-loud) | 検出には掛かっていた依頼が、 開始時の一覧では件数に畳まれたまま読まれなかった (実測)。 過去の対策は検出と表示の追加で、 処理する主体を決めたものが無かった |
 | 2026-09-29 | §8.78 新設「照合の不具合を直したら、 溜まった誤った状態は一次の証拠から照合し直す — state を手で書き換えない」 | 照合を直した後も、 直す前の誤った状態が残った (実測) |
