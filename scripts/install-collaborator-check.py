@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""install-collaborator-check.py — 共有リポに「各 clone の session 開始時に、 その人の手元に要る設定 (個人の token・道具) と初回に読む節を確かめて出す」 仕組みを配る。
+"""install-collaborator-check.py — 共有リポに「各 clone の session 開始時に、 その人の手元に要る設定 (個人の token・道具) と初回に読む節を確かめて出し、 隣に要る repo は自動で clone・更新する」 仕組みを配る。
 
 ## なぜ
 
 共有リポに人を招待すると、 相手の手元でしか済ませられない手順が残る (自分の token を発行して置く・道具を入れる・
-最初に読む節)。 招待の連絡に書いて伝えると、 相手が読み落とすか忘れた時点で止まり、 しかも誰も気付かない
+隣に要る repo を clone する・最初に読む節)。 招待の連絡に書いて伝えると、 相手が読み落とすか忘れた時点で止まり、 しかも誰も気付かない
 (人の記憶は carrier でない = docs/convention-design-principles.md#human-memory-not-a-carrier)。 そこで
 repo 自身に project の SessionStart hook を持たせ、 **相手が repo で session を開いた瞬間に、 欠けている物だけ**を
 直し方つきで agent に渡す。 揃えば黙る。 規約 = conventions/shared-repo.md#collaborator-check
@@ -24,6 +24,8 @@ repo 自身に project の SessionStart hook を持たせ、 **相手が repo �
 
 `--item` の例: `--item 'file ~/.secrets/svc-token SVC_TOKEN_FILE -- 自分の token を発行して置く'`
 (その service を使わない人は SVC_TOKEN_FILE=none で黙らせられる = 満たせない ❌ を毎回出し続けない)
+`--item 'repo tool-repo https://github.com/<owner>/tool-repo TOOL_REPO_DIR -- 道具'` = この repo の隣に無ければ
+session 開始時に clone し、 あれば 20 時間に 1 回 fast-forward で最新にする (人に clone を頼まない。 URL は https:// か file://)
 (既に同じ行が conf にあれば足さない)。 commit と push はしない。 CLAUDE.md に足す文面は最後に出す (保護 file なので書かない)。
 
 ## 限界
@@ -32,6 +34,8 @@ repo 自身に project の SessionStart hook を持たせ、 **相手が repo �
   repo の CLAUDE.md に「session 開始時に 1 回 `bash tools/collaborator-check/collaborator-check.sh`」 を書く (出す文面に含めてある)
 - Claude Code は repo の project 設定の hook を、 その repo を信頼した後に走らせる (初回の確認は相手の画面に出る)
 - 確かめるのは「file がある (空でない)」 「command がある」 まで。 token が有効かは見ない (各 service の検査に任せる)
+- repo の clone と更新は network が無いと失敗する (❌ / ⚠️ で直し方を出す)。 Codex の sandbox のように network の無い
+  agent では、 user の terminal で 1 回 `bash tools/collaborator-check/collaborator-check.sh` を打つ
 """
 from __future__ import annotations
 
@@ -51,7 +55,7 @@ TOOLS = Path("tools") / "collaborator-check"
 CONF = ".collaborator-check.conf"
 HOOK_CMD = 'bash "$CLAUDE_PROJECT_DIR/tools/collaborator-check/collaborator-check.sh"'
 GITIGNORE_LINE = "!.claude/settings.json"
-KINDS = ("file", "command", "read")
+KINDS = ("file", "command", "read", "repo")
 
 CONF_HEADER = """# .collaborator-check.conf — この共有リポを各自の手元で使うのに要るもの
 # 書式と挙動の正本 = tools/collaborator-check/collaborator-check.sh の冒頭
@@ -60,7 +64,8 @@ CONF_HEADER = """# .collaborator-check.conf — この共有リポを各自の�
 
 CLAUDE_MD_TEXT = """- **手元の準備は session 開始時に自動で点検される** = `tools/collaborator-check/collaborator-check.sh`
   (Claude Code の project hook = `.claude/settings.json`。 要る物の一覧 = `.collaborator-check.conf`)。
-  欠けた物があれば直し方つきで出るので、 agent はそれを user に伝える。 hook を持たない agent (Codex ほか) は
+  欠けた物があれば直し方つきで出るので、 agent はそれを user に伝える。 隣に要る repo (conf の `repo` 行) は
+  無ければその場で clone され、 あれば最新に保たれる。 hook を持たない agent (Codex ほか) は
   session 開始時に 1 回 `bash tools/collaborator-check/collaborator-check.sh` を実行する。
   仕組みの正本 = [claude-config/conventions/shared-repo.md#collaborator-check](https://github.com/<owner>/claude-config/blob/main/conventions/shared-repo.md#collaborator-check)"""
 
@@ -72,6 +77,12 @@ def _validate_item(item: str) -> str:
         sys.exit(f"--item の種類が不明: {item!r} (使えるのは {', '.join(KINDS)})")
     if kind in ("file", "command") and " -- " not in item:
         sys.exit(f"--item に直し方 ( -- の後) が無い: {item!r}")
+    if kind == "repo":
+        parts = item.split(" -- ", 1)[0].split()
+        if len(parts) < 3 or "/" in parts[1] or parts[1] in (".", "..") or parts[1].startswith("-"):
+            sys.exit(f"--item repo は 'repo <dir 名> <clone URL> [<環境変数>] -- <何に使うか>': {item!r}")
+        if not parts[2].startswith(("https://", "file://")):
+            sys.exit(f"--item repo の URL は https:// か file:// だけ: {item!r}")
     return item
 
 
@@ -244,6 +255,54 @@ def selftest() -> int:
             fails.append(f"--all は ✅ と読む節を出すはず:\n{out6}")
         if "❌ ~/.secrets/selftest-token" in out4:
             fails.append(f"~ の展開が効いていない:\n{out4}")
+        # repo: 隣に無ければ clone、 あれば 20 時間に 1 回 fast-forward、 作業中の変更があれば触らない
+        pathenv = {"PATH": f"{td}:{env['PATH']}"}
+        remote, seed = td / "remote.git", td / "seed"
+        genv = dict(env, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                    GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid",
+                    GIT_AUTHOR_DATE="2026-01-01T00:00:00", GIT_COMMITTER_DATE="2026-01-01T00:00:00")
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, env=env)
+        subprocess.run(["git", "--git-dir", str(remote), "symbolic-ref", "HEAD", "refs/heads/main"], check=True, env=env)
+        subprocess.run(["git", "init", "-q", str(seed)], check=True, env=env)
+
+        def publish(text: str) -> None:
+            (seed / "f.txt").write_text(text)
+            subprocess.run(["git", "-C", str(seed), "add", "f.txt"], check=True, env=genv)
+            subprocess.run(["git", "-C", str(seed), "commit", "-q", "-m", text], check=True, env=genv)
+            subprocess.run(["git", "-C", str(seed), "push", "-q", str(remote), "HEAD:refs/heads/main"],
+                           check=True, env=genv, capture_output=True)
+
+        publish("v1")
+        subprocess.run([sys.executable, __file__, "install", str(repo), "--item",
+                        f"repo toolrepo file://{remote} TOOLREPO_DIR -- 道具"], check=True, env=env, capture_output=True)
+        sib = td / "toolrepo"
+        out7 = run(extra=pathenv)
+        if "📥 toolrepo" not in out7 or not (sib / "f.txt").exists():
+            fails.append(f"隣に無い repo を clone して 📥 を出すはず:\n{out7}")
+        if run(extra=pathenv).strip():
+            fails.append("clone の直後の session は黙るはず")
+        publish("v2")
+        run(extra=pathenv)
+        if (sib / "f.txt").read_text() != "v1":
+            fails.append("20 時間以内なのに pull した")
+        stamp = sib / ".git" / "collaborator-check.pulled"
+        os.utime(stamp, (0, 0))
+        out8 = run(extra=pathenv)
+        if (sib / "f.txt").read_text() != "v2" or out8.strip():
+            fails.append(f"20 時間を過ぎたら黙って fast-forward するはず:\n{out8}")
+        publish("v3")
+        os.utime(stamp, (0, 0))
+        (sib / "wip.txt").write_text("作業中")
+        run(extra=pathenv)
+        if (sib / "f.txt").read_text() != "v2":
+            fails.append("作業中の変更があるのに pull した")
+        (sib / "wip.txt").unlink()
+        if run(extra=dict(pathenv, TOOLREPO_DIR="none")).strip():
+            fails.append("環境変数 = none なのに repo の行を出した")
+        bad = subprocess.run([sys.executable, __file__, "install", str(repo), "--item",
+                              "repo x http://example.invalid/x -- y"], env=env, capture_output=True)
+        if bad.returncode == 0:
+            fails.append("http:// の repo を受け付けた")
         r = subprocess.run([sys.executable, __file__, "check", str(repo)], capture_output=True, text=True, env=env)
         if r.returncode != 0:
             fails.append(f"check が通らない:\n{r.stdout}")
