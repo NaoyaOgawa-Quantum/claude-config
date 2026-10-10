@@ -31,6 +31,9 @@ usage:
 各実行で検索対象 config の古い孤立した注入記録を整理する (保持条件は注入器の docstring)。
 --prune-receipts は整理だけを行う。未使用期間中の定期実行は設けない。
 0 件のときは、 見た記録 file を出して終わる (= 使っていない、 と区別できる)。 標準 library だけ。
+既知の限界 (実測): 起動を wrapper で包んだ形 (`caffeinate -i <path>/codex exec …`) や、 作業 dir を変数で与えた形
+(`cd "$SB" && …`) は lexer が実行位置を読めず「文字列候補」 に落ちる = 起動として数えない。 その回は候補の
+元 command を目で確かめる (sandbox の受領は結果 file の有無で判定する)。 lexer の拡張は未着手。
 """
 from __future__ import annotations
 
@@ -51,7 +54,10 @@ try:
 except Exception:  # pragma: no cover - 古い配置
     _ccd = None
 
-LAUNCH_RE = re.compile(r"(?:^|[\s;&|(])(claude\b[^\n;&|]*?\s(?:-p|--print)\b|codex\s+exec\b)")
+# the binary may be given by path (an app-bundled CLI, a pinned version) and wrapped (caffeinate, env): the path
+# prefix is consumed before the name so that `/Applications/.../codex exec` and `caffeinate -i /opt/x/codex exec`
+# count as launches (measured: three sealed-sandbox reviewer runs fell to "string candidates" without this)
+LAUNCH_RE = re.compile(r"(?:^|[\s;&|(])(?:[^\s;&|()'\"]*/)?(claude\b[^\n;&|]*?\s(?:-p|--print)\b|codex\s+exec\b)")
 MARKER = "記録の約束"
 TOP = ("HANDOFF.md", "REVIEW-RESULTS.md", "ledger.yaml", "DONE")
 TEXTS = ("HANDOFF.md", "scratch/hoist-candidates.md")
@@ -536,6 +542,8 @@ def followup_regression(repo, case=None):
                 'printf task | codex exec -', '(claude -p task)',
                 'env NOTE=sample command claude -p task', '/opt/sample/claude -p task',
                 'codex -m sample exec task', 'codex e task',
+                '/opt/sample/App.app/Contents/MacOS/codex exec task',
+                'cd "$SB" && caffeinate -i /opt/sample/codex exec --json -o out.md resume 0123abcd "task" < /dev/null',
                 'claude -p "$(cat prompt.txt)" < /dev/null',
                 "python3 /opt/sample/headless-record-clause-nudge.py --run claude -p task",
             ]
